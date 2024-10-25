@@ -8,6 +8,7 @@ RUN apk update && apk add --no-cache \
     python3-dev \
     libffi-dev \
     openssl-dev \
+    tor \
     && pip install --upgrade pip
 
 COPY ./requirements.txt .
