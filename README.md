@@ -1,12 +1,25 @@
-currently in development
+## currently in development
 
-to start the API, run ``docker compose up`` in the main directory, then run
+to start the API, create .env file with those variables:
+- POSTGRES_USER=*string*
+- POSTGRES_PASSWORD=*I recommend at least 32 long string* 
+- POSTGRES_DB=*string*
+- POSTGRES_HOST=*name of the db container, default lithium-db*
+- POSTGRES_PORT=*int, default 5432*
+- SECRET_KEY=*at least 32 long random string*
+- RESET_PASSWORD_SECRET=*at least 32 long random string*
+- VERIFICATION_SECRET=*at least 32 long random string*
+- PREFIX=*your desired prefix, for example /lithium, may be empty if not needeed*
+- TOKEN_TIMEOUT=*token timeout in seconds*
+
+then run ``docker compose up`` in the main directory, then run
 ```
 docker exec -it <container-name> /bin/sh
 cd app && python3 -m database.rebuild
 ````
 
 # API Endpoint Documentation
+Change url.xyz for your domain, and change lithium for the prefix you have defined in your .env file.
 
 ## User Endpoints (`url.xyz/lithium/auth/`)
 
