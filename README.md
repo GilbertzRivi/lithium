@@ -1,4 +1,4 @@
-## currently in development
+# currently in development
 
 to start the API, create .env file with those variables:
 - POSTGRES_USER=*string*
