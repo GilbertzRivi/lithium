@@ -19,12 +19,11 @@ cd app && python3 -m database.rebuild
 ````
 
 # API Endpoint Documentation
-Change url.xyz for your domain, and change lithium for the prefix you have defined in your .env file.
 
-## User Endpoints (`url.xyz/lithium/auth/`)
+## User Endpoints (`url.xyz/<prefix>/auth/`)
 
 1. **Register User**
-   - **Endpoint**: `POST url.xyz/lithium/auth/register`
+   - **Endpoint**: `POST url.xyz/<prefix>/auth/register`
    - **Description**: Registers a new user with a unique handler.
    - **Request Body**:
      - `handler` (str): User's unique identifier.
@@ -34,7 +33,7 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
      - `msg` (str): Confirmation message.
 
 2. **Login User**
-   - **Endpoint**: `POST url.xyz/lithium/auth/login`
+   - **Endpoint**: `POST url.xyz/<prefix>/auth/login`
    - **Description**: Authenticates a user and generates a token.
    - **Request Body**:
      - `handler` (str): User’s handler.
@@ -43,7 +42,7 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
      - `token` (str): Generated single-use token.
 
 3. **Change Password**
-   - **Endpoint**: `POST url.xyz/lithium/auth/change-password`
+   - **Endpoint**: `POST url.xyz/<prefix>/auth/change-password`
    - **Description**: Changes the user’s password.
    - **Request Body**:
      - `handler` (str): User’s handler.
@@ -53,7 +52,7 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
      - `msg` (str): Confirmation message.
 
 4. **Get Private Key**
-   - **Endpoint**: `POST url.xyz/lithium/auth/get-private-key`
+   - **Endpoint**: `POST url.xyz/<prefix>/auth/get-private-key`
    - **Description**: Retrieves the user’s private key.
    - **Request Body**:
      - `token` (str): Single-use token for authentication.
@@ -64,7 +63,7 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
      - `token` (str): New token for further requests.
 
 5. **Get Public Key**
-   - **Endpoint**: `POST url.xyz/lithium/auth/get-public-key`
+   - **Endpoint**: `POST url.xyz/<prefix>/auth/get-public-key`
    - **Description**: Retrieves the user’s public key.
    - **Request Body**:
      - `handler` (str): User’s handler.
@@ -73,10 +72,10 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
 
 ---
 
-## Messages Endpoints (`url.xyz/lithium/msg/`)
+## Messages Endpoints (`url.xyz/<prefix>/msg/`)
 
 1. **Send Message**
-   - **Endpoint**: `POST url.xyz/lithium/msg/send-message/`
+   - **Endpoint**: `POST url.xyz/<prefix>/msg/send-message/`
    - **Description**: Sends a message from a sender to a specified recipient.
    - **Request Body**:
      - `content` (str): Message content.
@@ -88,7 +87,7 @@ Change url.xyz for your domain, and change lithium for the prefix you have defin
      - `token` (str): New token for further requests.
 
 2. **Get Messages**
-   - **Endpoint**: `POST url.xyz/lithium/msg/get-messages/`
+   - **Endpoint**: `POST url.xyz/<prefix>/msg/get-messages/`
    - **Description**: Retrieves all messages received by a specified user.
    - **Request Body**:
      - `token` (str): Single-use token for authentication.
