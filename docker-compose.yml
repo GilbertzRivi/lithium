@@ -1,0 +1,34 @@
+services:
+  lithium-api:
+    build:
+      context: .
+      dockerfile: ./lithium.dockerfile
+    env_file:
+      - path: ./.env
+    volumes:
+      - ./app:/app
+    ports:
+      - 1337:8000
+    container_name: lithium-api
+    # command: uvicorn app.main:lithium --workers 4 --host 0.0.0.0 --port 8000
+    command: uvicorn app.main:lithium --reload --workers 4 --host 0.0.0.0 --port 8000
+    depends_on:
+      - lithium-db
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  lithium-db:
+    image: postgres:13.0-alpine
+    volumes:
+      - ./postgres:/var/lib/postgresql/data/
+    env_file:
+      - path: ./.env
+    restart: always
+    container_name: lithium-db
+    deploy:
+      resources:
+        limits:
+          memory: 128M
