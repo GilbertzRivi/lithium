@@ -4,3 +4,4 @@ venv
 .env
 *.sql
 dumps
+*.pem
