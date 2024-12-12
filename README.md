@@ -1,6 +1,18 @@
 # currently in development
 
-to start the API, create .env file with those variables:
+Lithium is a secure and private messaging application designed to prioritize user privacy and security. This project is built using FastAPI and SQLAlchemy, and it includes functionalities for user management and message exchange with token-based authentication.
+
+## Features
+
+- **User Registration and Authentication**: Secure user registration and login with password hashing and salts.
+- **End-to-End Encryption**: Public key support for secure communication.
+- **Message Exchange**: Send and retrieve messages privately.
+- **Profile Management**: Upload and retrieve profile pictures.
+- **Token-Based Authentication**: One-time tokens ensure secure API calls.
+
+## how to start a server
+
+to start the server, create .env file with those variables:
 - POSTGRES_USER=*string*
 - POSTGRES_PASSWORD=*I recommend at least 32 long string* 
 - POSTGRES_DB=*string*
@@ -12,86 +24,161 @@ to start the API, create .env file with those variables:
 - PREFIX=*your desired prefix, for example /lithium, may be empty if not needeed*
 - TOKEN_TIMEOUT=*token timeout in seconds*
 
-then run ``docker compose up`` in the main directory, then run
-```
+then run
+```shell
+docker compose up
 docker exec -it <container-name> /bin/sh
 cd app && python3 -m database.rebuild
-````
+```
 
-# API Endpoint Documentation
+## Endpoints Documentation
 
-## User Endpoints (`url.xyz/<prefix>/auth/`)
+### User Endpoints
 
-1. **Register User**
-   - **Endpoint**: `POST url.xyz/<prefix>/auth/register`
-   - **Description**: Registers a new user with a unique handler.
-   - **Request Body**:
-     - `handler` (str): User's unique identifier.
-     - `password` (str): Password for the account.
-     - `display_name` (str): Display name of the user.
-   - **Response**:
-     - `msg` (str): Confirmation message.
+#### Register a New User
+- **Endpoint**: `POST /register`
+- **Description**: Creates a new user with a unique handler, password, and public key.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string",
+      "password": "string",
+      "display_name": "string",
+      "public_key": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "msg": "Registration successful"
+  }
+  ```
 
-2. **Login User**
-   - **Endpoint**: `POST url.xyz/<prefix>/auth/login`
-   - **Description**: Authenticates a user and generates a token.
-   - **Request Body**:
-     - `handler` (str): User’s handler.
-     - `password` (str): User’s password.
-   - **Response**:
-     - `token` (str): Generated single-use token.
+#### Login
+- **Endpoint**: `POST /login`
+- **Description**: Logs in a user and generates a one-time token.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string",
+      "password": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "token": "string"
+  }
+  ```
 
-3. **Change Password**
-   - **Endpoint**: `POST url.xyz/<prefix>/auth/change-password`
-   - **Description**: Changes the user’s password.
-   - **Request Body**:
-     - `handler` (str): User’s handler.
-     - `new_password` (str): New password.
-     - `token` (str): Single-use token for authentication.
-   - **Response**:
-     - `msg` (str): Confirmation message.
+#### Change Password
+- **Endpoint**: `POST /change-password`
+- **Description**: Updates the user’s password after verifying their token.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string",
+      "new_password": "string",
+      "token": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "msg": "Password changed successfully"
+  }
+  ```
 
-4. **Get Private Key**
-   - **Endpoint**: `POST url.xyz/<prefix>/auth/get-private-key`
-   - **Description**: Retrieves the user’s private key.
-   - **Request Body**:
-     - `token` (str): Single-use token for authentication.
-     - `handler` (str): User’s handler.
-     - `password` (str): User’s password for validation.
-   - **Response**:
-     - `private_key` (str): User’s private key.
-     - `token` (str): New token for further requests.
+#### Get Public Key
+- **Endpoint**: `POST /get-public-key`
+- **Description**: Retrieves a user’s public key.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "public_key": "string"
+  }
+  ```
 
-5. **Get Public Key**
-   - **Endpoint**: `POST url.xyz/<prefix>/auth/get-public-key`
-   - **Description**: Retrieves the user’s public key.
-   - **Request Body**:
-     - `handler` (str): User’s handler.
-   - **Response**:
-     - `public_key` (str): User’s public key.
+#### Upload Profile Picture
+- **Endpoint**: `POST /pfp`
+- **Description**: Uploads or updates a user’s profile picture.
+- **Request Parameters**:
+  - `token`: String (Form)
+  - `handler`: String (Form)
+  - `file`: File (JPEG/PNG)
+- **Response**:
+  ```json
+  {
+      "msg": "Picture updated",
+      "token": "string"
+  }
+  ```
 
----
+#### Get Profile Picture
+- **Endpoint**: `POST /get-pfp`
+- **Description**: Retrieves a user’s profile picture.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "msg": "Success",
+      "data": "base64-encoded-image"
+  }
+  ```
 
-## Messages Endpoints (`url.xyz/<prefix>/msg/`)
+### Message Endpoints
 
-1. **Send Message**
-   - **Endpoint**: `POST url.xyz/<prefix>/msg/send-message/`
-   - **Description**: Sends a message from a sender to a specified recipient.
-   - **Request Body**:
-     - `content` (str): Message content.
-     - `recepient_handler` (str): Recipient’s handler.
-     - `sender_handler` (str): Sender’s handler.
-     - `token` (str): Single-use token for authentication.
-   - **Response**:
-     - `msg` (str): Confirmation message.
-     - `token` (str): New token for further requests.
+#### Send Message
+- **Endpoint**: `POST /send-message`
+- **Description**: Sends a message to a specific user.
+- **Request Body**:
+  ```json
+  {
+      "content": "string",
+      "recepient_handler": "string",
+      "sender_handler": "string",
+      "token": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "msg": "Message sent",
+      "token": "string"
+  }
+  ```
 
-2. **Get Messages**
-   - **Endpoint**: `POST url.xyz/<prefix>/msg/get-messages/`
-   - **Description**: Retrieves all messages received by a specified user.
-   - **Request Body**:
-     - `token` (str): Single-use token for authentication.
-     - `handler` (str): User handler for whom to fetch messages.
-   - **Response**:
-     - `messages` (list of objects): Contains messages with `content`, `sender_handler`, and `recepient_handler`.
-     - `token` (str): New token for further requests.
+#### Get Messages
+- **Endpoint**: `POST /get-messages`
+- **Description**: Retrieves all messages received by a specific user.
+- **Request Body**:
+  ```json
+  {
+      "handler": "string",
+      "token": "string"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+      "messages": [
+          {
+              "content": "string",
+              "sender_handler": "string",
+              "recepient_handler": "string"
+          }
+      ],
+      "token": "string"
+  }
+  ```
