@@ -37,7 +37,7 @@ class GetMessages(BaseModel):
 
 
 # Endpoint to send a message to a specific user
-@router.post("/send-message/", status_code=status.HTTP_201_CREATED)
+@router.post("/send-message", status_code=status.HTTP_201_CREATED)
 async def send_message(
     data: SendMessage, session: AsyncSession = Depends(get_async_session)
 ):
@@ -76,7 +76,7 @@ async def send_message(
 
 
 # Endpoint to fetch all messages received by a specific user
-@router.post("/get-messages/", status_code=status.HTTP_200_OK)
+@router.post("/get-messages", status_code=status.HTTP_200_OK)
 async def get_received_messages(
     data: GetMessages, session: AsyncSession = Depends(get_async_session)
 ):

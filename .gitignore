@@ -5,3 +5,4 @@ venv
 *.sql
 dumps
 *.pem
+tor

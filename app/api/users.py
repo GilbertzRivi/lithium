@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    BackgroundTasks,
+    UploadFile,
+    Depends,
+    File,
+    Form,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.database.session import get_async_session
@@ -6,6 +15,7 @@ from app.database.models import User
 from passlib.context import CryptContext
 from pydantic import BaseModel
 import os
+import base64
 
 from app.api.utils import autodelete_token, verify_token, create_token
 
@@ -19,11 +29,11 @@ router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-# Pydantic models
 class UserRegister(BaseModel):
     handler: str
     password: str
     display_name: str
+    public_key: str
 
 
 class UserLogin(BaseModel):
@@ -37,22 +47,18 @@ class ChangePassword(BaseModel):
     token: str
 
 
-class GetPrivate(BaseModel):
-    token: str
-    handler: str
-    password: str
-
-
 class GetPublic(BaseModel):
     handler: str
 
 
-# Register a new user
+class GetImage(BaseModel):
+    handler: str
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserRegister, session: AsyncSession = Depends(get_async_session)
 ):
-    # Check if user with the same handler exists
     query = select(User).where(User.handler == user_data.handler)
     result = await session.execute(query)
     existing_user = result.scalars().first()
@@ -62,17 +68,15 @@ async def register_user(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Handler already taken"
         )
 
-    # Create a new user
     new_user = User(handler=user_data.handler, display_name=user_data.display_name)
     new_user.set_password(user_data.password)
-    new_user.generate_keys(user_data.password)
+    new_user.public_key = user_data.public_key.encode()
 
     session.add(new_user)
     await session.commit()
-    return {"msg": "User created successfully"}
+    return {"msg": "Registration sucessfull"}
 
 
-# Login user and generate a token
 @router.post("/login", status_code=status.HTTP_200_OK)
 async def login_user(
     user_data: UserLogin,
@@ -89,7 +93,6 @@ async def login_user(
             detail="Invalid handler or password",
         )
 
-    # Generate a single-use token
     token = await create_token(user.handler, session)
     bg_task.add_task(autodelete_token, token, TOKEN_TIMEOUT, session)
     user.single_use_token = token
@@ -98,20 +101,18 @@ async def login_user(
     return {"token": token}
 
 
-# Change password
 @router.post("/change-password", status_code=status.HTTP_200_OK)
 async def change_password(
     password_data: ChangePassword, session: AsyncSession = Depends(get_async_session)
 ):
-    # Verify token and get the user
     handler = await verify_token(password_data.token, session)
 
     if handler != password_data.handler:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token or handler"
         )
+    await autodelete_token(password_data.token, 0, session)
 
-    # Fetch user
     query = select(User).where(User.handler == password_data.handler)
     result = await session.execute(query)
     user = result.scalars().first()
@@ -121,7 +122,6 @@ async def change_password(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    # Change password and invalidate token
     user.set_password(password_data.new_password)
     user.single_use_token = None
     await session.commit()
@@ -129,43 +129,9 @@ async def change_password(
     return {"msg": "Password changed successfully"}
 
 
-# Change password
-@router.post("/get-private-key", status_code=status.HTTP_200_OK)
-async def get_keys(
-    data: GetPrivate, session: AsyncSession = Depends(get_async_session)
-):
-    # Verify token and get the user
-    handler = await verify_token(data.token, session)
-
-    if handler != data.handler:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token or handler"
-        )
-    await autodelete_token(data.token, 0, session)
-
-    # Fetch user
-    query = select(User).where(User.handler == data.handler)
-    result = await session.execute(query)
-    user = result.scalars().first()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-
-    # Change password and invalidate token
-    private_key = user.get_private_key(data.password)
-
-    new_token = await create_token(user.handler, session)
-
-    return {"private_key": private_key, "token": new_token}
-
-
-# Change password
 @router.post("/get-public-key", status_code=status.HTTP_200_OK)
 async def get_keys(data: GetPublic, session: AsyncSession = Depends(get_async_session)):
 
-    # Fetch user
     query = select(User).where(User.handler == data.handler)
     result = await session.execute(query)
     user = result.scalars().first()
@@ -178,3 +144,64 @@ async def get_keys(data: GetPublic, session: AsyncSession = Depends(get_async_se
     public_key = user.public_key
 
     return {"public_key": public_key}
+
+
+@router.post("/pfp", status_code=status.HTTP_200_OK)
+async def upload_image(
+    token: str = Form(),
+    handler: str = Form(),
+    file: UploadFile = File(),
+    session: AsyncSession = Depends(get_async_session),
+):
+    verified_handler = await verify_token(token, session)
+
+    if verified_handler != handler:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token or handler"
+        )
+    await autodelete_token(token, 0, session)
+
+    query = select(User).where(User.handler == verified_handler)
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if file.content_type not in ["image/jpeg", "image/png"]:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    image_data = await file.read()
+    user.pfp = image_data
+    await session.commit()
+
+    new_token = await create_token(verified_handler, session)
+
+    return {"msg": "Picture updated", "token": new_token}
+
+
+@router.post("/get-pfp", status_code=status.HTTP_200_OK)
+async def get_image(
+    data: GetImage,
+    session: AsyncSession = Depends(get_async_session),
+):
+
+    query = select(User).where(User.handler == data.handler)
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if not user.pfp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Image not found"
+        )
+
+    encoded_image = base64.b64encode(user.pfp).decode("utf-8")
+
+    return {"msg": "Success", "data": encoded_image}

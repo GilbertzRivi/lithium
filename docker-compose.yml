@@ -8,13 +8,16 @@ services:
     volumes:
       - ./app:/app
       - ./torrc:/etc/tor/torrc
+      - ./tor:/var/lib/tor
     ports:
       - 4108:4108
     container_name: lithium-api
-    command: /bin/sh -c "tor -f /etc/tor/torrc & uvicorn app.main:lithium --ssl-keyfile /app/key.pem --ssl-certfile /app/cert.pem --workers 4 --host 0.0.0.0 --port 8000"
+    command: /bin/sh -c "tor -f /etc/tor/torrc & uvicorn app.main:lithium --workers 4 --host 0.0.0.0 --port 8000"
     depends_on:
       - lithium-db
     restart: always
+    networks:
+      - lithium
     deploy:
       resources:
         limits:
@@ -28,7 +31,14 @@ services:
       - path: ./.env
     restart: always
     container_name: lithium-db
+    networks:
+      - lithium
     deploy:
       resources:
         limits:
           memory: 128M
+
+networks:
+  lithium:
+    driver: bridge
+    name: lithium
