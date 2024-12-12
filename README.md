@@ -161,7 +161,7 @@ cd app && python3 -m database.rebuild
 
 #### Get Messages
 - **Endpoint**: `POST /get-messages`
-- **Description**: Retrieves all messages received by a specific user.
+- **Description**: Retrieves all new messages received by a specific user. After the server sends the request, the messages are permamently delet from the server, so you can collect them only once, for security.
 - **Request Body**:
   ```json
   {
