@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = [
+    "lithium_core",
+    "lithiumd",
+    "lithiumg",
+    "lithiums",
+]

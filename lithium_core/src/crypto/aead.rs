@@ -1,0 +1,78 @@
+use aes_gcm_siv::{aead::{Aead, KeyInit, Payload}, Aes256GcmSiv, Key, Nonce};
+
+use crate::{error::{LithiumError, Result}, secrets::{Byte12, Byte32}, secrets::bytes::SecretBytes};
+
+const AEAD_BLOB_VERSION: u8 = 1;
+
+pub fn encrypt_raw(
+    plaintext: &SecretBytes,
+    key: &Byte32,
+    nonce: &Byte12,
+    aad: &SecretBytes,
+) -> Result<SecretBytes> {
+    let key: &Key<Aes256GcmSiv> = key
+        .as_slice()
+        .try_into()
+        .map_err(|_| LithiumError::aead_failed())?;
+
+    let nonce: &Nonce = nonce
+        .as_slice()
+        .try_into()
+        .map_err(|_| LithiumError::aead_failed())?;
+
+    let cipher = Aes256GcmSiv::new(key);
+    let ct = cipher.encrypt(
+        nonce,
+        Payload {
+            msg: plaintext.as_slice(),
+            aad: aad.as_slice(),
+        },
+    )?;
+
+    Ok(SecretBytes::from_vec(ct))
+}
+
+pub fn decrypt_raw(
+    ciphertext: &SecretBytes,
+    key: &Byte32,
+    nonce: &Byte12,
+    aad: &SecretBytes,
+) -> Result<SecretBytes> {
+    let key: &Key<Aes256GcmSiv> = key
+        .as_slice()
+        .try_into()
+        .map_err(|_| LithiumError::aead_failed())?;
+
+    let nonce: &Nonce = nonce
+        .as_slice()
+        .try_into()
+        .map_err(|_| LithiumError::aead_failed())?;
+
+    let cipher = Aes256GcmSiv::new(key);
+    let pt = cipher.decrypt(
+        nonce,
+        Payload {
+            msg: ciphertext.as_slice(),
+            aad: aad.as_slice(),
+        },
+    )?;
+
+    Ok(SecretBytes::from_vec(pt))
+}
+
+pub fn encrypt(plaintext: &SecretBytes, key: &Byte32, nonce: &Byte12, aad: &SecretBytes) -> Result<SecretBytes> {
+    let ct = encrypt_raw(plaintext, key, nonce, aad)?;
+    let mut out = Vec::with_capacity(1 + 12 + ct.len());
+    out.push(AEAD_BLOB_VERSION);
+    out.extend_from_slice(nonce.as_slice());
+    out.extend_from_slice(ct.as_slice());
+    Ok(SecretBytes::from_vec(out))
+}
+
+pub fn decrypt(blob: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<SecretBytes> {
+    if blob.len() < 1 + 12 + 16 { return Err(LithiumError::aead_failed()); }
+    if blob.as_slice()[0] != AEAD_BLOB_VERSION { return Err(LithiumError::aead_failed()); }
+    let nonce = Byte12::from_slice(&blob.as_slice()[1..13])?;
+    let ct = SecretBytes::from_slice(&blob.as_slice()[13..]);
+    decrypt_raw(&ct, key, &nonce, aad)
+}

@@ -1,0 +1,25 @@
+[package]
+name = "lithiums"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lithium_core = { path = "../lithium_core" }
+poem = { version = "3.1.12", features = ["anyhow", "compression", "multipart"] }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+hex = "0.4.3"
+dotenvy = "0.15.7"
+tracing-subscriber = { version = "0.3.1", features = ["env-filter"] }
+uuid = { version = "1.22.0", features = ["v4", "v5", "serde"] }
+zeroize = "1.8.2"
+sea-orm = { version = "2.0.0-rc.36", features = ["macros", "runtime-tokio-native-tls", "sqlx-postgres"] }
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+hmac = "0.12.1"
+sha2 = "0.10.9"
+rand = "0.10.0"
+chrono = "0.4.44"
+anyhow = "1.0.102"
+log = "0.4.29"
+tracing = "0.1.44"
