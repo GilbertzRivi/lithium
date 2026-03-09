@@ -20,6 +20,8 @@
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/diagrams/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/lithiums/data" />
+      <excludeFolder url="file://$MODULE_DIR$/docker/data" />
+      <excludeFolder url="file://$MODULE_DIR$/lithiumd/share" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

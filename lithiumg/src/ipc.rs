@@ -304,14 +304,15 @@ pub async fn contact_send(contact_id: &str, plaintext: &str) -> Result<(), Strin
     Ok(())
 }
 
-pub async fn contact_fetch(contact_id: &str) -> Result<(), String> {
-    let _ = send_request(json!({
+pub async fn contact_fetch(contact_id: &str) -> Result<ContactFetchResult, String> {
+    let v = send_request(json!({
         "cmd": "contact_fetch",
-        "id": 9,
-        "contact_id": contact_id
+        "id": 10,
+        "contact_id": contact_id,
     }))
-    .await?;
-    Ok(())
+        .await?;
+
+    serde_json::from_value(v).map_err(|e| format!("bad_contact_fetch_response: {e}"))
 }
 
 pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResult, String> {
@@ -347,4 +348,34 @@ pub async fn contact_forget(contact_id: &str) -> Result<(), String> {
     }))
     .await?;
     Ok(())
+}
+
+pub async fn wipe_local() -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "wipe_local",
+        "id": 13
+    }))
+        .await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ContactFetchMessageResult {
+    #[serde(default)]
+    pub ok: bool,
+
+    #[serde(default)]
+    pub text: Option<String>,
+
+    #[serde(default)]
+    pub ui: serde_json::Value,
+
+    #[serde(default)]
+    pub err: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ContactFetchResult {
+    #[serde(default)]
+    pub messages: Vec<ContactFetchMessageResult>,
 }

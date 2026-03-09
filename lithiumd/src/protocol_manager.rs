@@ -5,7 +5,6 @@ use hex;
 use rand::RngExt;
 use rand::rngs::SysRng;
 use reqwest::{header::HeaderMap, Client, Url};
-use sea_orm::Iden;
 use serde_json::{json, Map, Value};
 use tokio::sync::Mutex;
 

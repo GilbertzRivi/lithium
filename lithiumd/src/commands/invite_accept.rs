@@ -34,6 +34,9 @@ pub async fn handle(
         Err(_) => return err_resp(id, "invalid_invite_code"),
     };
 
+    let server_ss = peer.server.clone();
+    let mut should_return_my_code = false;
+
     let (contact_id, self_json) = if let Some(cid_hex) = contact_id_opt {
         let cid_ss = SecretString::new(cid_hex);
         let contact_id = match decode_contact_id_hex(&cid_ss) {
@@ -43,17 +46,16 @@ pub async fn handle(
 
         match dm.get_contact(contact_id.as_slice()).await {
             Ok(Some(row)) => {
-                let existing_peer_json: Value = match serde_json::from_slice(row.peer_state.as_slice()) {
-                    Ok(v) => v,
-                    Err(_) => return err_resp(id, "peer_state_corrupt"),
-                };
+                let existing_peer_json: Value =
+                    match serde_json::from_slice(row.peer_state.as_slice()) {
+                        Ok(v) => v,
+                        Err(_) => return err_resp(id, "peer_state_corrupt"),
+                    };
 
                 if let Some(peer_obj) = existing_peer_json.get("peer") {
                     if !peer_obj.is_null() {
-                        let existing_cid_hex = peer_obj
-                            .get("cid")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let existing_cid_hex =
+                            peer_obj.get("cid").and_then(|v| v.as_str()).unwrap_or("");
 
                         let existing_cid = match hex::decode(existing_cid_hex.trim()) {
                             Ok(v) => v,
@@ -78,19 +80,12 @@ pub async fn handle(
 
                 (contact_id, sj)
             }
-            Ok(None) => {
-                let server_ss = peer.server.clone();
-                let (_new_id, sj) = match gen_self_state(server_ss) {
-                    Ok(v) => v,
-                    Err(_) => return internal_err(id),
-                };
-                (contact_id, sj)
-            }
+            Ok(None) => return err_resp(id, "contact_not_found"),
             Err(_) => return storage_err(id),
         }
     } else {
-        let server_ss = peer.server.clone();
-        match gen_self_state(server_ss) {
+        should_return_my_code = true;
+        match gen_self_state(server_ss.clone()) {
             Ok(v) => v,
             Err(_) => return internal_err(id),
         }
@@ -118,8 +113,6 @@ pub async fn handle(
         Err(_) => return internal_err(id),
     };
 
-    let server_ss = peer.server.clone();
-
     let self_raw = match self_json.raw_json().ok_or_else(|| LithiumError::internal()) {
         Ok(v) => v,
         Err(_) => return internal_err(id),
@@ -142,39 +135,43 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let cid_hex = match self_json.get_string("cid") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let x_pub = match self_json.get_string("x_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let k_pub = match self_json.get_string("k_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let ed_pub = match self_json.get_string("ed_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let dili_pub = match self_json.get_string("dili_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
+    let my_code = if should_return_my_code {
+        let cid_hex = match self_json.get_string("cid") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let x_pub = match self_json.get_string("x_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let k_pub = match self_json.get_string("k_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let ed_pub = match self_json.get_string("ed_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let dili_pub = match self_json.get_string("dili_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
 
-    let my_pub = InvitePublic {
-        server: server_ss,
-        cid_hex,
-        x_pub_hex: x_pub,
-        k_pub_hex: k_pub,
-        ed_pub_hex: ed_pub,
-        dili_pub_hex: dili_pub,
-    };
+        let my_pub = InvitePublic {
+            server: server_ss.clone(),
+            cid_hex,
+            x_pub_hex: x_pub,
+            k_pub_hex: k_pub,
+            ed_pub_hex: ed_pub,
+            dili_pub_hex: dili_pub,
+        };
 
-    let my_code = match encode_invite_code(&my_pub) {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
+        match encode_invite_code(&my_pub) {
+            Ok(v) => v.expose().to_string(),
+            Err(_) => return internal_err(id),
+        }
+    } else {
+        String::new()
     };
 
     IpcResponse {
@@ -182,7 +179,7 @@ pub async fn handle(
         ok: true,
         result: Some(json!({
             "contact_id": hex::encode(contact_id),
-            "my_code": my_code.expose()
+            "my_code": my_code
         })),
         error: None,
     }

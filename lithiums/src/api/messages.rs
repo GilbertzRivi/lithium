@@ -74,7 +74,7 @@ pub async fn fetch(req: CryptoReq) -> Result<Response, AppError> {
         .get_messages(&state.store, mailbox)
         .await?
         .into_iter()
-        .map(|z| z.to_string())
+        .map(|z| z.expose().to_string())
         .collect();
 
     let mut ctx = req.lock().await;
@@ -82,5 +82,5 @@ pub async fn fetch(req: CryptoReq) -> Result<Response, AppError> {
         "msg": "Ok",
         "data": data,
     }))
-    .await
+        .await
 }
