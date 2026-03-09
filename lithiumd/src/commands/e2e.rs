@@ -532,7 +532,8 @@ fn decrypt_with_privs(
         },
     )?;
 
-    let hdr_v: Value = serde_json::from_slice(pt_headers.as_slice()).map_err(LithiumError::json_parse)?;
+    let hdr_v: Value =
+        serde_json::from_slice(pt_headers.as_slice()).map_err(LithiumError::json_parse)?;
 
     if let Some(arr) = hdr_v.get("prekeys").and_then(|v| v.as_array()) {
         peer_merge_remote_prekeys(peer_v, arr, PREKEY_TARGET);
@@ -540,10 +541,17 @@ fn decrypt_with_privs(
 
     let mode = hdr_v.get("mode").and_then(|v| v.as_str()).unwrap_or("ratchet");
     let step_in = hdr_v.get("step").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mailbox_gen = hdr_v
+        .get("mbox_gen")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
     let peer_step_cur = peer_v["e2e_peer"]["step"].as_u64().unwrap_or(0);
 
     if step_in > peer_step_cur {
-        let reply = hdr_v.get("reply").ok_or_else(|| LithiumError::json_missing_field("reply"))?;
+        let reply = hdr_v
+            .get("reply")
+            .ok_or_else(|| LithiumError::json_missing_field("reply"))?;
         let reply_id_hex = reply
             .get("id")
             .and_then(|v| v.as_str())
@@ -570,8 +578,16 @@ fn decrypt_with_privs(
     peer_set_need_recover(peer_v, false);
 
     let ts_ms = hdr_v.get("ts_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-    let msg_id = hdr_v.get("msg_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let kind = hdr_v.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let msg_id = hdr_v
+        .get("msg_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let kind = hdr_v
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     Ok((
         pt_body.as_slice().to_vec(),
@@ -580,7 +596,8 @@ fn decrypt_with_privs(
             "msg_id": msg_id,
             "kind": kind,
             "step": step_in,
-            "mode": mode
+            "mode": mode,
+            "mailbox_gen": mailbox_gen
         }),
     ))
 }
@@ -592,6 +609,7 @@ pub fn encrypt_for_peer(
     kind: &str,
     prekeys_advertise: &[Value],
     use_recovery: bool,
+    mailbox_gen: u64,
 ) -> Result<(WireV1, Value)> {
     ensure_self_keyring(self_v)?;
     let (_peer_id, _, _, _peer_step) = ensure_peer_e2e(peer_v)?;
@@ -610,9 +628,8 @@ pub fn encrypt_for_peer(
     };
 
     let target_x_pub = Byte32::from_slice(&hex_to_32(&target_x_pub_hex)?)?;
-    let target_k_pub = SecretBytes::from_vec(
-        hex::decode(target_k_pub_hex.trim()).map_err(LithiumError::invalid_hex)?
-    );
+    let target_k_pub =
+        SecretBytes::from_vec(hex::decode(target_k_pub_hex.trim()).map_err(LithiumError::invalid_hex)?);
 
     let reply_id = rand32()?;
     let (rx_x_priv_fb, rx_x_pub_fb) = keys::random_x25519_keypair()?;
@@ -648,6 +665,7 @@ pub fn encrypt_for_peer(
         "msg_id": msg_id,
         "kind": kind,
         "step": step,
+        "mbox_gen": mailbox_gen,
         "reply": {
             "id": hex::encode(reply_id),
             "x_pub": rx_x_pub_hex,
@@ -678,10 +696,12 @@ pub fn encrypt_for_peer(
             "ts_ms": ts_ms,
             "msg_id": msg_id,
             "step": step,
-            "mode": mode
+            "mode": mode,
+            "mailbox_gen": mailbox_gen
         }),
     ))
 }
+
 
 pub fn decrypt_for_us(
     self_v: &mut Value,

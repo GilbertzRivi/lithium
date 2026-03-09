@@ -5,7 +5,12 @@ use serde_json::{json, Value};
 use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::{
-    commands::contact_mailbox::derive_mailboxes,
+    commands::contact_mailbox::{
+        derive_mailboxes_for_generation_from_values,
+        ensure_mailbox_state,
+        inbound_fetch_generations,
+        note_inbound_generation_seen,
+    },
     commands::e2e::{
         decrypt_for_prekey,
         decrypt_for_us,
@@ -25,6 +30,7 @@ fn build_stored_message(
     text: &str,
     ui_meta: &Value,
     mailbox_hex: &str,
+    mailbox_gen: u64,
 ) -> Result<SecretBytes, serde_json::Error> {
     let v = json!({
         "v": 1,
@@ -32,7 +38,8 @@ fn build_stored_message(
         "text": text,
         "ui": ui_meta,
         "transport": {
-            "mailbox": mailbox_hex
+            "mailbox": mailbox_hex,
+            "mailbox_gen": mailbox_gen
         }
     });
     serde_json::to_vec(&v).map(SecretBytes::from_vec)
@@ -62,12 +69,6 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
     let self_state_bytes = row.self_state.as_slice().to_vec();
     let peer_state_bytes = row.peer_state.as_slice().to_vec();
 
-    let (_mbox_out, mbox_in) = match derive_mailboxes(&self_state_bytes, &peer_state_bytes) {
-        Ok(v) => v,
-        Err(_) => return crypto_err(id),
-    };
-    let mailbox_hex = hex::encode(&mbox_in);
-
     let mut self_v: Value = match serde_json::from_slice(&self_state_bytes) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
@@ -84,6 +85,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         return crypto_err(id);
     }
 
+    ensure_mailbox_state(&mut self_v, &mut peer_v);
+
     {
         let new_self_bytes = match serde_json::to_vec(&self_v) {
             Ok(v) => v,
@@ -94,152 +97,190 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
             Err(_) => return err_resp(id, "json_error"),
         };
 
-        if dm.upsert_contact(
-            contact_id.clone(),
-            row.server.clone(),
-            SecretBytes::from_vec(new_peer_bytes),
-            SecretBytes::from_vec(new_self_bytes),
-        ).await.is_err() {
+        if dm
+            .upsert_contact(
+                contact_id.clone(),
+                row.server.clone(),
+                SecretBytes::from_vec(new_peer_bytes),
+                SecretBytes::from_vec(new_self_bytes),
+            )
+            .await
+            .is_err()
+        {
             return storage_err(id);
         }
     }
 
-    let resp = match proto
-        .send(Endpoint::MsgFetch, json!({ "mailbox": mailbox_hex }), json!({}))
-        .await
-    {
-        Ok(v) => v,
-        Err(_) => return protocol_err(id),
-    };
-
+    let generations = inbound_fetch_generations(&peer_v);
     let mut out = Vec::new();
 
-    if let Some(arr) = resp.body.get("data").and_then(|v| v.as_array()) {
-        for it in arr {
-            let Some(h) = it.as_str() else {
-                continue;
-            };
-
-            let raw = match hex::decode(h) {
+    for mailbox_gen in generations {
+        let (_mbox_out, mbox_in) =
+            match derive_mailboxes_for_generation_from_values(&self_v, &peer_v, mailbox_gen) {
                 Ok(v) => v,
-                Err(_) => {
-                    out.push(json!({
-                        "ok": false,
-                        "err": "invalid_hex"
-                    }));
-                    continue;
-                }
+                Err(_) => return crypto_err(id),
             };
+        let mailbox_hex = hex::encode(&mbox_in);
 
-            let w = match unpack_wire(&raw) {
-                Ok(v) => v,
-                Err(_) => {
-                    out.push(json!({
-                        "ok": false,
-                        "err": "bad_wire"
-                    }));
+        let resp = match proto
+            .send(Endpoint::MsgFetch, json!({ "mailbox": mailbox_hex }), json!({}))
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => return protocol_err(id),
+        };
+
+        if let Some(arr) = resp.body.get("data").and_then(|v| v.as_array()) {
+            for it in arr {
+                let Some(h) = it.as_str() else {
                     continue;
-                }
-            };
+                };
 
-            match decrypt_for_us(&mut self_v, &mut peer_v, &w) {
-                Ok((pt, ui)) => {
-                    let text = match String::from_utf8(pt.clone()) {
-                        Ok(v) => v,
-                        Err(_) => {
-                            out.push(json!({
-                                "ok": false,
-                                "err": "invalid_utf8"
-                            }));
-                            continue;
-                        }
-                    };
-
-                    let stored = match build_stored_message(&text, &ui, &mailbox_hex) {
-                        Ok(v) => v,
-                        Err(_) => return err_resp(id, "json_error"),
-                    };
-
-                    if dm
-                        .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
-                        .await
-                        .is_err()
-                    {
-                        return storage_err(id);
-                    }
-
-                    out.push(json!({
-                        "ok": true,
-                        "ui": ui,
-                        "text": text
-                    }));
-                }
-                Err(_) => {
-                    let prekey_blob = match dm.take_prekey(&w.to_id).await {
-                        Ok(v) => v,
-                        Err(_) => {
-                            out.push(json!({
-                                "ok": false,
-                                "err": "prekey_lookup_failed"
-                            }));
-                            continue;
-                        }
-                    };
-
-                    let Some(blob) = prekey_blob else {
-                        peer_set_need_recover(&mut peer_v, true);
+                let raw = match hex::decode(h) {
+                    Ok(v) => v,
+                    Err(_) => {
                         out.push(json!({
                             "ok": false,
-                            "err": "to_id_unknown"
+                            "err": "invalid_hex",
+                            "mailbox_gen": mailbox_gen
                         }));
                         continue;
-                    };
+                    }
+                };
 
-                    match decrypt_for_prekey(&mut peer_v, &w, &blob) {
-                        Ok((pt, mut ui)) => {
-                            local_remove_public_prekey(&mut self_v, &hex::encode(w.to_id));
-                            peer_set_need_recover(&mut peer_v, false);
+                let w = match unpack_wire(&raw) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        out.push(json!({
+                            "ok": false,
+                            "err": "bad_wire",
+                            "mailbox_gen": mailbox_gen
+                        }));
+                        continue;
+                    }
+                };
 
-                            if let Some(obj) = ui.as_object_mut() {
-                                obj.insert("recovered".into(), json!(true));
+                match decrypt_for_us(&mut self_v, &mut peer_v, &w) {
+                    Ok((pt, ui)) => {
+                        let seen_gen = ui
+                            .get("mailbox_gen")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(mailbox_gen);
+
+                        note_inbound_generation_seen(&mut peer_v, seen_gen);
+
+                        let text = match String::from_utf8(pt.clone()) {
+                            Ok(v) => v,
+                            Err(_) => {
+                                out.push(json!({
+                                    "ok": false,
+                                    "err": "invalid_utf8",
+                                    "mailbox_gen": mailbox_gen
+                                }));
+                                continue;
                             }
+                        };
 
-                            let text = match String::from_utf8(pt.clone()) {
-                                Ok(v) => v,
-                                Err(_) => {
-                                    out.push(json!({
-                                        "ok": false,
-                                        "err": "invalid_utf8"
-                                    }));
-                                    continue;
-                                }
-                            };
+                        let stored = match build_stored_message(&text, &ui, &mailbox_hex, seen_gen) {
+                            Ok(v) => v,
+                            Err(_) => return err_resp(id, "json_error"),
+                        };
 
-                            let stored = match build_stored_message(&text, &ui, &mailbox_hex) {
-                                Ok(v) => v,
-                                Err(_) => return err_resp(id, "json_error"),
-                            };
-
-                            if dm
-                                .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
-                                .await
-                                .is_err()
-                            {
-                                return storage_err(id);
-                            }
-
-                            out.push(json!({
-                                "ok": true,
-                                "ui": ui,
-                                "text": text
-                            }));
+                        if dm
+                            .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
+                            .await
+                            .is_err()
+                        {
+                            return storage_err(id);
                         }
-                        Err(_) => {
+
+                        out.push(json!({
+                            "ok": true,
+                            "ui": ui,
+                            "text": text,
+                            "mailbox_gen": seen_gen
+                        }));
+                    }
+                    Err(_) => {
+                        let prekey_blob = match dm.take_prekey(&w.to_id).await {
+                            Ok(v) => v,
+                            Err(_) => {
+                                out.push(json!({
+                                    "ok": false,
+                                    "err": "prekey_lookup_failed",
+                                    "mailbox_gen": mailbox_gen
+                                }));
+                                continue;
+                            }
+                        };
+
+                        let Some(blob) = prekey_blob else {
                             peer_set_need_recover(&mut peer_v, true);
                             out.push(json!({
                                 "ok": false,
-                                "err": "prekey_recovery_failed"
+                                "err": "to_id_unknown",
+                                "mailbox_gen": mailbox_gen
                             }));
+                            continue;
+                        };
+
+                        match decrypt_for_prekey(&mut peer_v, &w, &blob) {
+                            Ok((pt, mut ui)) => {
+                                local_remove_public_prekey(&mut self_v, &hex::encode(w.to_id));
+                                peer_set_need_recover(&mut peer_v, false);
+
+                                if let Some(obj) = ui.as_object_mut() {
+                                    obj.insert("recovered".into(), json!(true));
+                                }
+
+                                let seen_gen = ui
+                                    .get("mailbox_gen")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(mailbox_gen);
+
+                                note_inbound_generation_seen(&mut peer_v, seen_gen);
+
+                                let text = match String::from_utf8(pt.clone()) {
+                                    Ok(v) => v,
+                                    Err(_) => {
+                                        out.push(json!({
+                                            "ok": false,
+                                            "err": "invalid_utf8",
+                                            "mailbox_gen": mailbox_gen
+                                        }));
+                                        continue;
+                                    }
+                                };
+
+                                let stored =
+                                    match build_stored_message(&text, &ui, &mailbox_hex, seen_gen) {
+                                        Ok(v) => v,
+                                        Err(_) => return err_resp(id, "json_error"),
+                                    };
+
+                                if dm
+                                    .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
+                                    .await
+                                    .is_err()
+                                {
+                                    return storage_err(id);
+                                }
+
+                                out.push(json!({
+                                    "ok": true,
+                                    "ui": ui,
+                                    "text": text,
+                                    "mailbox_gen": seen_gen
+                                }));
+                            }
+                            Err(_) => {
+                                peer_set_need_recover(&mut peer_v, true);
+                                out.push(json!({
+                                    "ok": false,
+                                    "err": "prekey_recovery_failed",
+                                    "mailbox_gen": mailbox_gen
+                                }));
+                            }
                         }
                     }
                 }
@@ -256,12 +297,16 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         Err(_) => return err_resp(id, "json_error"),
     };
 
-    if dm.upsert_contact(
-        contact_id.clone(),
-        row.server.clone(),
-        SecretBytes::from_vec(new_peer_bytes),
-        SecretBytes::from_vec(new_self_bytes),
-    ).await.is_err() {
+    if dm
+        .upsert_contact(
+            contact_id.clone(),
+            row.server.clone(),
+            SecretBytes::from_vec(new_peer_bytes),
+            SecretBytes::from_vec(new_self_bytes),
+        )
+        .await
+        .is_err()
+    {
         return storage_err(id);
     }
 

@@ -5,9 +5,15 @@ use serde_json::{json, Value};
 use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::{
-    commands::contact_mailbox::derive_mailboxes,
+    commands::contact_mailbox::{
+        derive_mailboxes_for_generation_from_values,
+        ensure_mailbox_state,
+        mark_outbound_message_sent,
+        self_tx_generation,
+    },
     commands::e2e::{
         encrypt_for_peer,
+        ensure_peer_e2e,
         ensure_self_keyring,
         gen_local_prekey_material,
         local_public_prekeys,
@@ -31,6 +37,7 @@ fn build_stored_message(
     text: &str,
     ui_meta: &Value,
     mailbox_hex: &str,
+    mailbox_gen: u64,
 ) -> Result<SecretBytes, serde_json::Error> {
     let v = json!({
         "v": 1,
@@ -38,7 +45,8 @@ fn build_stored_message(
         "text": text,
         "ui": ui_meta,
         "transport": {
-            "mailbox": mailbox_hex
+            "mailbox": mailbox_hex,
+            "mailbox_gen": mailbox_gen
         }
     });
     serde_json::to_vec(&v).map(SecretBytes::from_vec)
@@ -106,12 +114,6 @@ pub async fn handle(
     let self_state_bytes = row.self_state.as_slice().to_vec();
     let peer_state_bytes = row.peer_state.as_slice().to_vec();
 
-    let (mbox_out, _mbox_in) = match derive_mailboxes(&self_state_bytes, &peer_state_bytes) {
-        Ok(v) => v,
-        Err(_) => return crypto_err(id),
-    };
-    let mailbox_hex = hex::encode(&mbox_out);
-
     let mut self_v: Value = match serde_json::from_slice(&self_state_bytes) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
@@ -124,6 +126,12 @@ pub async fn handle(
     if ensure_self_keyring(&mut self_v).is_err() {
         return crypto_err(id);
     }
+
+    if ensure_peer_e2e(&mut peer_v).is_err() {
+        return crypto_err(id);
+    }
+
+    ensure_mailbox_state(&mut self_v, &mut peer_v);
 
     if let Err(e) = ensure_local_prekeys(dm.as_ref(), contact_id.as_slice(), &mut self_v).await {
         return err_resp(id, e);
@@ -147,6 +155,15 @@ pub async fn handle(
         None
     };
 
+    let mailbox_gen = self_tx_generation(&self_v);
+
+    let (mbox_out, _mbox_in) =
+        match derive_mailboxes_for_generation_from_values(&self_v, &peer_v, mailbox_gen) {
+            Ok(v) => v,
+            Err(_) => return crypto_err(id),
+        };
+    let mailbox_hex = hex::encode(&mbox_out);
+
     let (wire, ui_meta) = match encrypt_for_peer(
         &mut self_v,
         &mut peer_v,
@@ -154,6 +171,7 @@ pub async fn handle(
         "text/utf8",
         &advertise,
         use_recovery,
+        mailbox_gen,
     ) {
         Ok(v) => v,
         Err(_) => return crypto_err(id),
@@ -178,6 +196,8 @@ pub async fn handle(
         prekeys_mark_advertised(&mut self_v);
     }
 
+    mark_outbound_message_sent(&mut self_v);
+
     let new_self_bytes = match serde_json::to_vec(&self_v) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
@@ -187,16 +207,20 @@ pub async fn handle(
         Err(_) => return err_resp(id, "json_error"),
     };
 
-    if dm.upsert_contact(
-        contact_id.clone(),
-        row.server.clone(),
-        SecretBytes::from_vec(new_peer_bytes),
-        SecretBytes::from_vec(new_self_bytes),
-    ).await.is_err() {
+    if dm
+        .upsert_contact(
+            contact_id.clone(),
+            row.server.clone(),
+            SecretBytes::from_vec(new_peer_bytes),
+            SecretBytes::from_vec(new_self_bytes),
+        )
+        .await
+        .is_err()
+    {
         return storage_err(id);
     }
 
-    let stored = match build_stored_message(&plaintext, &ui_meta, &mailbox_hex) {
+    let stored = match build_stored_message(&plaintext, &ui_meta, &mailbox_hex, mailbox_gen) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
@@ -213,7 +237,8 @@ pub async fn handle(
         id,
         ok: true,
         result: Some(json!({
-            "sent": true
+            "sent": true,
+            "mailbox_gen": mailbox_gen
         })),
         error: None,
     }
