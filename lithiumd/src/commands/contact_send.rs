@@ -2,7 +2,10 @@ use std::{sync::Arc, time::Duration};
 
 use serde_json::{json, Value};
 
-use lithium_core::secrets::bytes::SecretBytes;
+use lithium_core::{
+    secrets::{Byte32, SecretJson},
+    secrets::bytes::SecretBytes,
+};
 
 use crate::{
     commands::contact_mailbox::{
@@ -13,7 +16,6 @@ use crate::{
     },
     commands::e2e::{
         encrypt_for_peer,
-        ensure_peer_e2e,
         ensure_self_keyring,
         gen_local_prekey_material,
         local_public_prekeys,
@@ -49,13 +51,16 @@ fn build_stored_message(
             "mailbox_gen": mailbox_gen
         }
     });
-    serde_json::to_vec(&v).map(SecretBytes::from_vec)
+
+    let mut out = SecretBytes::new(Vec::new());
+    serde_json::to_writer(out.as_mut_vec(), &v)?;
+    Ok(out)
 }
 
 async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 'static>(
     dm: &lithium_core::db::manager::DataManager<P>,
     contact_id: &[u8],
-    self_v: &mut Value,
+    self_v: &mut SecretJson,
 ) -> Result<(), String> {
     let mut arr = local_public_prekeys(self_v);
 
@@ -65,13 +70,13 @@ async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 
             Err(_) => return Err("crypto_error".into()),
         };
 
-        let id = match hex::decode(id_hex.trim()) {
+        let id = match Byte32::from_hex(id_hex.trim()) {
             Ok(v) => v,
             Err(_) => return Err("invalid_prekey_id".into()),
         };
 
         if dm
-            .put_prekey(contact_id.to_vec(), id, priv_blob, PREKEY_TTL)
+            .put_prekey(contact_id.to_vec(), id.as_slice().to_vec(), priv_blob, PREKEY_TTL)
             .await
             .is_err()
         {
@@ -81,7 +86,10 @@ async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 
         arr.push(public_item);
     }
 
-    self_v["prekeys_local_public"] = Value::Array(arr);
+    self_v.with_exposed_mut(|self_state| {
+        self_state["prekeys_local_public"] = Value::Array(arr);
+    });
+
     Ok(())
 }
 
@@ -111,14 +119,11 @@ pub async fn handle(
         return err_resp(id, "contact_not_found");
     };
 
-    let self_state_bytes = row.self_state.as_slice().to_vec();
-    let peer_state_bytes = row.peer_state.as_slice().to_vec();
-
-    let mut self_v: Value = match serde_json::from_slice(&self_state_bytes) {
+    let mut self_v = match SecretJson::from_bytes(row.self_state.as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let mut peer_v: Value = match serde_json::from_slice(&peer_state_bytes) {
+    let mut peer_v = match SecretJson::from_bytes(row.peer_state.as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
@@ -127,11 +132,11 @@ pub async fn handle(
         return crypto_err(id);
     }
 
-    if ensure_peer_e2e(&mut peer_v).is_err() {
-        return crypto_err(id);
-    }
-
-    ensure_mailbox_state(&mut self_v, &mut peer_v);
+    self_v.with_exposed_mut(|self_state| {
+        peer_v.with_exposed_mut(|peer_state| {
+            ensure_mailbox_state(self_state, peer_state);
+        });
+    });
 
     if let Err(e) = ensure_local_prekeys(dm.as_ref(), contact_id.as_slice(), &mut self_v).await {
         return err_resp(id, e);
@@ -155,13 +160,16 @@ pub async fn handle(
         None
     };
 
-    let mailbox_gen = self_tx_generation(&self_v);
+    let mailbox_gen = self_v.with_exposed(self_tx_generation);
 
-    let (mbox_out, _mbox_in) =
-        match derive_mailboxes_for_generation_from_values(&self_v, &peer_v, mailbox_gen) {
-            Ok(v) => v,
-            Err(_) => return crypto_err(id),
-        };
+    let (mbox_out, _mbox_in) = match self_v.with_exposed(|self_state| {
+        peer_v.with_exposed(|peer_state| {
+            derive_mailboxes_for_generation_from_values(self_state, peer_state, mailbox_gen)
+        })
+    }) {
+        Ok(v) => v,
+        Err(_) => return crypto_err(id),
+    };
     let mailbox_hex = hex::encode(&mbox_out);
 
     let (wire, ui_meta) = match encrypt_for_peer(
@@ -196,13 +204,22 @@ pub async fn handle(
         prekeys_mark_advertised(&mut self_v);
     }
 
-    mark_outbound_message_sent(&mut self_v);
+    self_v.with_exposed_mut(mark_outbound_message_sent);
 
-    let new_self_bytes = match serde_json::to_vec(&self_v) {
+    let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v)?;
+        Ok(out)
+    }) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
-    let new_peer_bytes = match serde_json::to_vec(&peer_v) {
+
+    let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v)?;
+        Ok(out)
+    }) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
@@ -211,8 +228,8 @@ pub async fn handle(
         .upsert_contact(
             contact_id.clone(),
             row.server.clone(),
-            SecretBytes::from_vec(new_peer_bytes),
-            SecretBytes::from_vec(new_self_bytes),
+            new_peer_bytes,
+            new_self_bytes,
         )
         .await
         .is_err()

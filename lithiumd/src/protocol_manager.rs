@@ -34,8 +34,8 @@ pub fn load_server_bootstrap_from_env() -> Result<ServerBootstrap> {
     Ok(ServerBootstrap {
         shake_pub_x: env_hex_byte32("SERVER_X25519")?,
         shake_pub_k: SecretBytes::from_vec(env_hex("SERVER_KYBER")?),
-        server_sig_ed: env_hex_opt_32("SERVER_ED25519")?,
-        server_sig_dili: env_hex_opt("SERVER_DILITHIUM")?,
+        server_sig_ed: env_hex_byte32("SERVER_ED25519")?,
+        server_sig_dili: SecretBytes::from_vec(env_hex("SERVER_DILITHIUM")?),
     })
 }
 
@@ -44,32 +44,12 @@ fn env_hex(name: &'static str) -> Result<Vec<u8>> {
     hex::decode(s.trim()).map_err(LithiumError::invalid_hex)
 }
 
-fn env_hex_opt(name: &'static str) -> Result<Option<SecretBytes>> {
-    match env::var(name) {
-        Ok(s) if !s.trim().is_empty() => Ok(Some(
-            SecretBytes::from_hex(s.trim()).map_err(LithiumError::invalid_hex)?,
-        )),
-        _ => Ok(None),
-    }
-}
-
 fn env_hex_byte32(name: &'static str) -> Result<Byte32> {
     let b = env_hex(name)?;
     if b.len() != 32 {
         return Err(LithiumError::invalid_len(32, b.len()));
     }
     Byte32::from_slice(&b)
-}
-
-fn env_hex_opt_32(name: &'static str) -> Result<Option<Byte32>> {
-    let Some(v) = env_hex_opt(name)? else {
-        return Ok(None);
-    };
-    if v.as_slice().len() != 32 {
-        return Err(LithiumError::invalid_len(32, v.as_slice().len()));
-    }
-    let out = Byte32::from_slice(&v.as_slice())?;
-    Ok(Some(out))
 }
 
 fn obj_mut(v: &mut Value) -> Result<&mut Map<String, Value>> {
@@ -100,7 +80,6 @@ impl Endpoint {
             Endpoint::Shake => "/shake",
             Endpoint::Register => "/user/register",
             Endpoint::Login => "/user/login",
-
             Endpoint::MsgSend => "/msg/send",
             Endpoint::MsgFetch => "/msg/fetch",
         }
@@ -111,7 +90,6 @@ impl Endpoint {
             Endpoint::Shake => "shake",
             Endpoint::Register => "register",
             Endpoint::Login => "login",
-
             Endpoint::MsgSend => "msg_send",
             Endpoint::MsgFetch => "msg_fetch",
         }
@@ -138,17 +116,11 @@ impl Endpoint {
     }
 
     pub fn include_identity_keys_in_app_headers(&self) -> bool {
-        matches!(
-            self,
-            Endpoint::Shake | Endpoint::Register | Endpoint::MsgFetch
-        )
+        matches!(self, Endpoint::Shake | Endpoint::Register | Endpoint::MsgFetch)
     }
 
     pub fn sign_with_ephemeral_keys(&self) -> bool {
-        matches!(
-            self,
-            Endpoint::Shake | Endpoint::MsgFetch
-        )
+        matches!(self, Endpoint::Shake | Endpoint::MsgFetch)
     }
 }
 
@@ -156,8 +128,8 @@ impl Endpoint {
 pub struct ServerBootstrap {
     pub shake_pub_x: Byte32,
     pub shake_pub_k: SecretBytes,
-    pub server_sig_ed: Option<Byte32>,
-    pub server_sig_dili: Option<SecretBytes>,
+    pub server_sig_ed: Byte32,
+    pub server_sig_dili: SecretBytes,
 }
 
 #[derive(Debug)]
@@ -224,7 +196,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         self.do_register(handler, password, dek_enc_hex).await
     }
 
-    pub async fn get_dek(&self) -> Result<String> {
+    pub async fn get_dek(&self) -> Result<SecretString> {
         let _g = self.lock.lock().await;
 
         if let Some(v) = self.peek_string(ST_DEK_ENC).await? {
@@ -262,8 +234,7 @@ impl<P: MkProvider> ProtocolManager<P> {
                 .await?
                 .ok_or_else(|| LithiumError::state_missing(ST_JWT))?;
 
-            // server expects token hex string in body under "token"
-            obj_mut(&mut body_try)?.insert("token".into(), Value::String(tok));
+            obj_mut(&mut body_try)?.insert("token".into(), Value::String(tok.expose().to_owned()));
         }
 
         self.send_once(&ep, body_try, app_headers_try).await
@@ -419,17 +390,21 @@ impl<P: MkProvider> ProtocolManager<P> {
         let headers_bytes = serde_json::to_vec(&app_headers).map_err(LithiumError::json_parse)?;
 
         let (peer_x, peer_k, ses_x, ses_k) = if matches!(ep, Endpoint::Shake) {
-            (self.bootstrap.shake_pub_x.clone(), self.bootstrap.shake_pub_k.clone(), None, None)
+            (
+                self.bootstrap.shake_pub_x.clone(),
+                self.bootstrap.shake_pub_k.clone(),
+                None,
+                None,
+            )
         } else {
             let peer_x = self
                 .take_byte32(ST_SERVER_PEER_X)
                 .await?
                 .ok_or_else(|| LithiumError::state_missing(ST_SERVER_PEER_X))?;
-            let peer_k = SecretBytes::from_vec(
-                self.take_bytes(ST_SERVER_PEER_K)
-                    .await?
-                    .ok_or_else(|| LithiumError::state_missing(ST_SERVER_PEER_K))?,
-            );
+            let peer_k = self
+                .take_bytes(ST_SERVER_PEER_K)
+                .await?
+                .ok_or_else(|| LithiumError::state_missing(ST_SERVER_PEER_K))?;
             let ses_x = self.take_string(ST_SES_X).await?;
             let ses_k = self.take_string(ST_SES_K).await?;
             (peer_x, peer_k, ses_x, ses_k)
@@ -463,11 +438,11 @@ impl<P: MkProvider> ProtocolManager<P> {
             let sk = ses_k.ok_or_else(|| LithiumError::state_missing(ST_SES_K))?;
             h.insert(
                 "ses-x",
-                reqwest::header::HeaderValue::from_str(&sx).map_err(|_| LithiumError::internal())?,
+                reqwest::header::HeaderValue::from_str(sx.expose()).map_err(|_| LithiumError::internal())?,
             );
             h.insert(
                 "ses-k",
-                reqwest::header::HeaderValue::from_str(&sk).map_err(|_| LithiumError::internal())?,
+                reqwest::header::HeaderValue::from_str(sk.expose()).map_err(|_| LithiumError::internal())?,
             );
             h.insert(
                 reqwest::header::CONTENT_TYPE,
@@ -515,15 +490,15 @@ impl<P: MkProvider> ProtocolManager<P> {
         unpad_block(&mut dec_body)?;
         unpad_block(&mut dec_headers)?;
 
-        if let (Some(ed_pk), Some(dili_pk)) = (&self.bootstrap.server_sig_ed, &self.bootstrap.server_sig_dili) {
-            let sig_ed = hex::decode(get_header_str(&rh, "sig-ed")?).map_err(LithiumError::invalid_hex)?;
-            let sig_dili = hex::decode(get_header_str(&rh, "sig-dili")?).map_err(LithiumError::invalid_hex)?;
+        let sig_ed = hex::decode(get_header_str(&rh, "sig-ed")?).map_err(LithiumError::invalid_hex)?;
+        let sig_dili = hex::decode(get_header_str(&rh, "sig-dili")?).map_err(LithiumError::invalid_hex)?;
 
-            let ok1 = sign::verify_signature(&dec_body, &sig_ed, ed_pk);
-            let ok2 = sign::verify_signature_dili(&dec_body, &sig_dili, dili_pk);
-            if !(ok1 && ok2) {
-                return Err(LithiumError::invalid_credentials("server_signature_invalid"));
-            }
+        // Intentionally evaluate both signature schemes before checking the result.
+        // Do not rewrite this into a single short-circuit expression.
+        let ok1 = sign::verify_signature(&dec_body, &sig_ed, &self.bootstrap.server_sig_ed);
+        let ok2 = sign::verify_signature_dili(&dec_body, &sig_dili, &self.bootstrap.server_sig_dili);
+        if !(ok1 && ok2) {
+            return Err(LithiumError::invalid_credentials("server_signature_invalid"));
         }
 
         let body_val: Value = serde_json::from_slice(&dec_body).map_err(LithiumError::json_parse)?;
@@ -578,34 +553,45 @@ impl<P: MkProvider> ProtocolManager<P> {
     async fn store_string(&self, key: &str, value: &str, ttl: Duration) -> Result<()> {
         self.store.set(key, &SecretBytes::from_slice(value.as_bytes()), ttl).await
     }
+
     async fn store_bytes(&self, key: &str, value: &[u8], ttl: Duration) -> Result<()> {
         self.store.set(key, &SecretBytes::from_slice(value), ttl).await
     }
 
-    async fn peek_string(&self, key: &str) -> Result<Option<String>> {
-        let Some(v) = self.store.peek(key).await? else { return Ok(None); };
-        let s = std::str::from_utf8(v.as_slice()).map_err(|_| LithiumError::internal())?;
-        Ok(Some(s.to_string()))
+    async fn peek_string(&self, key: &str) -> Result<Option<SecretString>> {
+        let Some(v) = self.store.peek(key).await? else {
+            return Ok(None);
+        };
+        let s = SecretString::from_utf8_bytes(v.as_slice())?;
+        Ok(Some(s))
     }
 
-    async fn take_string(&self, key: &str) -> Result<Option<String>> {
-        let Some(v) = self.store.take(key).await? else { return Ok(None); };
-        let s = std::str::from_utf8(v.as_slice()).map_err(|_| LithiumError::internal())?;
-        Ok(Some(s.to_string()))
+    async fn take_string(&self, key: &str) -> Result<Option<SecretString>> {
+        let Some(v) = self.store.take(key).await? else {
+            return Ok(None);
+        };
+        let s = SecretString::from_utf8_bytes(v.as_slice())?;
+        Ok(Some(s))
     }
 
-    async fn peek_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let Some(v) = self.store.peek(key).await? else { return Ok(None); };
-        Ok(Some(v.as_slice().to_vec()))
+    async fn peek_bytes(&self, key: &str) -> Result<Option<SecretBytes>> {
+        let Some(v) = self.store.peek(key).await? else {
+            return Ok(None);
+        };
+        Ok(Some(v))
     }
 
-    async fn take_bytes(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let Some(v) = self.store.take(key).await? else { return Ok(None); };
-        Ok(Some(v.as_slice().to_vec()))
+    async fn take_bytes(&self, key: &str) -> Result<Option<SecretBytes>> {
+        let Some(v) = self.store.take(key).await? else {
+            return Ok(None);
+        };
+        Ok(Some(v))
     }
 
     async fn take_byte32(&self, key: &str) -> Result<Option<Byte32>> {
-        let Some(v) = self.store.take(key).await? else { return Ok(None); };
+        let Some(v) = self.store.take(key).await? else {
+            return Ok(None);
+        };
         let b = Byte32::from_slice(v.as_slice())?;
         Ok(Some(b))
     }

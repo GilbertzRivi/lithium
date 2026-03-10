@@ -17,8 +17,8 @@ pub const ALG_ID_AES256_GCM_SIV: u8 = 1;
 pub const DEK_LEN: u16 = 32;
 
 #[inline]
-pub fn read_keyfile_bytes(path: &Path) -> Result<Vec<u8>> {
-    fs::read(path).map_err(LithiumError::io)
+pub fn read_keyfile_bytes(path: &Path) -> Result<SecretBytes> {
+    Ok(SecretBytes::from_vec(fs::read(path).map_err(LithiumError::io)?))
 }
 
 pub fn write_secure(path: &Path, data: &[u8]) -> Result<()> {
@@ -66,9 +66,9 @@ fn aad_for(version: u8, key_type: &str) -> SecretBytes {
 #[inline]
 fn derive_kek(mk: &MasterKey32, salt: &[u8; 32]) -> Result<Byte32> {
     let hk = Hkdf::<Sha256>::new(Some(salt), mk.as_slice());
-    let mut out = [0u8; 32];
-    hk.expand(b"kek/v1", &mut out)?;
-    Byte32::from_slice(&out)
+    let mut out = Byte32::new_zeroed();
+    hk.expand(b"kek/v1", out.as_mut_slice())?;
+    Ok(out)
 }
 
 #[inline]
@@ -164,8 +164,9 @@ fn read_u32(buf: &[u8], idx: &mut usize) -> Result<u32> {
 }
 
 fn parse_keyfile(
-    buf: &[u8],
+    buf: &SecretBytes,
 ) -> Result<(u8, u8, u16, [u8; 32], [u8; 12], Vec<u8>, [u8; 12], Vec<u8>)> {
+    let buf = buf.as_slice();
     let mut idx = 0;
 
     if buf.len() < 8 {

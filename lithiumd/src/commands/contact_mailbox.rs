@@ -1,6 +1,7 @@
 use lithium_core::{
     crypto::kdf,
     error::{LithiumError, Result},
+    secrets::{Byte32, SecretJson},
     secrets::bytes::SecretBytes,
 };
 use serde_json::{json, Value};
@@ -12,20 +13,6 @@ const LABEL_HIGH_TO_LOW: &[u8] = b"lithium/mbox/high->low/v1";
 pub const MAILBOX_ROTATE_EVERY_DEFAULT: u64 = 32;
 pub const MAILBOX_FETCH_PAST_GENS: u64 = 2;
 pub const MAILBOX_FETCH_FUTURE_GENS: u64 = 8;
-
-fn hex_to_32(s: &str) -> Result<[u8; 32]> {
-    let b = hex::decode(s.trim()).map_err(LithiumError::invalid_hex)?;
-    if b.len() != 32 {
-        return Err(LithiumError::invalid_len(32, b.len()));
-    }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&b);
-    Ok(out)
-}
-
-fn hex_to_vec(s: &str) -> Result<Vec<u8>> {
-    hex::decode(s.trim()).map_err(LithiumError::invalid_hex)
-}
 
 fn mailbox_materials(self_v: &Value, peer_v: &Value) -> Result<(SecretBytes, SecretBytes, bool)> {
     let self_cid_hex = self_v
@@ -53,26 +40,27 @@ fn mailbox_materials(self_v: &Value, peer_v: &Value) -> Result<(SecretBytes, Sec
         .and_then(|v| v.as_str())
         .ok_or_else(|| LithiumError::json_missing_field("peer.x_pub"))?;
 
-    let self_cid = hex_to_vec(self_cid_hex)?;
-    let peer_cid = hex_to_vec(peer_cid_hex)?;
+    let self_cid = SecretBytes::from_hex(self_cid_hex.trim())?;
+    let peer_cid = SecretBytes::from_hex(peer_cid_hex.trim())?;
 
-    let self_sk = StaticSecret::from(hex_to_32(self_x_priv_hex)?);
-    let peer_pk = PublicKey::from(hex_to_32(peer_x_pub_hex)?);
+    let self_sk = StaticSecret::from(*Byte32::from_hex(self_x_priv_hex.trim())?.as_array());
+    let peer_pk = PublicKey::from(*Byte32::from_hex(peer_x_pub_hex.trim())?.as_array());
 
     let shared = self_sk.diffie_hellman(&peer_pk);
     let shared_sb = SecretBytes::from_slice(shared.as_bytes());
 
-    let (low, high, i_am_low) = if self_cid <= peer_cid {
-        (self_cid.clone(), peer_cid.clone(), true)
+    let i_am_low = self_cid.as_slice() <= peer_cid.as_slice();
+
+    let mut salt = SecretBytes::new(Vec::with_capacity(self_cid.len() + peer_cid.len()));
+    if i_am_low {
+        salt.as_mut_vec().extend_from_slice(self_cid.as_slice());
+        salt.as_mut_vec().extend_from_slice(peer_cid.as_slice());
     } else {
-        (peer_cid.clone(), self_cid.clone(), false)
-    };
+        salt.as_mut_vec().extend_from_slice(peer_cid.as_slice());
+        salt.as_mut_vec().extend_from_slice(self_cid.as_slice());
+    }
 
-    let mut salt = Vec::with_capacity(low.len() + high.len());
-    salt.extend_from_slice(&low);
-    salt.extend_from_slice(&high);
-
-    Ok((shared_sb, SecretBytes::from_vec(salt), i_am_low))
+    Ok((shared_sb, salt, i_am_low))
 }
 
 fn mailbox_salt_for_generation(base_salt: &SecretBytes, generation: u64) -> SecretBytes {
@@ -80,10 +68,10 @@ fn mailbox_salt_for_generation(base_salt: &SecretBytes, generation: u64) -> Secr
         return SecretBytes::from_slice(base_salt.as_slice());
     }
 
-    let mut salt = Vec::with_capacity(base_salt.as_slice().len() + 8);
-    salt.extend_from_slice(base_salt.as_slice());
-    salt.extend_from_slice(&generation.to_be_bytes());
-    SecretBytes::from_vec(salt)
+    let mut salt = SecretBytes::new(Vec::with_capacity(base_salt.len() + 8));
+    salt.as_mut_vec().extend_from_slice(base_salt.as_slice());
+    salt.as_mut_vec().extend_from_slice(&generation.to_be_bytes());
+    salt
 }
 
 pub fn derive_mailboxes_for_generation_from_values(
@@ -112,25 +100,6 @@ pub fn derive_mailboxes_for_generation_from_values(
     };
 
     Ok((out, inn))
-}
-
-pub fn derive_mailboxes(
-    self_state_json: &[u8],
-    peer_state_json: &[u8],
-) -> Result<([u8; 32], [u8; 32])> {
-    derive_mailboxes_for_generation(self_state_json, peer_state_json, 0)
-}
-
-pub fn derive_mailboxes_for_generation(
-    self_state_json: &[u8],
-    peer_state_json: &[u8],
-    generation: u64,
-) -> Result<([u8; 32], [u8; 32])> {
-    let self_v: Value =
-        serde_json::from_slice(self_state_json).map_err(LithiumError::json_parse)?;
-    let peer_v: Value =
-        serde_json::from_slice(peer_state_json).map_err(LithiumError::json_parse)?;
-    derive_mailboxes_for_generation_from_values(&self_v, &peer_v, generation)
 }
 
 pub fn ensure_mailbox_state(self_v: &mut Value, peer_v: &mut Value) {

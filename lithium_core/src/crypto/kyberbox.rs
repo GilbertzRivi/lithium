@@ -84,14 +84,19 @@ fn derive_headers_key(base_key: &Byte32, ctx: &str) -> Result<Byte32> {
 
 fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) -> Result<SecretBytes> {
     let pk = KyberPublicKey::from_bytes(peer_kyber_pub).map_err(|_| LithiumError::internal())?;
-    let (ss, ct_kem): (KyberSharedSecret, KyberCiphertext) = kyber_encapsulate(&pk);
+
+    let (ss_bytes, ct_kem) = {
+        let (ss, ct_kem): (KyberSharedSecret, KyberCiphertext) = kyber_encapsulate(&pk);
+        let ss_bytes = SecretBytes::from_slice(ss.as_bytes());
+        (ss_bytes, ct_kem)
+    };
 
     let ct_bytes = ct_kem.as_bytes();
     let salt_arr = Sha256::digest(ct_bytes);
 
-    let mut aead_key = [0u8; 32];
-    let hk = Hkdf::<Sha256>::new(Some(salt_arr.as_slice()), ss.as_bytes());
-    hk.expand(KYBER_KEMDEM_INFO, &mut aead_key)
+    let mut aead_key = Byte32::new_zeroed();
+    let hk = Hkdf::<Sha256>::new(Some(salt_arr.as_slice()), ss_bytes.as_slice());
+    hk.expand(KYBER_KEMDEM_INFO, aead_key.as_mut_slice())
         .map_err(|_| LithiumError::kdf_failed())?;
 
     let mut header = Vec::with_capacity(1 + 1 + 1 + 1 + 32);
@@ -110,7 +115,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     let nonce = keys::random_12()?;
     let aead_blob = aead::encrypt(
         &SecretBytes::from_slice(plaintext),
-        &Byte32::new(aead_key),
+        &aead_key,
         &nonce,
         &SecretBytes::from_vec(aad_full),
     )?;
@@ -162,18 +167,21 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
     idx += ct_len;
     let aead_blob = &blob[idx..];
 
-    let sk = KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
-    let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
-    let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
-
     let salt_ref = Sha256::digest(ct_slice);
     if salt_ref.as_slice() != salt {
         return Err(LithiumError::internal());
     }
 
-    let mut aead_key = [0u8; 32];
-    let hk = Hkdf::<Sha256>::new(Some(salt), ss.as_bytes());
-    hk.expand(KYBER_KEMDEM_INFO, &mut aead_key)
+    let ss_bytes = {
+        let sk = KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
+        let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
+        let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
+        SecretBytes::from_slice(ss.as_bytes())
+    };
+
+    let mut aead_key = Byte32::new_zeroed();
+    let hk = Hkdf::<Sha256>::new(Some(salt), ss_bytes.as_slice());
+    hk.expand(KYBER_KEMDEM_INFO, aead_key.as_mut_slice())
         .map_err(|_| LithiumError::kdf_failed())?;
 
     let mut header = Vec::with_capacity(1 + 1 + 1 + 1 + 32);
@@ -191,7 +199,7 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
 
     aead::decrypt(
         &SecretBytes::from_slice(aead_blob),
-        &Byte32::new(aead_key),
+        &aead_key,
         &SecretBytes::from_vec(aad_full),
     )
 }

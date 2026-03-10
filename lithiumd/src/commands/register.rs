@@ -61,7 +61,13 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 Err(_) => return internal_err(id),
             };
 
-            *state.dek_plain.lock().await = Some(arr);
+            *state.dek_plain.lock().await = Some(arr.clone());
+
+            if let Some(keys) = state.keys.lock().await.clone() {
+                let mut km = keys.lock().await;
+                km.mk_provider_mut().set_server_dek(arr.clone());
+            }
+
             *state.needs_register.lock().await = false;
 
             let _ = util::mark_registered(&state.base_dir);

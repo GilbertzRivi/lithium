@@ -1,20 +1,25 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde::Serialize;
+use serde_json::json;
 
 use lithium_core::{
-    error::LithiumError,
     secrets::{SecretJson, SecretString},
     secrets::bytes::SecretBytes,
 };
 
 use crate::{
-    commands::invite_codec::{decode_contact_id_hex, encode_invite_code, InvitePublic},
+    commands::invite_codec::{decode_contact_id_hex, encode_invite_code, gen_self_state, InvitePublic},
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
     state::DaemonState,
 };
-use crate::commands::invite_codec::gen_self_state;
+
+#[derive(Serialize)]
+struct EmptyPeerState {
+    v: u8,
+    peer: Option<()>,
+}
 
 fn default_server_string(state: &DaemonState) -> SecretString {
     SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string())
@@ -47,7 +52,7 @@ pub async fn handle(
             return err_resp(id, "contact_not_found");
         };
 
-        let self_json = match SecretJson::from_vec(row.self_state.as_slice().to_vec()) {
+        let self_json = match SecretJson::from_bytes(row.self_state.as_slice()) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
@@ -111,31 +116,42 @@ pub async fn handle(
         Err(_) => return internal_err(id),
     };
 
-    let peer_val = json!({ "v": 1, "peer": Value::Null });
-    let peer_bytes = match serde_json::to_vec(&peer_val) {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "json_error"),
-    };
-    let peer_json = match SecretJson::from_vec(peer_bytes) {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
+    let peer_json = {
+        let peer_state = EmptyPeerState { v: 1, peer: None };
+        let mut buf = SecretBytes::new(Vec::new());
+        if serde_json::to_writer(buf.as_mut_vec(), &peer_state).is_err() {
+            return err_resp(id, "json_error");
+        }
+        match SecretJson::from_bytes(buf.as_slice()) {
+            Ok(v) => v,
+            Err(_) => return internal_err(id),
+        }
     };
 
-    let self_raw = match self_json.raw_json().ok_or_else(|| LithiumError::internal()) {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
+    let self_bytes = match self_json.with_exposed(|v| {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v).ok()?;
+        Some(out)
+    }) {
+        Some(v) => v,
+        None => return err_resp(id, "json_error"),
     };
-    let peer_raw = match peer_json.raw_json().ok_or_else(|| LithiumError::internal()) {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
+
+    let peer_bytes = match peer_json.with_exposed(|v| {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v).ok()?;
+        Some(out)
+    }) {
+        Some(v) => v,
+        None => return err_resp(id, "json_error"),
     };
 
     if dm
         .upsert_contact(
             contact_id.clone(),
-            server_ss.expose().to_string(),
-            SecretBytes::from_slice(peer_raw.expose().as_bytes()),
-            SecretBytes::from_slice(self_raw.expose().as_bytes()),
+            server_ss.expose().to_owned(),
+            peer_bytes,
+            self_bytes,
         )
         .await
         .is_err()

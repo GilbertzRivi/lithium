@@ -36,6 +36,14 @@ impl KeyStoreKind { fn dir_name(self) -> &'static str { match self { Self::Serve
 pub trait MkProvider {
     fn load_mk(&self) -> Result<Byte32>;
     fn store_mk(&self, mk: &Byte32) -> Result<()>;
+
+    fn derive_secret32(&self, mk: &Byte32, label: &[u8]) -> Result<Byte32> {
+        kdf::derive32(
+            &SecretBytes::from_slice(mk.as_slice()),
+            None,
+            &SecretBytes::from_slice(label),
+        )
+    }
 }
 
 pub struct PlainFileMkProvider { path: PathBuf }
@@ -43,7 +51,7 @@ impl PlainFileMkProvider { pub fn new(path: PathBuf) -> Self { Self { path } } }
 impl MkProvider for PlainFileMkProvider {
     fn load_mk(&self) -> Result<Byte32> {
         let bytes = keyfile::read_keyfile_bytes(&self.path)?;
-        Byte32::from_slice(&bytes)
+        Byte32::from_slice(bytes.as_slice())
     }
     fn store_mk(&self, mk: &Byte32) -> Result<()> { keyfile::write_secure(&self.path, mk.as_slice()) }
 }
@@ -104,7 +112,11 @@ impl<P: MkProvider> KeyManager<P> {
 
     pub fn derive_secret32(&self, label: &[u8]) -> Result<Byte32> {
         let mk = self.mk_provider.load_mk()?;
-        Self::derive_secret32_from_mk(&mk, label)
+        self.mk_provider.derive_secret32(&mk, label)
+    }
+
+    pub fn mk_provider_mut(&mut self) -> &mut P {
+        &mut self.mk_provider
     }
 
     fn derive_secret32_from_mk(mk: &Byte32, label: &[u8]) -> Result<Byte32> {

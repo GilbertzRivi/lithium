@@ -4,11 +4,8 @@ use pqcrypto::traits::sign::{DetachedSignature as DStrait, PublicKey as PKtrait,
 use crate::{error::{LithiumError, Result}, secrets::Byte32, secrets::bytes::SecretBytes};
 
 pub fn sign_message<S: AsRef<[u8]>>(message: &[u8], priv_ed_seed: S) -> Result<SecretBytes> {
-    let seed = priv_ed_seed.as_ref();
-    if seed.len() != 32 { return Err(LithiumError::invalid_len(32, seed.len())); }
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(seed);
-    let signing = SigningKey::from_bytes(&arr);
+    let seed = Byte32::from_slice(priv_ed_seed.as_ref())?;
+    let signing = SigningKey::from_bytes(seed.as_array());
     let sig: Signature = signing.sign(message);
     Ok(SecretBytes::from_slice(&sig.to_bytes()))
 }
@@ -21,9 +18,12 @@ pub fn verify_signature(message: &[u8], signature: &[u8], pub_key: &Byte32) -> b
 }
 
 pub fn sign_message_dili<S: AsRef<[u8]>>(message: &[u8], dili_sk_bytes: S) -> Result<SecretBytes> {
-    let sk = SecretKey::from_bytes(dili_sk_bytes.as_ref()).map_err(|_| LithiumError::internal())?;
-    let sig: DetachedSignature = detached_sign(message, &sk);
-    Ok(SecretBytes::from_slice(sig.as_bytes()))
+    let sig_bytes = {
+        let sk = SecretKey::from_bytes(dili_sk_bytes.as_ref()).map_err(|_| LithiumError::internal())?;
+        let sig: DetachedSignature = detached_sign(message, &sk);
+        SecretBytes::from_slice(sig.as_bytes())
+    };
+    Ok(sig_bytes)
 }
 
 pub fn verify_signature_dili(message: &[u8], signature: &[u8], dili_pk_bytes: &SecretBytes) -> bool {

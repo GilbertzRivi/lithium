@@ -12,10 +12,10 @@ use crate::secrets::types::{MasterKey32, Nonce12, SessionId32};
 
 #[inline]
 pub fn random_fixed<const N: usize>() -> Result<FixedBytes<N>> {
-    let mut out = [0u8; N];
+    let mut out = FixedBytes::<N>::new_zeroed();
     let mut rng = SysRng;
-    rng.try_fill_bytes(&mut out)?;
-    Ok(FixedBytes::new(out))
+    rng.try_fill_bytes(out.as_mut_slice())?;
+    Ok(out)
 }
 #[inline]
 pub fn random_12() -> Result<Nonce12> { Ok(random_fixed::<12>()?) }

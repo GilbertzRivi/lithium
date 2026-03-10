@@ -47,10 +47,9 @@ impl SecretJson {
     }
     #[inline]
     pub fn from_zeroizing_vec(bytes: Zeroizing<Vec<u8>>) -> Result<Self> {
-        let mut z = bytes;
-        let inner: Vec<u8> = core::mem::take(&mut *z);
-        drop(z);
-        Self::from_vec(inner)
+        let s = core::str::from_utf8(bytes.as_slice())
+            .map_err(|e| LithiumError::string_policy().with_source(e))?;
+        Self::from_str(s)
     }
     #[inline]
     pub fn from_zeroizing_vec_no_raw(bytes: Zeroizing<Vec<u8>>) -> Result<Self> {

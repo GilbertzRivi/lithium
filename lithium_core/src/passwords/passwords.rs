@@ -127,12 +127,12 @@ fn derive_wrap_key(data_password: &SecretString, salt: &[u8]) -> Result<Byte32> 
         .map_err(|_| LithiumError::internal())?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
-    let mut out = [0u8; 32];
+    let mut out = Byte32::new_zeroed();
     argon2
-        .hash_password_into(data_password.expose().as_bytes(), salt, &mut out)
+        .hash_password_into(data_password.expose().as_bytes(), salt, out.as_mut_slice())
         .map_err(|_| LithiumError::internal())?;
 
-    Ok(Byte32::new(out))
+    Ok(out)
 }
 
 pub fn wrap_dek_for_server_hex(
@@ -159,21 +159,21 @@ pub fn wrap_dek_for_server_hex(
 }
 
 pub fn unwrap_dek_from_server_hex(
-    blob_hex: &str,
+    blob_hex: &SecretString,
     data_password: &SecretString,
 ) -> Result<Byte32> {
-    let blob = hex::decode(blob_hex.trim()).map_err(LithiumError::invalid_hex)?;
+    let blob = SecretBytes::from_hex(blob_hex.expose().trim())?;
 
     if blob.len() < 1 + DEK_WRAP_SALT_LEN + 1 + 12 + 16 {
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    if blob[0] != DEK_WRAP_VER {
+    if blob.as_slice()[0] != DEK_WRAP_VER {
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    let salt = &blob[1..1 + DEK_WRAP_SALT_LEN];
-    let wrapped = SecretBytes::from_slice(&blob[1 + DEK_WRAP_SALT_LEN..]);
+    let salt = &blob.as_slice()[1..1 + DEK_WRAP_SALT_LEN];
+    let wrapped = SecretBytes::from_slice(&blob.as_slice()[1 + DEK_WRAP_SALT_LEN..]);
 
     let key = derive_wrap_key(data_password, salt)?;
     let pt = aead::decrypt(

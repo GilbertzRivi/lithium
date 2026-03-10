@@ -50,8 +50,7 @@ impl SecretString {
 
     #[inline]
     pub fn decode_hex_fixed<const N: usize>(&self) -> Result<FixedBytes<N>> {
-        let v = self.decode_hex()?;
-        FixedBytes::<N>::from_slice(v.as_slice())
+        FixedBytes::<N>::from_hex(self.expose())
     }
 }
 

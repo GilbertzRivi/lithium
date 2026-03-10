@@ -4,22 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aes-gcm-siv = "0.12.0-rc.3"
+aes-gcm-siv = { version = "0.12.0-rc.3", features = ["zeroize"] }
 argon2 = { version = "0.6.0-rc.1" }
-base64 = "0.22.1"
-ed25519-dalek = { version = "3.0.0-pre.6" }
+ed25519-dalek = { version = "3.0.0-pre.6", features = ["zeroize"] }
 hex = "0.4"
 hkdf = "0.12"
-hmac = "0.12"
-password-hash = "0.5"
+password-hash = "0.6.0"
 pqcrypto = "0.18.1"
 rand = "0.10.0"
 secrecy = "0.10"
-sea-orm = { version = "2.0.0-rc.32", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
+sea-orm = { version = "2.0.0-rc.37", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
 tokio = { version = "1.50.0", features = ["sync", "time", "rt", "macros"] }
 uuid = { version = "1.22.0", features = ["v5", "serde"] }
-x25519-dalek = { version = "3.0.0-pre.6", features = ["static_secrets"] }
+x25519-dalek = { version = "3.0.0-pre.6", features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1.8.2", features = ["derive"] }

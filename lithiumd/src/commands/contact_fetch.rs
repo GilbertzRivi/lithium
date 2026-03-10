@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use lithium_core::secrets::bytes::SecretBytes;
+use lithium_core::{
+    secrets::{SecretJson},
+    secrets::bytes::SecretBytes,
+};
 
 use crate::{
     commands::contact_mailbox::{
@@ -14,7 +17,6 @@ use crate::{
     commands::e2e::{
         decrypt_for_prekey,
         decrypt_for_us,
-        ensure_peer_e2e,
         ensure_self_keyring,
         local_remove_public_prekey,
         peer_set_need_recover,
@@ -42,7 +44,10 @@ fn build_stored_message(
             "mailbox_gen": mailbox_gen
         }
     });
-    serde_json::to_vec(&v).map(SecretBytes::from_vec)
+
+    let mut out = SecretBytes::new(Vec::new());
+    serde_json::to_writer(out.as_mut_vec(), &v)?;
+    Ok(out)
 }
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
@@ -66,14 +71,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         return err_resp(id, "contact_not_found");
     };
 
-    let self_state_bytes = row.self_state.as_slice().to_vec();
-    let peer_state_bytes = row.peer_state.as_slice().to_vec();
-
-    let mut self_v: Value = match serde_json::from_slice(&self_state_bytes) {
+    let mut self_v = match SecretJson::from_bytes(row.self_state.as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let mut peer_v: Value = match serde_json::from_slice(&peer_state_bytes) {
+    let mut peer_v = match SecretJson::from_bytes(row.peer_state.as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
@@ -81,18 +83,28 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
     if ensure_self_keyring(&mut self_v).is_err() {
         return crypto_err(id);
     }
-    if ensure_peer_e2e(&mut peer_v).is_err() {
-        return crypto_err(id);
-    }
 
-    ensure_mailbox_state(&mut self_v, &mut peer_v);
+    self_v.with_exposed_mut(|self_state| {
+        peer_v.with_exposed_mut(|peer_state| {
+            ensure_mailbox_state(self_state, peer_state);
+        });
+    });
 
     {
-        let new_self_bytes = match serde_json::to_vec(&self_v) {
+        let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+            let mut out = SecretBytes::new(Vec::new());
+            serde_json::to_writer(out.as_mut_vec(), v)?;
+            Ok(out)
+        }) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "json_error"),
         };
-        let new_peer_bytes = match serde_json::to_vec(&peer_v) {
+
+        let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+            let mut out = SecretBytes::new(Vec::new());
+            serde_json::to_writer(out.as_mut_vec(), v)?;
+            Ok(out)
+        }) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "json_error"),
         };
@@ -101,8 +113,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
             .upsert_contact(
                 contact_id.clone(),
                 row.server.clone(),
-                SecretBytes::from_vec(new_peer_bytes),
-                SecretBytes::from_vec(new_self_bytes),
+                new_peer_bytes,
+                new_self_bytes,
             )
             .await
             .is_err()
@@ -111,15 +123,18 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         }
     }
 
-    let generations = inbound_fetch_generations(&peer_v);
+    let generations = peer_v.with_exposed(inbound_fetch_generations);
     let mut out = Vec::new();
 
     for mailbox_gen in generations {
-        let (_mbox_out, mbox_in) =
-            match derive_mailboxes_for_generation_from_values(&self_v, &peer_v, mailbox_gen) {
-                Ok(v) => v,
-                Err(_) => return crypto_err(id),
-            };
+        let (_mbox_out, mbox_in) = match self_v.with_exposed(|self_state| {
+            peer_v.with_exposed(|peer_state| {
+                derive_mailboxes_for_generation_from_values(self_state, peer_state, mailbox_gen)
+            })
+        }) {
+            Ok(v) => v,
+            Err(_) => return crypto_err(id),
+        };
         let mailbox_hex = hex::encode(&mbox_in);
 
         let resp = match proto
@@ -136,7 +151,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                     continue;
                 };
 
-                let raw = match hex::decode(h) {
+                let raw = match SecretBytes::from_hex(h.trim()) {
                     Ok(v) => v,
                     Err(_) => {
                         out.push(json!({
@@ -148,7 +163,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                     }
                 };
 
-                let w = match unpack_wire(&raw) {
+                let w = match unpack_wire(raw.as_slice()) {
                     Ok(v) => v,
                     Err(_) => {
                         out.push(json!({
@@ -167,9 +182,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             .and_then(|v| v.as_u64())
                             .unwrap_or(mailbox_gen);
 
-                        note_inbound_generation_seen(&mut peer_v, seen_gen);
+                        peer_v.with_exposed_mut(|peer_state| {
+                            note_inbound_generation_seen(peer_state, seen_gen);
+                        });
 
-                        let text = match String::from_utf8(pt.clone()) {
+                        let text = match String::from_utf8(pt) {
                             Ok(v) => v,
                             Err(_) => {
                                 out.push(json!({
@@ -238,9 +255,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(mailbox_gen);
 
-                                note_inbound_generation_seen(&mut peer_v, seen_gen);
+                                peer_v.with_exposed_mut(|peer_state| {
+                                    note_inbound_generation_seen(peer_state, seen_gen);
+                                });
 
-                                let text = match String::from_utf8(pt.clone()) {
+                                let text = match String::from_utf8(pt) {
                                     Ok(v) => v,
                                     Err(_) => {
                                         out.push(json!({
@@ -288,11 +307,20 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         }
     }
 
-    let new_self_bytes = match serde_json::to_vec(&self_v) {
+    let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v)?;
+        Ok(out)
+    }) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
-    let new_peer_bytes = match serde_json::to_vec(&peer_v) {
+
+    let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let mut out = SecretBytes::new(Vec::new());
+        serde_json::to_writer(out.as_mut_vec(), v)?;
+        Ok(out)
+    }) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
@@ -301,8 +329,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         .upsert_contact(
             contact_id.clone(),
             row.server.clone(),
-            SecretBytes::from_vec(new_peer_bytes),
-            SecretBytes::from_vec(new_self_bytes),
+            new_peer_bytes,
+            new_self_bytes,
         )
         .await
         .is_err()

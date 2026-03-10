@@ -33,15 +33,20 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
                         Err(_) => return internal_err(id),
                     };
 
-                    *state.dek_plain.lock().await = Some(arr);
+                    *state.dek_plain.lock().await = Some(arr.clone());
+
+                    let keys_opt = state.keys.lock().await.clone();
+                    let Some(keys) = keys_opt else {
+                        return err_resp(id, "keystore_locked");
+                    };
+
+                    {
+                        let mut km = keys.lock().await;
+                        km.mk_provider_mut().set_server_dek(arr.clone());
+                    }
 
                     let need_init = state.local_db.lock().await.is_none();
                     if need_init {
-                        let keys_opt = state.keys.lock().await.clone();
-                        let Some(keys) = keys_opt else {
-                            return err_resp(id, "keystore_locked");
-                        };
-
                         match db::init_local_data_manager(&state.base_dir, keys).await {
                             Ok(dm) => {
                                 *state.local_db.lock().await = Some(dm);
