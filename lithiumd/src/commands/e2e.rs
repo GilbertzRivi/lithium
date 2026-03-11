@@ -1,19 +1,25 @@
 use lithium_core::{
-    crypto::{kdf, keys, kyberbox},
+    crypto::{kdf, keys, kyberbox, sign},
     error::{LithiumError, Result},
     secrets::{Byte32, SecretJson},
     secrets::bytes::SecretBytes,
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+
+use crate::commands::contact_mailbox::{
+    current_outbound_mailbox_pubs,
+    peer_store_mailbox_sender_keys,
+};
 
 const MAGIC: &[u8; 3] = b"LM1";
 const VER: u8 = 1;
 
 const E2E_LABEL: &str = "lithiumd/e2e-msg/v1";
+const E2E_SIG_LABEL: &[u8] = b"lithiumd/e2e-msg-sig/v1";
 const KID_LABEL: &[u8] = b"lithiumd/e2e-peer-kid/v1";
 
-pub const DEFAULT_WINDOW: u64 = 64;
+pub const DEFAULT_WINDOW: u64 = 32;
 pub const PREKEY_TARGET: usize = 5;
 
 #[derive(Clone)]
@@ -42,6 +48,12 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn drop_removed_json_key(map: &mut Map<String, Value>, key: &str) {
+    if let Some(removed) = map.remove(key) {
+        drop(SecretJson::from(removed));
+    }
 }
 
 fn read_u16_be(b: &[u8], i: &mut usize) -> Result<usize> {
@@ -182,6 +194,246 @@ fn merge_remote_prekeys_into_peer(peer_v: &mut Value, incoming: &[Value], max_ke
     }
 }
 
+fn maybe_drop_bootstrap_private(self_v: &mut SecretJson, peer_v: &SecretJson) {
+    let peer_established = peer_v.with_exposed(|peer_v| peer_v.get("e2e_peer").is_some());
+
+    let retire_ok = self_v.with_exposed(|self_v| {
+        let ack_seq = self_v
+            .get("e2e_rx")
+            .and_then(|v| v.get("ack_seq"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        let marked = self_v
+            .get("bootstrap")
+            .and_then(|v| v.get("retire_ok"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        ack_seq > 0 || marked
+    });
+
+    if !(peer_established && retire_ok) {
+        return;
+    }
+
+    self_v.with_exposed_mut(|self_v| {
+        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
+            self_v["bootstrap"] = json!({});
+        }
+
+        if let Some(obj) = self_v.as_object_mut() {
+            drop_removed_json_key(obj, "x_priv");
+            drop_removed_json_key(obj, "k_priv");
+        }
+
+        self_v["bootstrap"]["rx_used"] = json!(true);
+        self_v["bootstrap"]["retire_ok"] = json!(true);
+        self_v["bootstrap"]["retired_at_ms"] = json!(now_ms());
+    });
+}
+
+pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &SecretJson) {
+    maybe_drop_bootstrap_private(self_v, peer_v);
+}
+
+pub fn mark_bootstrap_retire_ready(self_v: &mut SecretJson) {
+    self_v.with_exposed_mut(|self_v| {
+        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
+            self_v["bootstrap"] = json!({});
+        }
+        self_v["bootstrap"]["retire_ok"] = json!(true);
+    });
+}
+
+fn malicious_message_err() -> LithiumError {
+    LithiumError::invalid_credentials("potentially_harmful_message")
+}
+
+fn json_get_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(|x| x.as_str())
+}
+
+fn get_self_identity_privs(self_v: &SecretJson) -> Result<(Byte32, SecretBytes)> {
+    self_v.with_exposed(|self_v| {
+        let ed_priv_hex = self_v
+            .get("ed_priv")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| LithiumError::json_missing_field("ed_priv"))?;
+
+        let dili_priv_hex = self_v
+            .get("dili_priv")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| LithiumError::json_missing_field("dili_priv"))?;
+
+        Ok((
+            Byte32::from_hex(ed_priv_hex.trim())?,
+            SecretBytes::from_hex(dili_priv_hex.trim())?,
+        ))
+    })
+}
+
+fn get_peer_identity_pubs(peer_v: &Value) -> Result<(Byte32, SecretBytes)> {
+    let peer_obj = peer_v.get("peer").filter(|v| v.is_object()).unwrap_or(peer_v);
+
+    let ed_pub_hex = json_get_str(peer_obj, "ed_pub")
+        .ok_or_else(|| LithiumError::json_missing_field("ed_pub"))?;
+
+    let dili_pub_hex = json_get_str(peer_obj, "dili_pub")
+        .ok_or_else(|| LithiumError::json_missing_field("dili_pub"))?;
+
+    Ok((
+        Byte32::from_hex(ed_pub_hex.trim())?,
+        SecretBytes::from_hex(dili_pub_hex.trim())?,
+    ))
+}
+
+fn build_sig_input(
+    to_id: &[u8; 32],
+    from_x_pub: &[u8; 32],
+    hdr_unsigned: &[u8],
+    pt_body: &[u8],
+) -> SecretBytes {
+    let mut out = SecretBytes::new(Vec::with_capacity(
+        E2E_SIG_LABEL.len() + 32 + 32 + 4 + hdr_unsigned.len() + 4 + pt_body.len(),
+    ));
+
+    out.as_mut_vec().extend_from_slice(E2E_SIG_LABEL);
+    out.as_mut_vec().extend_from_slice(to_id);
+    out.as_mut_vec().extend_from_slice(from_x_pub);
+    out.as_mut_vec()
+        .extend_from_slice(&(hdr_unsigned.len() as u32).to_be_bytes());
+    out.as_mut_vec().extend_from_slice(hdr_unsigned);
+    out.as_mut_vec()
+        .extend_from_slice(&(pt_body.len() as u32).to_be_bytes());
+    out.as_mut_vec().extend_from_slice(pt_body);
+
+    out
+}
+
+fn sign_e2e_payload(
+    self_v: &SecretJson,
+    to_id: &[u8; 32],
+    from_x_pub: &[u8; 32],
+    hdr_unsigned: &[u8],
+    pt_body: &[u8],
+) -> Result<(String, String)> {
+    let (ed_priv, dili_priv) = get_self_identity_privs(self_v)?;
+    let sig_input = build_sig_input(to_id, from_x_pub, hdr_unsigned, pt_body);
+
+    let sig_ed = sign::sign_message(sig_input.as_slice(), ed_priv.as_slice())?;
+    let sig_dili = sign::sign_message_dili(sig_input.as_slice(), dili_priv.as_slice())?;
+
+    Ok((
+        sig_ed.to_hex().expose().to_owned(),
+        sig_dili.to_hex().expose().to_owned(),
+    ))
+}
+
+fn signed_header_parts(hdr_v: &Value) -> Result<(Vec<u8>, String, String)> {
+    let v = hdr_v
+        .get("v")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("v"))?;
+    let mode = hdr_v
+        .get("mode")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("mode"))?;
+    let ts_ms = hdr_v
+        .get("ts_ms")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("ts_ms"))?;
+    let msg_id = hdr_v
+        .get("msg_id")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("msg_id"))?;
+    let kind = hdr_v
+        .get("kind")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("kind"))?;
+    let step = hdr_v
+        .get("step")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("step"))?;
+    let mbox_gen = hdr_v
+        .get("mbox_gen")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("mbox_gen"))?;
+    let mailbox = hdr_v
+        .get("mailbox")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("mailbox"))?;
+    let reply = hdr_v
+        .get("reply")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("reply"))?;
+    let prekeys = hdr_v
+        .get("prekeys")
+        .cloned()
+        .ok_or_else(|| LithiumError::json_missing_field("prekeys"))?;
+
+    let auth = hdr_v
+        .get("auth")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| LithiumError::json_missing_field("auth"))?;
+
+    let sig_ed = auth
+        .get("sig_ed")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| LithiumError::json_missing_field("auth.sig_ed"))?
+        .to_string();
+
+    let sig_dili = auth
+        .get("sig_dili")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| LithiumError::json_missing_field("auth.sig_dili"))?
+        .to_string();
+
+    let hdr_unsigned = serde_json::to_vec(&json!({
+        "v": v,
+        "mode": mode,
+        "ts_ms": ts_ms,
+        "msg_id": msg_id,
+        "kind": kind,
+        "step": step,
+        "mbox_gen": mbox_gen,
+        "mailbox": mailbox,
+        "reply": reply,
+        "prekeys": prekeys
+    }))
+        .map_err(LithiumError::json_parse)?;
+
+    Ok((hdr_unsigned, sig_ed, sig_dili))
+}
+
+fn verify_e2e_payload(
+    peer_v: &Value,
+    to_id: &[u8; 32],
+    from_x_pub: &[u8; 32],
+    hdr_unsigned: &[u8],
+    pt_body: &[u8],
+    sig_ed_hex: &str,
+    sig_dili_hex: &str,
+) -> Result<()> {
+    let (ed_pub, dili_pub) = get_peer_identity_pubs(peer_v)?;
+    let sig_input = build_sig_input(to_id, from_x_pub, hdr_unsigned, pt_body);
+
+    let sig_ed = SecretBytes::from_hex(sig_ed_hex.trim())
+        .map_err(|_| LithiumError::invalid_credentials("bad_sig_ed_hex"))?;
+    let sig_dili = SecretBytes::from_hex(sig_dili_hex.trim())
+        .map_err(|_| LithiumError::invalid_credentials("bad_sig_dili_hex"))?;
+
+    if !sign::verify_signature(sig_input.as_slice(), sig_ed.as_slice(), &ed_pub) {
+        return Err(malicious_message_err());
+    }
+
+    if !sign::verify_signature_dili(sig_input.as_slice(), sig_dili.as_slice(), &dili_pub) {
+        return Err(malicious_message_err());
+    }
+
+    Ok(())
+}
+
 fn decrypt_with_privs(
     peer_v: &mut Value,
     w: &WireV1,
@@ -208,6 +460,19 @@ fn decrypt_with_privs(
     let hdr_v: Value =
         serde_json::from_slice(pt_headers.as_slice()).map_err(LithiumError::json_parse)?;
 
+    let (hdr_unsigned, sig_ed_hex, sig_dili_hex) =
+        signed_header_parts(&hdr_v).map_err(|_| malicious_message_err())?;
+
+    verify_e2e_payload(
+        peer_v,
+        &w.to_id,
+        &w.from_x_pub,
+        &hdr_unsigned,
+        pt_body.as_slice(),
+        &sig_ed_hex,
+        &sig_dili_hex,
+    )?;
+
     if let Some(arr) = hdr_v.get("prekeys").and_then(|v| v.as_array()) {
         merge_remote_prekeys_into_peer(peer_v, arr, PREKEY_TARGET);
     }
@@ -218,6 +483,19 @@ fn decrypt_with_privs(
         .get("mbox_gen")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
+
+    if let Some(mailbox_obj) = hdr_v.get("mailbox").and_then(|v| v.as_object()) {
+        let cur_pub = mailbox_obj
+            .get("sender_cur_x_pub")
+            .and_then(|v| v.as_str());
+        let next_pub = mailbox_obj
+            .get("sender_next_x_pub")
+            .and_then(|v| v.as_str());
+
+        if let (Some(cur), Some(next)) = (cur_pub, next_pub) {
+            peer_store_mailbox_sender_keys(peer_v, mailbox_gen, cur, next);
+        }
+    }
 
     let peer_step_cur = peer_v["e2e_peer"]["step"].as_u64().unwrap_or(0);
 
@@ -285,10 +563,16 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
 
         if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
             self_v["bootstrap"] = json!({
-                "rx_used": had_e2e_rx
+                "rx_used": false,
+                "retire_ok": false
             });
-        } else if self_v["bootstrap"].get("rx_used").is_none() {
-            self_v["bootstrap"]["rx_used"] = json!(had_e2e_rx);
+        } else {
+            if self_v["bootstrap"].get("rx_used").is_none() {
+                self_v["bootstrap"]["rx_used"] = json!(false);
+            }
+            if self_v["bootstrap"].get("retire_ok").is_none() {
+                self_v["bootstrap"]["retire_ok"] = json!(false);
+            }
         }
 
         if self_v.get("e2e_rx").is_some() {
@@ -338,11 +622,15 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
                 == Some(0);
 
             if remove_bootstrap {
-                keys.remove(&bootstrap_id_hex);
+                drop_removed_json_key(keys, &bootstrap_id_hex);
             }
         }
 
-        if self_v["e2e_rx"].get("active").and_then(|v| v.as_str()) == Some(bootstrap_id_hex.as_str()) {
+        if self_v["e2e_rx"]
+            .get("active")
+            .and_then(|v| v.as_str())
+            == Some(bootstrap_id_hex.as_str())
+        {
             self_v["e2e_rx"]["active"] = json!("");
         }
 
@@ -357,18 +645,11 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
     })
 }
 
-fn self_bootstrap_rx_privs(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<(Byte32, SecretBytes)> {
+fn self_bootstrap_rx_privs(
+    self_v: &SecretJson,
+    to_id: &[u8; 32],
+) -> Option<(Byte32, SecretBytes)> {
     self_v.with_exposed(|self_v| {
-        let used = self_v
-            .get("bootstrap")
-            .and_then(|v| v.get("rx_used"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        if used {
-            return None;
-        }
-
         let x_pub_hex = self_v.get("x_pub")?.as_str()?;
         let k_pub_hex = self_v.get("k_pub")?.as_str()?;
         let bootstrap_id = id_from_peer_pubs(x_pub_hex, k_pub_hex).ok()?;
@@ -387,37 +668,6 @@ fn self_bootstrap_rx_privs(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<(Byt
     })
 }
 
-fn self_mark_bootstrap_rx_used(self_v: &mut SecretJson) {
-    self_v.with_exposed_mut(|self_v| {
-        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
-            self_v["bootstrap"] = json!({});
-        }
-        self_v["bootstrap"]["rx_used"] = json!(true);
-
-        let x_pub_hex = match self_v.get("x_pub").and_then(|v| v.as_str()) {
-            Some(v) => v,
-            None => return,
-        };
-        let k_pub_hex = match self_v.get("k_pub").and_then(|v| v.as_str()) {
-            Some(v) => v,
-            None => return,
-        };
-
-        let Ok(bootstrap_id) = id_from_peer_pubs(x_pub_hex, k_pub_hex) else {
-            return;
-        };
-        let bootstrap_id_hex = hex::encode(bootstrap_id);
-
-        if let Some(keys) = self_v["e2e_rx"].get_mut("keys").and_then(|v| v.as_object_mut()) {
-            keys.remove(&bootstrap_id_hex);
-        }
-
-        if self_v["e2e_rx"].get("active").and_then(|v| v.as_str()) == Some(bootstrap_id_hex.as_str()) {
-            self_v["e2e_rx"]["active"] = json!("");
-        }
-    });
-}
-
 pub fn ensure_peer_e2e(peer_v: &mut SecretJson) -> Result<([u8; 32], String, String, u64)> {
     peer_v.with_exposed_mut(|peer_v| {
         let had_e2e = peer_v.get("e2e_peer").is_some();
@@ -431,9 +681,21 @@ pub fn ensure_peer_e2e(peer_v: &mut SecretJson) -> Result<([u8; 32], String, Str
         }
 
         if let Some(e2e) = peer_v.get("e2e_peer") {
-            let id_hex = e2e.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let x_pub = e2e.get("x_pub").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let k_pub = e2e.get("k_pub").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id_hex = e2e
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let x_pub = e2e
+                .get("x_pub")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let k_pub = e2e
+                .get("k_pub")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let step = e2e.get("step").and_then(|v| v.as_u64()).unwrap_or(0);
 
             if !id_hex.is_empty() && !x_pub.is_empty() && !k_pub.is_empty() {
@@ -448,13 +710,7 @@ pub fn ensure_peer_e2e(peer_v: &mut SecretJson) -> Result<([u8; 32], String, Str
 
 fn peer_bootstrap_target(peer_v: &SecretJson) -> Option<([u8; 32], String, String)> {
     peer_v.with_exposed(|peer_v| {
-        let used = peer_v
-            .get("bootstrap")
-            .and_then(|v| v.get("tx_used"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        if used {
+        if peer_v.get("e2e_peer").is_some() {
             return None;
         }
 
@@ -471,18 +727,12 @@ fn peer_bootstrap_target(peer_v: &SecretJson) -> Option<([u8; 32], String, Strin
     })
 }
 
-fn peer_mark_bootstrap_tx_used(peer_v: &mut SecretJson) {
-    peer_v.with_exposed_mut(|peer_v| {
-        if peer_v.get("bootstrap").is_none() || !peer_v["bootstrap"].is_object() {
-            peer_v["bootstrap"] = json!({});
-        }
-        peer_v["bootstrap"]["tx_used"] = json!(true);
-    });
-}
-
 pub fn peer_need_recover(peer_v: &SecretJson) -> bool {
     peer_v.with_exposed(|peer_v| {
-        peer_v.get("need_recover").and_then(|v| v.as_bool()).unwrap_or(false)
+        peer_v
+            .get("need_recover")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     })
 }
 
@@ -505,16 +755,13 @@ pub fn peer_pick_remote_prekey(peer_v: &SecretJson) -> Option<(String, String, S
 
 pub fn peer_remove_remote_prekey(peer_v: &mut SecretJson, id_hex: &str) {
     peer_v.with_exposed_mut(|peer_v| {
-        let Some(arr) = peer_v.get_mut("prekeys_remote").and_then(|v| v.as_array_mut()) else {
+        let Some(arr) = peer_v
+            .get_mut("prekeys_remote")
+            .and_then(|v| v.as_array_mut())
+        else {
             return;
         };
         arr.retain(|v| v.get("id").and_then(|x| x.as_str()) != Some(id_hex));
-    });
-}
-
-pub fn peer_merge_remote_prekeys(peer_v: &mut SecretJson, incoming: &[Value], max_keep: usize) {
-    peer_v.with_exposed_mut(|peer_v| {
-        merge_remote_prekeys_into_peer(peer_v, incoming, max_keep);
     });
 }
 
@@ -533,12 +780,6 @@ pub fn prekeys_mark_advertised(self_v: &mut SecretJson) {
     });
 }
 
-pub fn prekeys_mark_dirty(self_v: &mut SecretJson) {
-    self_v.with_exposed_mut(|self_v| {
-        self_v["prekeys_advertised"] = json!(false);
-    });
-}
-
 pub fn local_public_prekeys(self_v: &SecretJson) -> Vec<Value> {
     self_v.with_exposed(|self_v| {
         self_v
@@ -551,7 +792,10 @@ pub fn local_public_prekeys(self_v: &SecretJson) -> Vec<Value> {
 
 pub fn local_remove_public_prekey(self_v: &mut SecretJson, id_hex: &str) {
     self_v.with_exposed_mut(|self_v| {
-        let Some(arr) = self_v.get_mut("prekeys_local_public").and_then(|v| v.as_array_mut()) else {
+        let Some(arr) = self_v
+            .get_mut("prekeys_local_public")
+            .and_then(|v| v.as_array_mut())
+        else {
             return;
         };
         arr.retain(|v| v.get("id").and_then(|x| x.as_str()) != Some(id_hex));
@@ -674,7 +918,7 @@ fn gc_after_ack(self_v: &mut SecretJson) {
 
         if let Some(keys) = self_v["e2e_rx"]["keys"].as_object_mut() {
             for k in remove {
-                keys.remove(&k);
+                drop_removed_json_key(keys, &k);
             }
         }
     });
@@ -701,8 +945,6 @@ pub fn encrypt_for_peer(
 
     let step = next_tx_step(self_v);
 
-    let mut used_bootstrap = false;
-
     let (target_id, target_x_pub_hex, target_k_pub_hex, mode) = if use_recovery {
         let Some((id_hex, x_pub, k_pub)) = peer_pick_remote_prekey(peer_v) else {
             return Err(LithiumError::invalid_credentials("no_remote_prekey"));
@@ -712,7 +954,6 @@ pub fn encrypt_for_peer(
     } else if let Ok((id, x_pub, k_pub, _st)) = ensure_peer_e2e(peer_v) {
         (id, x_pub, k_pub, "ratchet")
     } else if let Some((id, x_pub, k_pub)) = peer_bootstrap_target(peer_v) {
-        used_bootstrap = true;
         (id, x_pub, k_pub, "bootstrap")
     } else {
         return Err(LithiumError::invalid_credentials("need_reply_or_prekey"));
@@ -750,17 +991,24 @@ pub fn encrypt_for_peer(
             .and_then(|v| v.as_object_mut())
             .ok_or_else(|| LithiumError::json_missing_field("e2e_rx.keys"))?;
 
-        keys.insert(id_hex.expose().to_owned(), json!({
-            "x_priv": rx_x_priv_hex.expose(),
-            "x_pub": rx_x_pub_hex.expose(),
-            "k_priv": rx_k_priv_hex.expose(),
-            "k_pub": rx_k_pub_hex.expose(),
-            "seq": seq,
-            "created_at_ms": now_ms()
-        }));
+        keys.insert(
+            id_hex.expose().to_owned(),
+            json!({
+                "x_priv": rx_x_priv_hex.expose(),
+                "x_pub": rx_x_pub_hex.expose(),
+                "k_priv": rx_k_priv_hex.expose(),
+                "k_pub": rx_k_pub_hex.expose(),
+                "seq": seq,
+                "created_at_ms": now_ms()
+            }),
+        );
 
         Ok(())
     })?;
+
+    let (mailbox_sender_cur_x_pub, mailbox_sender_next_x_pub) = self_v
+        .with_exposed(current_outbound_mailbox_pubs)
+        .ok_or_else(|| LithiumError::json_missing_field("mbox_out_cur_pub"))?;
 
     let (msg_x_priv, msg_x_pub) = keys::random_x25519_keypair()?;
     let mut from_x_pub = [0u8; 32];
@@ -768,6 +1016,37 @@ pub fn encrypt_for_peer(
 
     let ts_ms = now_ms();
     let msg_id = keys::random_fixed::<16>()?.to_hex().expose().to_owned();
+
+    let hdr_unsigned = json!({
+        "v": 1,
+        "mode": mode,
+        "ts_ms": ts_ms,
+        "msg_id": msg_id,
+        "kind": kind,
+        "step": step,
+        "mbox_gen": mailbox_gen,
+        "mailbox": {
+            "sender_cur_x_pub": mailbox_sender_cur_x_pub,
+            "sender_next_x_pub": mailbox_sender_next_x_pub
+        },
+        "reply": {
+            "id": reply_id.to_hex().expose(),
+            "x_pub": rx_x_pub_hex.expose(),
+            "k_pub": rx_k_pub_hex.expose()
+        },
+        "prekeys": prekeys_advertise
+    });
+
+    let hdr_unsigned_bytes =
+        serde_json::to_vec(&hdr_unsigned).map_err(LithiumError::json_parse)?;
+
+    let (sig_ed, sig_dili) = sign_e2e_payload(
+        self_v,
+        &target_id,
+        &from_x_pub,
+        &hdr_unsigned_bytes,
+        plaintext,
+    )?;
 
     let hdr_plain = serde_json::to_vec(&json!({
         "v": 1,
@@ -777,12 +1056,20 @@ pub fn encrypt_for_peer(
         "kind": kind,
         "step": step,
         "mbox_gen": mailbox_gen,
+        "mailbox": {
+            "sender_cur_x_pub": mailbox_sender_cur_x_pub,
+            "sender_next_x_pub": mailbox_sender_next_x_pub
+        },
         "reply": {
             "id": reply_id.to_hex().expose(),
             "x_pub": rx_x_pub_hex.expose(),
             "k_pub": rx_k_pub_hex.expose()
         },
-        "prekeys": prekeys_advertise
+        "prekeys": prekeys_advertise,
+        "auth": {
+            "sig_ed": sig_ed,
+            "sig_dili": sig_dili
+        }
     }))
         .map_err(LithiumError::json_parse)?;
 
@@ -795,9 +1082,7 @@ pub fn encrypt_for_peer(
         &SecretBytes::from_vec(hdr_plain),
     )?;
 
-    if used_bootstrap {
-        peer_mark_bootstrap_tx_used(peer_v);
-    }
+    maybe_drop_bootstrap_private(self_v, peer_v);
 
     Ok((
         WireV1 {
@@ -824,21 +1109,16 @@ pub fn decrypt_for_us(
 ) -> Result<(Vec<u8>, Value)> {
     ensure_self_keyring(self_v)?;
 
-    let (rx_x_priv, rx_k_priv, used_bootstrap) =
-        if let Some((rx_x_priv, rx_k_priv)) = self_get_rx_privs(self_v, &w.to_id) {
-            (rx_x_priv, rx_k_priv, false)
-        } else if let Some((rx_x_priv, rx_k_priv)) = self_bootstrap_rx_privs(self_v, &w.to_id) {
-            (rx_x_priv, rx_k_priv, true)
-        } else {
-            return Err(LithiumError::invalid_credentials("to_id_unknown"));
-        };
+    let mut used_ratchet_rx = false;
 
-    let (pt, ui) =
-        peer_v.with_exposed_mut(|peer_v| decrypt_with_privs(peer_v, w, &rx_x_priv, &rx_k_priv))?;
-
-    if used_bootstrap {
-        self_mark_bootstrap_rx_used(self_v);
-    }
+    let (pt, ui) = if let Some((rx_x_priv, rx_k_priv)) = self_get_rx_privs(self_v, &w.to_id) {
+        used_ratchet_rx = true;
+        peer_v.with_exposed_mut(|peer_v| decrypt_with_privs(peer_v, w, &rx_x_priv, &rx_k_priv))?
+    } else if let Some((rx_x_priv, rx_k_priv)) = self_bootstrap_rx_privs(self_v, &w.to_id) {
+        peer_v.with_exposed_mut(|peer_v| decrypt_with_privs(peer_v, w, &rx_x_priv, &rx_k_priv))?
+    } else {
+        return Err(LithiumError::invalid_credentials("to_id_unknown"));
+    };
 
     if let Some(seq) = self_find_seq(self_v, &w.to_id) {
         self_v.with_exposed_mut(|self_v| {
@@ -849,6 +1129,12 @@ pub fn decrypt_for_us(
         });
         gc_after_ack(self_v);
     }
+
+    if used_ratchet_rx {
+        mark_bootstrap_retire_ready(self_v);
+    }
+
+    maybe_drop_bootstrap_private(self_v, peer_v);
 
     Ok((pt, ui))
 }

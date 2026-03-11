@@ -1,4 +1,9 @@
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -16,6 +21,34 @@ struct Envelope {
     pub ok: bool,
     pub result: Option<Value>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct UnlockKeystoreResult {
+    #[serde(default)]
+    pub unlocked: bool,
+    #[serde(default)]
+    pub ipc_auth_token: String,
+}
+
+static IPC_AUTH_TOKEN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn auth_slot() -> &'static Mutex<Option<String>> {
+    IPC_AUTH_TOKEN.get_or_init(|| Mutex::new(None))
+}
+
+fn current_auth_token() -> Option<String> {
+    auth_slot().lock().map(|g| g.clone()).unwrap_or(None)
+}
+
+fn set_auth_token(token: Option<String>) {
+    if let Ok(mut guard) = auth_slot().lock() {
+        *guard = token;
+    }
+}
+
+pub fn has_auth_token() -> bool {
+    auth_slot().lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -120,7 +153,19 @@ pub struct AcceptInviteResult {
     pub my_code: String,
 }
 
-async fn send_request(req: Value) -> Result<Value, String> {
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct VerifyEmojiResult {
+    #[serde(default)]
+    pub emojis: Vec<String>,
+}
+
+async fn send_request(mut req: Value) -> Result<Value, String> {
+    if let Some(token) = current_auth_token() {
+        if let Some(obj) = req.as_object_mut() {
+            obj.insert("auth_token".into(), Value::String(token));
+        }
+    }
+
     let line = serde_json::to_string(&req).map_err(|e| format!("json_encode_failed:{e}"))?;
 
     #[cfg(unix)]
@@ -176,7 +221,11 @@ where
     if env.ok {
         Ok(env.result.unwrap_or(Value::Null))
     } else {
-        Err(env.error.unwrap_or_else(|| "ipc_error".to_string()))
+        let err = env.error.unwrap_or_else(|| "ipc_error".to_string());
+        if err == "ipc_auth_failed" || err == "ipc_auth_required" {
+            set_auth_token(None);
+        }
+        Err(err)
     }
 }
 
@@ -200,7 +249,9 @@ fn default_pipe_name() -> String {
 }
 
 #[cfg(windows)]
-async fn connect_named_pipe(name: &str) -> Result<tokio::net::windows::named_pipe::NamedPipeClient, String> {
+async fn connect_named_pipe(
+    name: &str,
+) -> Result<tokio::net::windows::named_pipe::NamedPipeClient, String> {
     let mut last_err = None;
 
     for _ in 0..40 {
@@ -224,18 +275,29 @@ pub async fn ping() -> Result<PingResult, String> {
         "cmd": "ping",
         "id": 1
     }))
-    .await?;
+        .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_ping_payload:{e}"))
 }
 
 pub async fn unlock_keystore(data_password: &str) -> Result<(), String> {
-    let _ = send_request(json!({
+    set_auth_token(None);
+
+    let v = send_request(json!({
         "cmd": "unlock_keystore",
         "id": 2,
         "data_password": data_password
     }))
-    .await?;
+        .await?;
+
+    let parsed: UnlockKeystoreResult =
+        serde_json::from_value(v).map_err(|e| format!("bad_unlock_payload:{e}"))?;
+
+    if !parsed.unlocked || parsed.ipc_auth_token.is_empty() {
+        return Err("bad_unlock_payload:missing_ipc_auth_token".into());
+    }
+
+    set_auth_token(Some(parsed.ipc_auth_token));
     Ok(())
 }
 
@@ -246,7 +308,7 @@ pub async fn set_credentials(handler: &str, password: &str) -> Result<(), String
         "handler": handler,
         "password": password
     }))
-    .await?;
+        .await?;
     Ok(())
 }
 
@@ -255,7 +317,7 @@ pub async fn register() -> Result<(), String> {
         "cmd": "register",
         "id": 4
     }))
-    .await?;
+        .await?;
     Ok(())
 }
 
@@ -264,7 +326,7 @@ pub async fn unlock_storage() -> Result<(), String> {
         "cmd": "unlock_storage",
         "id": 5
     }))
-    .await?;
+        .await?;
     Ok(())
 }
 
@@ -273,7 +335,7 @@ pub async fn contacts_list() -> Result<Vec<ContactInfo>, String> {
         "cmd": "contacts_list",
         "id": 6
     }))
-    .await?;
+        .await?;
 
     let parsed: ContactsResult =
         serde_json::from_value(v).map_err(|e| format!("bad_contacts_payload:{e}"))?;
@@ -288,7 +350,7 @@ pub async fn messages_list(contact_id: &str, limit: u64, before_id: Option<i64>)
         "limit": limit,
         "before_id": before_id
     }))
-    .await?;
+        .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_messages_payload:{e}"))
 }
@@ -300,7 +362,7 @@ pub async fn contact_send(contact_id: &str, plaintext: &str) -> Result<(), Strin
         "contact_id": contact_id,
         "plaintext": plaintext
     }))
-    .await?;
+        .await?;
     Ok(())
 }
 
@@ -322,7 +384,7 @@ pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResul
         "contact_id": contact_id,
         "server": null
     }))
-    .await?;
+        .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_create_invite_payload:{e}"))
 }
@@ -335,7 +397,7 @@ pub async fn accept_invite(code: &str, label: &str, contact_id: Option<&str>) ->
         "contact_id": contact_id,
         "label": label
     }))
-    .await?;
+        .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_accept_invite_payload:{e}"))
 }
@@ -346,8 +408,19 @@ pub async fn contact_forget(contact_id: &str) -> Result<(), String> {
         "id": 12,
         "contact_id": contact_id
     }))
-    .await?;
+        .await?;
     Ok(())
+}
+
+pub async fn contact_verify_emoji(contact_id: &str) -> Result<VerifyEmojiResult, String> {
+    let v = send_request(json!({
+        "cmd": "contact_verify_emoji",
+        "id": 14,
+        "contact_id": contact_id
+    }))
+        .await?;
+
+    serde_json::from_value(v).map_err(|e| format!("bad_contact_verify_emoji_payload:{e}"))
 }
 
 pub async fn wipe_local() -> Result<(), String> {
@@ -356,6 +429,7 @@ pub async fn wipe_local() -> Result<(), String> {
         "id": 13
     }))
         .await?;
+    set_auth_token(None);
     Ok(())
 }
 

@@ -8,7 +8,7 @@ use lithium_core::{
 };
 
 const INV_MAGIC: &[u8; 4] = b"LCI1";
-const INV_VER: u8 = 1;
+const INV_VER: u8 = 2;
 
 #[derive(Clone)]
 pub struct InvitePublic {
@@ -18,6 +18,10 @@ pub struct InvitePublic {
     pub k_pub_hex: SecretString,
     pub ed_pub_hex: SecretString,
     pub dili_pub_hex: SecretString,
+
+    pub mbox_in_pub_hex: SecretString,
+    pub mbox_out_cur_pub_hex: SecretString,
+    pub mbox_out_next_pub_hex: SecretString,
 }
 
 #[derive(Serialize)]
@@ -33,6 +37,13 @@ struct SelfStateSerde<'a> {
     ed_pub: &'a str,
     dili_priv: &'a str,
     dili_pub: &'a str,
+
+    mbox_in_priv: &'a str,
+    mbox_in_pub: &'a str,
+    mbox_out_cur_priv: &'a str,
+    mbox_out_cur_pub: &'a str,
+    mbox_out_next_priv: &'a str,
+    mbox_out_next_pub: &'a str,
 }
 
 pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
@@ -47,6 +58,10 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
     let ed_pub = Byte32::from_hex(p.ed_pub_hex.expose().trim())?;
     let dili_pub = SecretBytes::from_hex(p.dili_pub_hex.expose().trim())?;
 
+    let mbox_in_pub = Byte32::from_hex(p.mbox_in_pub_hex.expose().trim())?;
+    let mbox_out_cur_pub = Byte32::from_hex(p.mbox_out_cur_pub_hex.expose().trim())?;
+    let mbox_out_next_pub = Byte32::from_hex(p.mbox_out_next_pub_hex.expose().trim())?;
+
     if !(cid.len() == 16 || cid.len() == 32) {
         return Err(LithiumError::invalid_len(32, cid.len()));
     }
@@ -60,7 +75,8 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
             + 32
             + 2 + k_pub.len()
             + 32
-            + 2 + dili_pub.len(),
+            + 2 + dili_pub.len()
+            + 32 + 32 + 32,
     ));
 
     out.as_mut_vec().extend_from_slice(INV_MAGIC);
@@ -85,6 +101,10 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
         .extend_from_slice(&(dili_pub.len() as u16).to_be_bytes());
     out.as_mut_vec().extend_from_slice(dili_pub.as_slice());
 
+    out.as_mut_vec().extend_from_slice(mbox_in_pub.as_slice());
+    out.as_mut_vec().extend_from_slice(mbox_out_cur_pub.as_slice());
+    out.as_mut_vec().extend_from_slice(mbox_out_next_pub.as_slice());
+
     Ok(SecretString::new(format!("lci1:{}", hex::encode(out.as_slice()))))
 }
 
@@ -92,13 +112,17 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
     let s = code.expose().trim();
     let hex_part = s.strip_prefix("lci1:").unwrap_or(s);
     let blob = SecretBytes::from_hex(hex_part)?;
-
     let blob = blob.as_slice();
 
     if blob.len() < 4 + 1 + 2 + 1 + 32 + 2 + 32 + 2 {
         return Err(LithiumError::invalid_credentials("invalid_invite_code"));
     }
-    if &blob[0..4] != INV_MAGIC || blob[4] != INV_VER {
+    if &blob[0..4] != INV_MAGIC {
+        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+    }
+
+    let ver = blob[4];
+    if ver != 1 && ver != 2 {
         return Err(LithiumError::invalid_credentials("invalid_invite_code"));
     }
 
@@ -147,6 +171,22 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
         return Err(LithiumError::invalid_credentials("invalid_invite_code"));
     }
     let dili_pub = &blob[i..i + dili_len];
+    i += dili_len;
+
+    let (mbox_in_pub, mbox_out_cur_pub, mbox_out_next_pub) = if ver >= 2 {
+        if blob.len() < i + 32 + 32 + 32 {
+            return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+        }
+        let mbox_in_pub = &blob[i..i + 32];
+        i += 32;
+        let mbox_out_cur_pub = &blob[i..i + 32];
+        i += 32;
+        let mbox_out_next_pub = &blob[i..i + 32];
+
+        (mbox_in_pub, mbox_out_cur_pub, mbox_out_next_pub)
+    } else {
+        (x_pub, x_pub, x_pub)
+    };
 
     Ok(InvitePublic {
         server: SecretString::new(server),
@@ -155,6 +195,9 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
         k_pub_hex: SecretString::new(hex::encode(k_pub)),
         ed_pub_hex: SecretString::new(hex::encode(ed_pub)),
         dili_pub_hex: SecretString::new(hex::encode(dili_pub)),
+        mbox_in_pub_hex: SecretString::new(hex::encode(mbox_in_pub)),
+        mbox_out_cur_pub_hex: SecretString::new(hex::encode(mbox_out_cur_pub)),
+        mbox_out_next_pub_hex: SecretString::new(hex::encode(mbox_out_next_pub)),
     })
 }
 
@@ -174,6 +217,10 @@ pub fn gen_self_state(server: SecretString) -> Result<(Vec<u8>, SecretJson)> {
     let (ed_priv, ed_pub) = keys::random_ed25519_keypair()?;
     let (dili_priv, dili_pub) = keys::random_dilithium_mldsa87_keypair()?;
 
+    let (mbox_in_priv, mbox_in_pub) = keys::random_x25519_keypair()?;
+    let (mbox_out_cur_priv, mbox_out_cur_pub) = keys::random_x25519_keypair()?;
+    let (mbox_out_next_priv, mbox_out_next_pub) = keys::random_x25519_keypair()?;
+
     let cid_hex = cid.to_hex();
     let x_priv_hex = x_priv.to_hex();
     let x_pub_hex = x_pub.to_hex();
@@ -183,6 +230,13 @@ pub fn gen_self_state(server: SecretString) -> Result<(Vec<u8>, SecretJson)> {
     let ed_pub_hex = ed_pub.to_hex();
     let dili_priv_hex = dili_priv.to_hex();
     let dili_pub_hex = dili_pub.to_hex();
+
+    let mbox_in_priv_hex = mbox_in_priv.to_hex();
+    let mbox_in_pub_hex = mbox_in_pub.to_hex();
+    let mbox_out_cur_priv_hex = mbox_out_cur_priv.to_hex();
+    let mbox_out_cur_pub_hex = mbox_out_cur_pub.to_hex();
+    let mbox_out_next_priv_hex = mbox_out_next_priv.to_hex();
+    let mbox_out_next_pub_hex = mbox_out_next_pub.to_hex();
 
     let state = SelfStateSerde {
         v: 1,
@@ -196,6 +250,13 @@ pub fn gen_self_state(server: SecretString) -> Result<(Vec<u8>, SecretJson)> {
         ed_pub: ed_pub_hex.expose(),
         dili_priv: dili_priv_hex.expose(),
         dili_pub: dili_pub_hex.expose(),
+
+        mbox_in_priv: mbox_in_priv_hex.expose(),
+        mbox_in_pub: mbox_in_pub_hex.expose(),
+        mbox_out_cur_priv: mbox_out_cur_priv_hex.expose(),
+        mbox_out_cur_pub: mbox_out_cur_pub_hex.expose(),
+        mbox_out_next_priv: mbox_out_next_priv_hex.expose(),
+        mbox_out_next_pub: mbox_out_next_pub_hex.expose(),
     };
 
     let mut buf = SecretBytes::new(Vec::new());

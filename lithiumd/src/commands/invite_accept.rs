@@ -32,6 +32,21 @@ struct PeerStatePeer<'a> {
     k_pub: &'a str,
     ed_pub: &'a str,
     dili_pub: &'a str,
+
+    mbox_in_pub: &'a str,
+    mbox_out_cur_pub: &'a str,
+    mbox_out_next_pub: &'a str,
+}
+
+fn get_self_string_or_fallback(
+    self_json: &SecretJson,
+    key: &'static str,
+    fallback: &'static str,
+) -> Result<SecretString, ()> {
+    self_json
+        .get_string(key)
+        .or_else(|_| self_json.get_string(fallback))
+        .map_err(|_| ())
 }
 
 pub async fn handle(
@@ -119,6 +134,10 @@ pub async fn handle(
             k_pub: peer.k_pub_hex.expose(),
             ed_pub: peer.ed_pub_hex.expose(),
             dili_pub: peer.dili_pub_hex.expose(),
+
+            mbox_in_pub: peer.mbox_in_pub_hex.expose(),
+            mbox_out_cur_pub: peer.mbox_out_cur_pub_hex.expose(),
+            mbox_out_next_pub: peer.mbox_out_next_pub_hex.expose(),
         },
     };
 
@@ -186,6 +205,21 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
+        let mbox_in_pub = match get_self_string_or_fallback(&self_json, "mbox_in_pub", "x_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let mbox_out_cur_pub =
+            match get_self_string_or_fallback(&self_json, "mbox_out_cur_pub", "x_pub") {
+                Ok(v) => v,
+                Err(_) => return err_resp(id, "self_state_corrupt"),
+            };
+        let mbox_out_next_pub =
+            match get_self_string_or_fallback(&self_json, "mbox_out_next_pub", "x_pub") {
+                Ok(v) => v,
+                Err(_) => return err_resp(id, "self_state_corrupt"),
+            };
+
         let my_pub = InvitePublic {
             server: server_ss.clone(),
             cid_hex,
@@ -193,6 +227,10 @@ pub async fn handle(
             k_pub_hex: k_pub,
             ed_pub_hex: ed_pub,
             dili_pub_hex: dili_pub,
+
+            mbox_in_pub_hex: mbox_in_pub,
+            mbox_out_cur_pub_hex: mbox_out_cur_pub,
+            mbox_out_next_pub_hex: mbox_out_next_pub,
         };
 
         match encode_invite_code(&my_pub) {

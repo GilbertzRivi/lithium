@@ -1,11 +1,11 @@
 use std::time::Duration;
+
 use chrono::Utc;
 use sea_orm::sea_query::{LockBehavior, LockType};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-    Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    TransactionTrait,
 };
-
 use uuid::Uuid;
 
 use lithium_core::{
@@ -14,11 +14,10 @@ use lithium_core::{
     error::{LithiumError, Result},
     keys::MkProvider,
     passwords::passwords::{hash_password_phc, verify_password_phc},
-    secrets::{Byte12, Byte32},
+    secrets::{Byte12, Byte32, SecretString},
     utils::store::EphemeralStoreManager,
 };
 use lithium_core::secrets::bytes::SecretBytes;
-use lithium_core::secrets::SecretString;
 
 use crate::db::models::{messages, users};
 use crate::error::{AppError, AppResult};
@@ -31,9 +30,22 @@ const UIDENC_NONCE_LABEL: &[u8] = b"user-idenc/nonce/v1";
 
 const AAD_MSG: &[u8] = b"message-content/v1";
 
+const AAD_USER_PASSWORD_HASH: &[u8] = b"user-password-hash/v1";
 const AAD_USER_HANDLER: &[u8] = b"user-handler/v1";
+const AAD_USER_ED_KEY: &[u8] = b"user-ed-key/v1";
+const AAD_USER_DILI_KEY: &[u8] = b"user-dili-key/v1";
 const AAD_USER_DEK: &[u8] = b"user-dek/v1";
+
 const MSG_KEY_TTL: Duration = Duration::from_secs(24 * 3600);
+
+#[derive(Clone, Debug)]
+pub struct UserRecord {
+    pub id: Vec<u8>,
+    pub password_hash: SecretString,
+    pub ed_key: Byte32,
+    pub dili_key: SecretBytes,
+    pub dek: SecretString,
+}
 
 #[inline]
 fn normalize_handler(handler: &str) -> String {
@@ -60,9 +72,7 @@ async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
         Some(&SecretBytes::from_slice(dek.as_slice())),
         &SecretBytes::from_slice(UIDENC_NONCE_LABEL),
     )?;
-    let mut nb = [0u8; 12];
-    nb.copy_from_slice(&n32.as_slice()[..12]);
-    let nonce = Byte12::new(nb);
+    let nonce = Byte12::from_slice(&n32.as_slice()[..12])?;
 
     let ct = aead::encrypt_raw(
         &SecretBytes::from_slice(id.as_bytes()),
@@ -74,7 +84,7 @@ async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
     let mut out = Vec::with_capacity(1 + 12 + ct.as_slice().len());
     out.push(UIDENC_VER);
     out.extend_from_slice(nonce.as_slice());
-    out.extend_from_slice(&ct.as_slice());
+    out.extend_from_slice(ct.as_slice());
     Ok(SecretBytes::from_vec(out))
 }
 
@@ -85,7 +95,7 @@ fn seal_msg(plaintext: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<
     let mut out = Vec::with_capacity(1 + 12 + ct.as_slice().len());
     out.push(MSG_VER);
     out.extend_from_slice(nonce.as_slice());
-    out.extend_from_slice(&ct.as_slice());
+    out.extend_from_slice(ct.as_slice());
     Ok(SecretBytes::from_vec(out))
 }
 
@@ -96,10 +106,10 @@ fn open_msg(blob: &[u8], key: &Byte32, aad: &[u8]) -> Result<SecretBytes> {
     if blob[0] != MSG_VER {
         return Err(LithiumError::aead_failed());
     }
-    let mut nb = [0u8; 12];
-    nb.copy_from_slice(&blob[1..13]);
-    let nonce = Byte12::new(nb);
+
+    let nonce = Byte12::from_slice(&blob[1..13])?;
     let ct = &blob[13..];
+
     aead::decrypt_raw(
         &SecretBytes::from_slice(ct),
         key,
@@ -108,9 +118,50 @@ fn open_msg(blob: &[u8], key: &Byte32, aad: &[u8]) -> Result<SecretBytes> {
     )
 }
 
+async fn decrypt_user_row<P: MkProvider + Send + Sync + 'static>(
+    dm: &DataManager<P>,
+    row: users::Model,
+) -> AppResult<UserRecord> {
+    let password_hash_plain = dm
+        .decrypt_db_blob(
+            &SecretBytes::from_slice(row.password_hash.as_slice()),
+            &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
+        )
+        .await?;
+
+    let ed_key_plain = dm
+        .decrypt_db_blob(
+            &SecretBytes::from_slice(row.ed_key.as_slice()),
+            &SecretBytes::from_slice(AAD_USER_ED_KEY),
+        )
+        .await?;
+
+    let dili_key_plain = dm
+        .decrypt_db_blob(
+            &SecretBytes::from_slice(row.dili_key.as_slice()),
+            &SecretBytes::from_slice(AAD_USER_DILI_KEY),
+        )
+        .await?;
+
+    let dek_plain = dm
+        .decrypt_db_blob(
+            &SecretBytes::from_slice(row.dek.as_slice()),
+            &SecretBytes::from_slice(AAD_USER_DEK),
+        )
+        .await?;
+
+    Ok(UserRecord {
+        id: row.id,
+        password_hash: SecretString::from_utf8_bytes(password_hash_plain.as_slice())
+            .map_err(AppError::from)?,
+        ed_key: Byte32::from_slice(ed_key_plain.as_slice()).map_err(AppError::from)?,
+        dili_key: dili_key_plain,
+        dek: SecretString::from_utf8_bytes(dek_plain.as_slice()).map_err(AppError::from)?,
+    })
+}
+
 #[allow(async_fn_in_trait)]
 pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
-    // users
     async fn create_user(
         &self,
         handler: &str,
@@ -120,12 +171,10 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         dek: &[u8],
     ) -> AppResult<bool>;
 
-    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<users::Model>>;
-    async fn get_user(&self, handler: &str) -> AppResult<Option<users::Model>>;
-    async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<users::Model>>;
-    async fn get_dek_for_user(&self, user: &users::Model) -> AppResult<SecretString>;
+    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<UserRecord>>;
+    async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>>;
+    async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<UserRecord>>;
 
-    // messages (mailbox-based)
     async fn add_message(
         &self,
         store: &EphemeralStoreManager,
@@ -167,10 +216,32 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         let norm = normalize_handler(handler);
         let handler_phc = hash_password_phc(&SecretString::new(norm))?;
+
+        let password_hash_enc = self
+            .encrypt_db_blob(
+                &SecretBytes::from_slice(password_hash.as_bytes()),
+                &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
+            )
+            .await?;
+
         let handler_enc = self
             .encrypt_db_blob(
                 &SecretBytes::from_slice(handler_phc.as_bytes()),
                 &SecretBytes::from_slice(AAD_USER_HANDLER),
+            )
+            .await?;
+
+        let ed_key_enc = self
+            .encrypt_db_blob(
+                &SecretBytes::from_slice(ed_key),
+                &SecretBytes::from_slice(AAD_USER_ED_KEY),
+            )
+            .await?;
+
+        let dili_key_enc = self
+            .encrypt_db_blob(
+                &SecretBytes::from_slice(dili_key),
+                &SecretBytes::from_slice(AAD_USER_DILI_KEY),
             )
             .await?;
 
@@ -183,10 +254,10 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         let am = users::ActiveModel {
             id: Set(id_enc.as_slice().to_vec()),
-            password_hash: Set(password_hash),
+            password_hash: Set(password_hash_enc.as_slice().to_vec()),
             handler: Set(handler_enc.as_slice().to_vec()),
-            ed_key: Set(ed_key.to_vec()),
-            dili_key: Set(dili_key.to_vec()),
+            ed_key: Set(ed_key_enc.as_slice().to_vec()),
+            dili_key: Set(dili_key_enc.as_slice().to_vec()),
             dek: Set(dek_enc.as_slice().to_vec()),
         };
 
@@ -203,7 +274,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         }
     }
 
-    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<users::Model>> {
+    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<UserRecord>> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
@@ -214,14 +285,16 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         else {
             return Ok(None);
         };
+
+        let user = decrypt_user_row(self, row).await?;
 
         let pw = SecretString::new(password.to_owned());
-        let ok = verify_password_phc(&row.password_hash, &pw)?;
+        let ok = verify_password_phc(user.password_hash.expose(), &pw)?;
 
-        Ok(if ok { Some(row) } else { None })
+        Ok(if ok { Some(user) } else { None })
     }
 
-    async fn get_user(&self, handler: &str) -> AppResult<Option<users::Model>> {
+    async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
@@ -232,10 +305,11 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         else {
             return Ok(None);
         };
-        Ok(Some(row))
+
+        Ok(Some(decrypt_user_row(self, row).await?))
     }
 
-    async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<users::Model>> {
+    async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<UserRecord>> {
         let Some(row) = users::Entity::find_by_id(id.to_vec())
             .one(self.db())
             .await
@@ -243,21 +317,8 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         else {
             return Ok(None);
         };
-        Ok(Some(row))
-    }
 
-    async fn get_dek_for_user(&self, user: &users::Model) -> AppResult<SecretString> {
-        let dek_plain = self
-            .decrypt_db_blob(
-                &SecretBytes::from_slice(user.dek.as_slice()),
-                &SecretBytes::from_slice(AAD_USER_DEK),
-            )
-            .await?;
-
-        let dek_str = std::str::from_utf8(dek_plain.as_slice())
-            .map_err(|_| AppError::internal("invalid_stored_dek"))?;
-
-        Ok(SecretString::new(dek_str.to_owned()))
+        Ok(Some(decrypt_user_row(self, row).await?))
     }
 
     async fn add_message(
@@ -347,7 +408,9 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         for (id, blob) in rows {
             let key_str = SecretString::new(id.to_string());
-            let Some(kbox) = store.take(key_str.expose()).await? else { continue; };
+            let Some(kbox) = store.take(key_str.expose()).await? else {
+                continue;
+            };
 
             let kb = kbox.as_slice();
             if kb.len() != 32 {

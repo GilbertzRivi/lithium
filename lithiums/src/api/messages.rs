@@ -7,16 +7,12 @@ use crate::transport::CryptoReq;
 
 use lithium_core::secrets::bytes::SecretBytes;
 
-fn decode_hex(hex_str: &str, err: &'static str) -> Result<Vec<u8>, AppError> {
-    hex::decode(hex_str).map_err(|_| AppError::bad_request(err))
-}
-
 fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
-    let mb = decode_hex(hex_str, "invalid_mailbox")?;
+    let mb = SecretBytes::from_hex(hex_str).map_err(|_| AppError::bad_request("invalid_mailbox"))?;
     if mb.len() != 16 && mb.len() != 32 {
         return Err(AppError::bad_request("invalid_mailbox"));
     }
-    Ok(mb)
+    Ok(mb.as_slice().to_vec())
 }
 
 #[handler]
@@ -24,7 +20,6 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     let (state, mailbox_hex, content_hex) = {
         let mut ctx = req.lock().await;
 
-        // send is JwtUser
         let _user = ctx.user.clone().ok_or(AppError::unauthorized("unauthorized"))?;
 
         let mailbox_hex = ctx.body.take_string("mailbox")?;
@@ -34,9 +29,8 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     };
 
     let mailbox = decode_mailbox(mailbox_hex.expose())?;
-
-    let content_vec = decode_hex(content_hex.expose(), "invalid_content")?;
-    let content_sb = SecretBytes::from_vec(content_vec);
+    let content_sb =
+        SecretBytes::from_hex(content_hex.expose()).map_err(|_| AppError::bad_request("invalid_content"))?;
 
     let _ = state
         .db
@@ -55,7 +49,7 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
             "msg": "Message sent"
         }),
     )
-    .await
+        .await
 }
 
 #[handler]

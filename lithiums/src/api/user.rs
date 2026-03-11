@@ -1,28 +1,34 @@
 use poem::{handler, Response};
 use serde_json::json;
 use tracing::{debug, warn};
+
+use lithium_core::passwords::passwords::verify_password_phc;
+
 use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
-use crate::transport::CryptoReq;
+use crate::transport::{
+    login_rate_limit_check,
+    login_rate_limit_fail,
+    login_rate_limit_success,
+    CryptoReq,
+};
+
+use lithium_core::secrets::bytes::SecretBytes;
 
 #[handler]
 pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
     let (state, handler, password, dek_hex, ed_key, dili_key) = {
         let mut ctx = req.lock().await;
 
-        let ed = ctx
+        let ed_key = ctx
             .client_ed_key
             .clone()
-            .ok_or(AppError::bad_request("missing key-ed"))?
-            .as_slice()
-            .to_vec();
+            .ok_or(AppError::bad_request("missing key-ed"))?;
 
-        let dili = ctx
+        let dili_key = ctx
             .client_dili_key
             .clone()
-            .ok_or(AppError::bad_request("missing key-dili"))?
-            .as_slice()
-            .to_vec();
+            .ok_or(AppError::bad_request("missing key-dili"))?;
 
         let handler = ctx.body.take_string("handler")?;
         let password = ctx.body.take_string("password")?;
@@ -31,27 +37,20 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
         debug!(
             handler = %handler.expose(),
             dek_hex_len = dek_hex.expose().len(),
-            ed_len = ed.as_slice().len(),
-            dili_len = dili.as_slice().len(),
+            ed_len = ed_key.as_slice().len(),
+            dili_len = dili_key.as_slice().len(),
             "register payload extracted"
         );
 
-        (
-            ctx.state.clone(),
-            handler,
-            password,
-            dek_hex,
-            ed.as_slice().to_vec(),
-            dili.as_slice().to_vec(),
-        )
+        (ctx.state.clone(), handler, password, dek_hex, ed_key, dili_key)
     };
 
-    let _dek_blob = hex::decode(dek_hex.expose()).map_err(|_| {
+    let _dek_blob = SecretBytes::from_hex(dek_hex.expose()).map_err(|_| {
         warn!(
-        handler = %handler.expose(),
-        dek_hex_len = dek_hex.expose().len(),
-        "register invalid_dek: hex decode failed"
-    );
+            handler = %handler.expose(),
+            dek_hex_len = dek_hex.expose().len(),
+            "register invalid_dek: hex decode failed"
+        );
         AppError::bad_request("invalid_dek")
     })?;
 
@@ -60,8 +59,8 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
         .create_user(
             handler.expose(),
             password.expose(),
-            &ed_key,
-            &dili_key,
+            ed_key.as_slice(),
+            dili_key.as_slice(),
             dek_hex.expose().as_bytes(),
         )
         .await?;
@@ -86,22 +85,35 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
     ctx.reply_ok_authed(120, json!({"msg":"Ok"})).await
 }
 
+
 #[handler]
 pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
-    let (state, handler, password) = {
+    let (state, handler, password, user) = {
         let mut ctx = req.lock().await;
+
         let handler = ctx.body.take_string("handler")?;
         let password = ctx.body.take_string("password")?;
-        (ctx.state.clone(), handler, password)
+
+        let user = ctx
+            .user
+            .clone()
+            .ok_or(AppError::unauthorized("invalid_credentials"))?;
+
+        (ctx.state.clone(), handler, password, user)
     };
 
-    let user = state
-        .db
-        .try_login(handler.expose(), password.expose())
-        .await?
-        .ok_or_else(|| AppError::bad_request("invalid_credentials"))?;
+    login_rate_limit_check(&state, handler.expose()).await?;
 
-    let dek = state.db.get_dek_for_user(&user).await?;
+    let ok = verify_password_phc(user.password_hash.expose(), &password)?;
+
+    if !ok {
+        login_rate_limit_fail(&state, handler.expose()).await?;
+        return Err(AppError::unauthorized("invalid_credentials"));
+    }
+
+    login_rate_limit_success(&state, handler.expose()).await?;
+
+    let dek = user.dek.clone();
 
     let mut ctx = req.lock().await;
     ctx.user = Some(user);

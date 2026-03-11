@@ -19,3 +19,4 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 sea-orm = { version = "2.0.0-rc.32", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 chrono = "0.4.43"
 x25519-dalek = "3.0.0-pre.6"
+libc = "0.2.182"

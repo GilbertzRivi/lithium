@@ -24,16 +24,6 @@ pub async fn handle(
     state: Arc<DaemonState>,
     pol: &PasswordPolicy,
 ) -> IpcResponse {
-    let already = state.proto.lock().await.is_some();
-    if already {
-        return IpcResponse {
-            id,
-            ok: true,
-            result: Some(json!({"unlocked": true})),
-            error: None,
-        };
-    }
-
     let dp = match SecretString::new_checked(data_password) {
         Err(_) => return err_resp(id, "bad_data_password"),
         Ok(dp) => dp,
@@ -41,6 +31,20 @@ pub async fn handle(
 
     if validate_password(&dp, *pol).is_err() {
         return err_resp(id, "bad_data_password");
+    }
+
+    let already = state.proto.lock().await.is_some();
+    if already {
+        let current = state.data_pass.lock().await.clone();
+        return match current {
+            Some(cur) if cur.expose() == dp.expose() => IpcResponse {
+                id,
+                ok: true,
+                result: Some(json!({"unlocked": true})),
+                error: None,
+            },
+            _ => err_resp(id, "bad_data_password"),
+        };
     }
 
     let acc_opt = state.account_creds.lock().await.clone();

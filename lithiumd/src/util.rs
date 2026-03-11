@@ -1,5 +1,4 @@
-use std::{fs, path::{Path, PathBuf}};
-
+use std::{fs, path::{Path, PathBuf}, time::Duration};
 use lithium_core::error::{LithiumError, Result};
 
 #[derive(Clone, Debug)]
@@ -134,5 +133,62 @@ pub fn wipe_dir_all(p: &Path) -> std::io::Result<()> {
     if p.exists() {
         fs::remove_dir_all(p)?;
     }
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct IpcPolicy {
+    pub max_connections: usize,
+    pub idle_timeout: Duration,
+
+    #[cfg(target_os = "linux")]
+    pub allowed_uid: Option<u32>,
+}
+
+pub fn load_ipc_policy() -> Result<IpcPolicy> {
+    let max_connections = match std::env::var("LITHIUMD_IPC_MAX_CONNECTIONS") {
+        Ok(v) => v
+            .parse::<usize>()
+            .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_MAX_CONNECTIONS"))?,
+        Err(_) => 16,
+    }
+        .max(1);
+
+    let idle_timeout_secs = match std::env::var("LITHIUMD_IPC_IDLE_TIMEOUT_SECS") {
+        Ok(v) => v
+            .parse::<u64>()
+            .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_IDLE_TIMEOUT_SECS"))?,
+        Err(_) => 300,
+    }
+        .max(5);
+
+    #[cfg(target_os = "linux")]
+    let allowed_uid = match std::env::var("LITHIUMD_IPC_ALLOWED_UID") {
+        Ok(v) => Some(
+            v.parse::<u32>()
+                .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_ALLOWED_UID"))?,
+        ),
+        Err(_) => None,
+    };
+
+    Ok(IpcPolicy {
+        max_connections,
+        idle_timeout: Duration::from_secs(idle_timeout_secs),
+
+        #[cfg(target_os = "linux")]
+        allowed_uid,
+    })
+}
+
+pub fn prepare_private_dir(path: &Path) -> Result<()> {
+    fs::create_dir_all(path).map_err(LithiumError::io)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .map_err(LithiumError::io)?;
+    }
+
     Ok(())
 }

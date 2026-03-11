@@ -68,7 +68,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 km.mk_provider_mut().set_server_dek(arr.clone());
             }
 
-            *state.needs_register.lock().await = false;
+            state.clear_needs_register().await;
 
             let _ = util::mark_registered(&state.base_dir);
 

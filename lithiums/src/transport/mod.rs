@@ -4,7 +4,8 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tracing::{debug, error};
+
+use hmac::{Hmac, Mac};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use poem::{
     http::header,
@@ -16,10 +17,10 @@ use rand::{rngs::SysRng, RngExt};
 use rand::rand_core::UnwrapErr;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::{Mutex, MutexGuard};
-use zeroize::Zeroize;
-use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use tokio::sync::{Mutex, MutexGuard};
+use tracing::{debug, error};
+use zeroize::Zeroize;
 
 use lithium_core::crypto::{keys, kyberbox, sign};
 use lithium_core::crypto::kyberbox::WirePayload;
@@ -31,12 +32,12 @@ use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::utils::headers::{header_hex, header_hex_bytes, header_str};
 use lithium_core::utils::store::EphemeralStoreManager;
 
-use crate::db::models;
-use crate::db::repo::ServerDbExt;
+use crate::db::repo::{ServerDbExt, UserRecord};
 use crate::error::AppError;
 use crate::state::SharedState;
 
 type HmacSha256 = Hmac<Sha256>;
+
 #[derive(Clone, Copy, Debug)]
 pub enum CryptoMode {
     Shake,
@@ -47,7 +48,7 @@ pub enum CryptoMode {
 pub enum AuthMode {
     KeysInHeaders,
     LoginByHandler,
-    JwtUser
+    JwtUser,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +58,106 @@ pub struct CryptoCfg {
     pub auth: AuthMode,
     pub ts_skew: Duration,
     pub session_ttl: Duration,
+}
+
+const LOGIN_FAIL_WINDOW_SECS: u64 = 15 * 60;
+const LOGIN_LOCK_BASE_SECS: u64 = 30;
+const LOGIN_LOCK_MAX_SECS: u64 = 15 * 60;
+const LOGIN_FAIL_THRESHOLD: u32 = 5;
+
+#[inline]
+fn normalize_login_handler(handler: &str) -> String {
+    handler.trim().to_lowercase()
+}
+
+#[inline]
+fn login_fail_key(handler: &str) -> String {
+    format!("auth:login:fail:{}", normalize_login_handler(handler))
+}
+
+#[inline]
+fn login_lock_key(handler: &str) -> String {
+    format!("auth:login:lock:{}", normalize_login_handler(handler))
+}
+
+#[inline]
+fn parse_u32_ascii(raw: &[u8]) -> u32 {
+    std::str::from_utf8(raw)
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+#[inline]
+fn login_backoff_secs(failures: u32) -> u64 {
+    if failures < LOGIN_FAIL_THRESHOLD {
+        return 0;
+    }
+
+    let exp = (failures - LOGIN_FAIL_THRESHOLD).min(10);
+    LOGIN_LOCK_BASE_SECS
+        .saturating_mul(1u64 << exp)
+        .min(LOGIN_LOCK_MAX_SECS)
+}
+
+pub async fn login_rate_limit_check(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let lock_key = login_lock_key(handler);
+
+    if state.store.peek(&lock_key).await?.is_some() {
+        return Err(AppError::too_many_requests("invalid_credentials"));
+    }
+
+    Ok(())
+}
+
+pub async fn login_rate_limit_fail(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let fail_key = login_fail_key(handler);
+
+    let current = match state.store.peek(&fail_key).await? {
+        Some(v) => parse_u32_ascii(v.as_slice()),
+        None => 0,
+    };
+
+    let next = current.saturating_add(1);
+
+    state
+        .store
+        .set(
+            &fail_key,
+            &SecretBytes::from_slice(next.to_string().as_bytes()),
+            Duration::from_secs(LOGIN_FAIL_WINDOW_SECS),
+        )
+        .await?;
+
+    let backoff = login_backoff_secs(next);
+    if backoff > 0 {
+        let lock_key = login_lock_key(handler);
+        state
+            .store
+            .set(
+                &lock_key,
+                &SecretBytes::from_slice(next.to_string().as_bytes()),
+                Duration::from_secs(backoff),
+            )
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn login_rate_limit_success(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let _ = state.store.del(&login_fail_key(handler)).await;
+    let _ = state.store.del(&login_lock_key(handler)).await;
+    Ok(())
 }
 
 impl CryptoCfg {
@@ -95,8 +196,7 @@ pub struct CryptoContext {
     pub body: SecretJson,
     pub client_ed_key: Option<Byte32>,
     pub client_dili_key: Option<SecretBytes>,
-
-    pub user: Option<models::users::Model>,
+    pub user: Option<UserRecord>,
 }
 
 #[derive(Clone)]
@@ -136,7 +236,7 @@ fn hmac_id(user_id: &[u8], seed: &[u8]) -> Result<String, LithiumError> {
 }
 
 pub async fn create_token_for_user(
-    user: &models::users::Model,
+    user: &UserRecord,
     ttl_seconds: u64,
     secret: &Byte32,
     store: &EphemeralStoreManager,
@@ -171,19 +271,18 @@ pub async fn create_token_for_user(
     )
         .map_err(|_| AppError::internal("jwt encode error"))?;
 
-    let mut value = Vec::with_capacity(32 + user.id.len());
-    value.extend_from_slice(seed.as_slice());
-    value.extend_from_slice(user.id.as_slice());
+    let mut value = SecretBytes::new(Vec::with_capacity(32 + user.id.len()));
+    value.as_mut_vec().extend_from_slice(seed.as_slice());
+    value.as_mut_vec().extend_from_slice(user.id.as_slice());
 
     store
         .set(
             &format!("token:{token_string}"),
-            &SecretBytes::from_slice(value.as_slice()),
+            &value,
             Duration::from_secs(ttl_seconds),
         )
         .await?;
 
-    value.zeroize();
     Ok(SecretString::new(token_string))
 }
 
@@ -192,7 +291,7 @@ pub async fn get_user_from_token(
     secret: &Byte32,
     dbm: &Arc<DataManager<PlainFileMkProvider>>,
     store: &EphemeralStoreManager,
-) -> Result<models::users::Model, AppError> {
+) -> Result<UserRecord, AppError> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
 
@@ -241,6 +340,7 @@ pub async fn build_crypto_context(
         body_len = cipher_body.as_slice().len(),
         "build_crypto_context start"
     );
+
     match cfg.mode {
         CryptoMode::Shake => verify_headers(headers_map, &["key-x", "key-k", "seed", "data"])?,
         CryptoMode::Session => {
@@ -248,7 +348,7 @@ pub async fn build_crypto_context(
         }
     }
 
-    let mut user: Option<models::users::Model> = None;
+    let mut user: Option<UserRecord> = None;
 
     let peer_key_x_arr = header_hex::<32>(headers_map, "key-x")?;
     let peer_key_x = Byte32::from_slice(peer_key_x_arr.as_slice())?;
@@ -273,13 +373,7 @@ pub async fn build_crypto_context(
                 .lock()
                 .await
                 .with_x25519_and_kyber_sk(|x_priv, k_priv| {
-                    kyberbox::decrypt(
-                        req_label.as_str(),
-                        &x_priv,
-                        &peer_key_x,
-                        &k_priv,
-                        &wire,
-                    )
+                    kyberbox::decrypt(req_label.as_str(), &x_priv, &peer_key_x, &k_priv, &wire)
                 }) {
                 Ok(v) => {
                     debug!(endpoint = cfg.endpoint, "shake decrypt ok");
@@ -287,11 +381,11 @@ pub async fn build_crypto_context(
                 }
                 Err(e) => {
                     error!(
-                    endpoint = cfg.endpoint,
-                    label = %req_label,
-                    error = ?e,
-                    "shake decrypt failed"
-                );
+                        endpoint = cfg.endpoint,
+                        label = %req_label,
+                        error = ?e,
+                        "shake decrypt failed"
+                    );
                     return Err(AppError::from(e));
                 }
             }
@@ -332,11 +426,11 @@ pub async fn build_crypto_context(
                 }
                 Err(e) => {
                     error!(
-                    endpoint = cfg.endpoint,
-                    label = %req_label,
-                    error = ?e,
-                    "session decrypt failed"
-                );
+                        endpoint = cfg.endpoint,
+                        label = %req_label,
+                        error = ?e,
+                        "session decrypt failed"
+                    );
                     return Err(AppError::from(e));
                 }
             }
@@ -376,11 +470,11 @@ pub async fn build_crypto_context(
     });
 
     debug!(
-    endpoint = cfg.endpoint,
-    body_keys = ?body_keys,
-    app_header_keys = ?header_keys,
-    "parsed decrypted json"
-);
+        endpoint = cfg.endpoint,
+        body_keys = ?body_keys,
+        app_header_keys = ?header_keys,
+        "parsed decrypted json"
+    );
 
     let ts = body_json.get_string("timestamp").map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "timestamp missing");
@@ -389,11 +483,11 @@ pub async fn build_crypto_context(
 
     validate_timestamp(ts.expose(), cfg.ts_skew, cfg.ts_skew).map_err(|e| {
         error!(
-        endpoint = cfg.endpoint,
-        timestamp = %ts.expose(),
-        error = ?e,
-        "timestamp invalid"
-    );
+            endpoint = cfg.endpoint,
+            timestamp = %ts.expose(),
+            error = ?e,
+            "timestamp invalid"
+        );
         e
     })?;
 
@@ -407,21 +501,21 @@ pub async fn build_crypto_context(
 
             let peer_key_ed = Byte32::from_hex(key_ed_raw.expose()).map_err(|e| {
                 error!(
-            endpoint = cfg.endpoint,
-            key_ed = %key_ed_raw.expose(),
-            error = ?e,
-            "invalid key-ed"
-        );
+                    endpoint = cfg.endpoint,
+                    key_ed = %key_ed_raw.expose(),
+                    error = ?e,
+                    "invalid key-ed"
+                );
                 AppError::bad_request("invalid_key_ed")
             })?;
 
             let peer_key_dili = SecretBytes::from_hex(key_dili_raw.expose()).map_err(|e| {
                 error!(
-            endpoint = cfg.endpoint,
-            key_dili_len = key_dili_raw.expose().len(),
-            error = ?e,
-            "invalid key-dili"
-        );
+                    endpoint = cfg.endpoint,
+                    key_dili_len = key_dili_raw.expose().len(),
+                    error = ?e,
+                    "invalid key-dili"
+                );
                 AppError::bad_request("invalid_key_dili")
             })?;
 
@@ -437,34 +531,32 @@ pub async fn build_crypto_context(
         AuthMode::LoginByHandler => {
             let handler = body_json.get_string("handler")?;
 
+            login_rate_limit_check(&state, handler.expose()).await?;
+
             let u = state
                 .db
                 .get_user(handler.expose())
                 .await?
-                .ok_or_else(|| AppError::bad_request("invalid credentials"))?;
+                .ok_or_else(|| AppError::unauthorized("invalid_credentials"))?;
 
-            let ed = Byte32::from_slice(u.ed_key.as_slice())?;
-            let dili = SecretBytes::from_vec(u.dili_key.clone());
+            verify_signature(&headers_json, &body_json, &u.ed_key, &u.dili_key)
+                .map_err(|_| AppError::unauthorized("invalid_credentials"))?;
 
-            verify_signature(&headers_json, &body_json, &ed, &dili)?;
             user = Some(u);
         }
 
         AuthMode::JwtUser => {
             let token_hex = body_json.get_string("token")?;
 
-            let token_bytes =
-                hex::decode(token_hex.expose()).map_err(|_| AppError::unauthorized("invalid jwt"))?;
-            let token_str = std::str::from_utf8(&token_bytes)
+            let token_bytes = SecretBytes::from_hex(token_hex.expose())
+                .map_err(|_| AppError::unauthorized("invalid jwt"))?;
+            let token = SecretString::from_utf8_bytes(token_bytes.as_slice())
                 .map_err(|_| AppError::unauthorized("invalid jwt"))?;
 
             let jwt_secret = { state.key_manager.lock().await.jwt_secret().clone() };
 
-            let u = get_user_from_token(token_str, &jwt_secret, &state.db, &state.store).await?;
-            let ed = Byte32::from_slice(u.ed_key.as_slice())?;
-            let dili = SecretBytes::from_vec(u.dili_key.clone());
-
-            verify_signature(&headers_json, &body_json, &ed, &dili)?;
+            let u = get_user_from_token(token.expose(), &jwt_secret, &state.db, &state.store).await?;
+            verify_signature(&headers_json, &body_json, &u.ed_key, &u.dili_key)?;
             user = Some(u);
         }
     }
@@ -496,7 +588,7 @@ impl CryptoContext {
         self.state
             .store
             .set(
-                &session_x_id.expose(),
+                session_x_id.expose(),
                 &SecretBytes::from_slice(session_priv_x.as_slice()),
                 self.cfg.session_ttl,
             )
@@ -507,15 +599,15 @@ impl CryptoContext {
         self.state
             .store
             .set(
-                &session_k_id.expose(),
+                session_k_id.expose(),
                 &SecretBytes::from_slice(session_priv_k.as_slice()),
                 self.cfg.session_ttl,
             )
             .await?;
 
         let response_headers = json!({
-            "ses-x": &session_x_id.expose(),
-            "ses-k": &session_k_id.expose(),
+            "ses-x": session_x_id.expose(),
+            "ses-k": session_k_id.expose(),
         });
 
         let response_body_s = SecretString::new(serde_json::to_string(&body)?);
@@ -535,10 +627,8 @@ impl CryptoContext {
             .await
             .with_dilithium_sk(|sk| sign::sign_message_dili(response_body_s.expose().as_bytes(), sk))?;
 
-        let response_body_pad =
-            SecretBytes::from_vec(pad_data(response_body_s.expose().as_bytes()));
-        let response_headers_pad =
-            SecretBytes::from_vec(pad_headers(response_headers_s.expose().as_bytes()));
+        let response_body_pad = pad_data(response_body_s.expose().as_bytes());
+        let response_headers_pad = pad_headers(response_headers_s.expose().as_bytes());
 
         let encrypted = kyberbox::encrypt(
             self.resp_label.as_str(),
@@ -574,8 +664,8 @@ impl CryptoContext {
         let jwt_secret = { self.state.key_manager.lock().await.jwt_secret().clone() };
         let tok = create_token_for_user(user, ttl_seconds, &jwt_secret, &self.state.store).await?;
 
-        let tok_hex = hex::encode(tok.expose().as_bytes());
-        body["tok"] = Value::String(tok_hex);
+        let tok_hex = SecretBytes::from_slice(tok.expose().as_bytes()).to_hex();
+        body["tok"] = Value::String(tok_hex.expose().to_owned());
 
         self.reply_ok(body).await
     }
@@ -698,18 +788,26 @@ pub fn get_now() -> Result<u64, AppError> {
         .as_secs())
 }
 
-fn pad_block(input: &[u8], block_size: usize) -> Vec<u8> {
+fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
     let total_len = input.len() + 1;
     let pad_len = (block_size - (total_len % block_size)) % block_size;
 
-    let mut out = Vec::with_capacity(total_len + pad_len);
-    out.extend_from_slice(input);
-    out.push(0x80);
-    out.resize(out.len() + pad_len, 0u8);
+    let mut out = SecretBytes::new(Vec::with_capacity(total_len + pad_len));
+    let v = out.as_mut_vec();
+    v.extend_from_slice(input);
+    v.push(0x80);
+    v.resize(total_len + pad_len, 0u8);
 
     out
 }
 
+pub fn pad_data(input: &[u8]) -> SecretBytes {
+    pad_block(input, random_block_size())
+}
+
+pub fn pad_headers(input: &[u8]) -> SecretBytes {
+    pad_block(input, random_block_size() / 8)
+}
 fn random_block_size() -> usize {
     let min = 32 * 1024;
     let max = 64 * 1024;
@@ -717,15 +815,6 @@ fn random_block_size() -> usize {
     let mut rng = UnwrapErr(SysRng);
     rng.random_range(min..=max)
 }
-
-pub fn pad_data(input: &[u8]) -> Vec<u8> {
-    pad_block(input, random_block_size())
-}
-
-pub fn pad_headers(input: &[u8]) -> Vec<u8> {
-    pad_block(input, random_block_size() / 8)
-}
-
 pub fn unpad_block(data: &mut Vec<u8>) -> Result<(), AppError> {
     while let Some(&0) = data.last() {
         data.pop();

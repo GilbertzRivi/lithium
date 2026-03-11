@@ -9,7 +9,7 @@ pub mod users {
         #[sea_orm(primary_key, auto_increment = false)]
         pub id: Vec<u8>,
 
-        pub password_hash: String,
+        pub password_hash: Vec<u8>,
         pub handler: Vec<u8>,
 
         pub ed_key: Vec<u8>,

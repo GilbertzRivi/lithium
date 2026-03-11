@@ -4,7 +4,7 @@ use tokio::sync::{oneshot, Mutex};
 
 use lithium_core::passwords::passwords::PasswordPolicy;
 
-use crate::ipc::types::{IpcRequest, IpcResponse};
+use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse};
 
 mod ping;
 mod set_credentials;
@@ -23,6 +23,7 @@ mod contact_fetch;
 mod contact_forget;
 mod messages_list;
 mod e2e;
+mod contact_verify_emoji;
 
 use crate::state::DaemonState;
 
@@ -32,40 +33,43 @@ pub async fn dispatch(
     shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
     pol: &PasswordPolicy,
 ) -> IpcResponse {
-    match req {
-        IpcRequest::Ping { id } => ping::handle(id, state).await,
-        IpcRequest::SetCredentials { id, handler, password } => {
+    let id = req.id;
+
+    match req.cmd {
+        IpcCommand::Ping => ping::handle(id, state).await,
+        IpcCommand::SetCredentials { handler, password } => {
             set_credentials::handle(id, handler, password, state, pol).await
         }
-        IpcRequest::UnlockKeystore { id, data_password } => {
+        IpcCommand::UnlockKeystore { data_password } => {
             unlock_keystore::handle(id, data_password, state, pol).await
         }
-        IpcRequest::Register { id } => register::handle(id, state, pol).await,
-        IpcRequest::UnlockStorage { id } => unlock_storage::handle(id, state).await,
-        IpcRequest::Shutdown { id } => shutdown::handle(id, state, shutdown_tx).await,
-        IpcRequest::WipeLocal { id } => wipe_local::handle(id, state).await,
+        IpcCommand::Register => register::handle(id, state, pol).await,
+        IpcCommand::UnlockStorage => unlock_storage::handle(id, state).await,
+        IpcCommand::Shutdown => shutdown::handle(id, state, shutdown_tx).await,
+        IpcCommand::WipeLocal => wipe_local::handle(id, state).await,
 
-        IpcRequest::CreateInvite { id, contact_id, server } => {
+        IpcCommand::CreateInvite { contact_id, server } => {
             invite_create::handle(id, contact_id, server, state).await
         }
-        IpcRequest::AcceptInvite { id, code, contact_id, label } => {
+        IpcCommand::AcceptInvite { code, contact_id, label } => {
             invite_accept::handle(id, code, contact_id, label, state).await
         }
 
-        IpcRequest::ContactsList { id } => {
-            contact_list::handle(id, state).await
-        }
-        IpcRequest::ContactSend { id, contact_id, plaintext } => {
+        IpcCommand::ContactsList => contact_list::handle(id, state).await,
+        IpcCommand::ContactSend { contact_id, plaintext } => {
             contact_send::handle(id, contact_id, plaintext, state).await
         }
-        IpcRequest::ContactFetch { id, contact_id } => {
+        IpcCommand::ContactFetch { contact_id } => {
             contact_fetch::handle(id, contact_id, state).await
         }
-        IpcRequest::ContactForget { id, contact_id } => {
+        IpcCommand::ContactForget { contact_id } => {
             contact_forget::handle(id, contact_id, state).await
         }
-        IpcRequest::MessagesList { id, contact_id, limit, before_id } => {
+        IpcCommand::MessagesList { contact_id, limit, before_id } => {
             messages_list::handle(id, contact_id, limit, before_id, state).await
+        }
+        IpcCommand::ContactVerifyEmoji { contact_id } => {
+            contact_verify_emoji::handle(id, contact_id, state).await
         }
     }
 }

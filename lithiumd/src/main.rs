@@ -1,7 +1,7 @@
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
-use tokio::sync::{oneshot, Mutex};
 use reqwest::Url;
+use tokio::sync::{oneshot, Mutex};
 
 use lithium_core::error::{LithiumError, Result};
 
@@ -24,8 +24,9 @@ async fn main() -> Result<()> {
 
     let base_dir = util::default_data_dir();
     let ipc_endpoint = util::default_ipc_endpoint();
+    let ipc_policy = util::load_ipc_policy()?;
 
-    fs::create_dir_all(&base_dir).map_err(LithiumError::io)?;
+    util::prepare_private_dir(&base_dir)?;
     util::prepare_ipc_endpoint(&ipc_endpoint)?;
 
     let base_url = match std::env::var("LITHIUM_SERVER_URL") {
@@ -50,13 +51,23 @@ async fn main() -> Result<()> {
     #[cfg(unix)]
     let ipc_task = {
         let IpcEndpoint::Unix(socket_path) = &ipc_endpoint;
-        ipc::unix::run(socket_path, Arc::clone(&shutdown_tx), Arc::clone(&state))
+        ipc::unix::run(
+            socket_path,
+            Arc::clone(&shutdown_tx),
+            Arc::clone(&state),
+            ipc_policy.clone(),
+        )
     };
 
     #[cfg(windows)]
     let ipc_task = {
         let IpcEndpoint::NamedPipe(pipe_name) = &ipc_endpoint;
-        ipc::windows::run(pipe_name, Arc::clone(&shutdown_tx), Arc::clone(&state))
+        ipc::windows::run(
+            pipe_name,
+            Arc::clone(&shutdown_tx),
+            Arc::clone(&state),
+            ipc_policy.clone(),
+        )
     };
 
     tokio::select! {

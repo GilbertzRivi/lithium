@@ -13,14 +13,18 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
 
     let dir = state.base_dir.clone();
     match util::wipe_dir_all(&dir) {
-        Ok(()) => IpcResponse {
-            id,
-            ok: true,
-            result: Some(json!({
-                "wiped": true
-            })),
-            error: None,
-        },
+        Ok(()) => {
+            state.mark_needs_register().await;
+
+            IpcResponse {
+                id,
+                ok: true,
+                result: Some(json!({
+                    "wiped": true
+                })),
+                error: None,
+            }
+        }
         Err(_) => err_resp(id, "wipe_failed"),
     }
 }

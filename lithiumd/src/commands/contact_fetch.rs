@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use lithium_core::{
-    secrets::{SecretJson},
-    secrets::bytes::SecretBytes,
-};
+use lithium_core::{secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, LithiumError, CryptoErrorKind};
 
 use crate::{
     commands::contact_mailbox::{
@@ -17,6 +14,7 @@ use crate::{
     commands::e2e::{
         decrypt_for_prekey,
         decrypt_for_us,
+        drop_bootstrap_private_if_established,
         ensure_self_keyring,
         local_remove_public_prekey,
         peer_set_need_recover,
@@ -27,6 +25,7 @@ use crate::{
     protocol_manager::Endpoint,
     state::DaemonState,
 };
+use crate::commands::e2e::mark_bootstrap_retire_ready;
 
 fn build_stored_message(
     text: &str,
@@ -48,6 +47,18 @@ fn build_stored_message(
     let mut out = SecretBytes::new(Vec::new());
     serde_json::to_writer(out.as_mut_vec(), &v)?;
     Ok(out)
+}
+
+fn is_invalid_credentials_msg(err: &LithiumError, expected: &'static str) -> bool {
+    matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == expected)
+}
+
+fn is_potentially_harmful_message(err: &LithiumError) -> bool {
+    is_invalid_credentials_msg(err, "potentially_harmful_message")
+}
+
+fn is_to_id_unknown(err: &LithiumError) -> bool {
+    is_invalid_credentials_msg(err, "to_id_unknown")
 }
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
@@ -84,11 +95,14 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         return crypto_err(id);
     }
 
-    self_v.with_exposed_mut(|self_state| {
-        peer_v.with_exposed_mut(|peer_state| {
-            ensure_mailbox_state(self_state, peer_state);
-        });
-    });
+    if self_v
+        .with_exposed_mut(|self_state| {
+            peer_v.with_exposed_mut(|peer_state| ensure_mailbox_state(self_state, peer_state))
+        })
+        .is_err()
+    {
+        return crypto_err(id);
+    }
 
     {
         let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
@@ -133,7 +147,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
             })
         }) {
             Ok(v) => v,
-            Err(_) => return crypto_err(id),
+            Err(_) => continue,
         };
         let mailbox_hex = hex::encode(&mbox_in);
 
@@ -186,7 +200,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             note_inbound_generation_seen(peer_state, seen_gen);
                         });
 
-                        let text = match String::from_utf8(pt) {
+                        let text = match SecretString::from_utf8_vec(pt) {
                             Ok(v) => v,
                             Err(_) => {
                                 out.push(json!({
@@ -198,7 +212,12 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             }
                         };
 
-                        let stored = match build_stored_message(&text, &ui, &mailbox_hex, seen_gen) {
+                        let stored = match build_stored_message(
+                            text.expose(),
+                            &ui,
+                            &mailbox_hex,
+                            seen_gen,
+                        ) {
                             Ok(v) => v,
                             Err(_) => return err_resp(id, "json_error"),
                         };
@@ -214,11 +233,29 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                         out.push(json!({
                             "ok": true,
                             "ui": ui,
-                            "text": text,
+                            "text": text.expose(),
                             "mailbox_gen": seen_gen
                         }));
                     }
-                    Err(_) => {
+                    Err(err) => {
+                        if is_potentially_harmful_message(&err) {
+                            out.push(json!({
+                                "ok": false,
+                                "err": "potentially_harmful_message",
+                                "mailbox_gen": mailbox_gen
+                            }));
+                            continue;
+                        }
+
+                        if !is_to_id_unknown(&err) {
+                            out.push(json!({
+                                "ok": false,
+                                "err": "decrypt_failed",
+                                "mailbox_gen": mailbox_gen
+                            }));
+                            continue;
+                        }
+
                         let prekey_blob = match dm.take_prekey(&w.to_id).await {
                             Ok(v) => v,
                             Err(_) => {
@@ -245,6 +282,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             Ok((pt, mut ui)) => {
                                 local_remove_public_prekey(&mut self_v, &hex::encode(w.to_id));
                                 peer_set_need_recover(&mut peer_v, false);
+                                mark_bootstrap_retire_ready(&mut self_v);
+                                drop_bootstrap_private_if_established(&mut self_v, &peer_v);
 
                                 if let Some(obj) = ui.as_object_mut() {
                                     obj.insert("recovered".into(), json!(true));
@@ -259,7 +298,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     note_inbound_generation_seen(peer_state, seen_gen);
                                 });
 
-                                let text = match String::from_utf8(pt) {
+                                let text = match SecretString::from_utf8_vec(pt) {
                                     Ok(v) => v,
                                     Err(_) => {
                                         out.push(json!({
@@ -271,11 +310,15 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     }
                                 };
 
-                                let stored =
-                                    match build_stored_message(&text, &ui, &mailbox_hex, seen_gen) {
-                                        Ok(v) => v,
-                                        Err(_) => return err_resp(id, "json_error"),
-                                    };
+                                let stored = match build_stored_message(
+                                    text.expose(),
+                                    &ui,
+                                    &mailbox_hex,
+                                    seen_gen,
+                                ) {
+                                    Ok(v) => v,
+                                    Err(_) => return err_resp(id, "json_error"),
+                                };
 
                                 if dm
                                     .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
@@ -288,11 +331,20 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 out.push(json!({
                                     "ok": true,
                                     "ui": ui,
-                                    "text": text,
+                                    "text": text.expose(),
                                     "mailbox_gen": seen_gen
                                 }));
                             }
-                            Err(_) => {
+                            Err(err) => {
+                                if is_potentially_harmful_message(&err) {
+                                    out.push(json!({
+                                        "ok": false,
+                                        "err": "potentially_harmful_message",
+                                        "mailbox_gen": mailbox_gen
+                                    }));
+                                    continue;
+                                }
+
                                 peer_set_need_recover(&mut peer_v, true);
                                 out.push(json!({
                                     "ok": false,

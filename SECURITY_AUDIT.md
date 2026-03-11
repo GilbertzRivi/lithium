@@ -7,39 +7,7 @@
 
 ---
 
-## CRITICAL
-
-### C-1: No rate limiting or account lockout on login endpoint
-
-**File**: `lithiums/src/api/user.rs`
-**Description**: The `/user/login` endpoint performs password-equivalent authentication (verifying the account password via `verify_password`) with no rate limiting, no lockout after failed attempts, and no CAPTCHA or delay. An attacker who knows a valid username (or can enumerate usernames) can perform unlimited online brute-force attacks against account passwords.
-**Impact**: Full account compromise via brute force.
-**Recommendation**: Add per-IP and per-username rate limiting (e.g., 5 failed attempts → exponential backoff or temporary lockout). Consider Argon2-based throttling at the server side.
-
----
-
 ## HIGH
-
-### H-1: TOCTOU race on IPC Unix socket permissions
-
-**File**: `lithiumd/src/ipc/unix.rs`, lines 14–20
-**Description**: The Unix domain socket is created with `UnixListener::bind()` and then permissions are set with `set_permissions()` in a separate call. Between `bind()` and `set_permissions()`, the socket file is world-accessible. A local attacker can connect during this window.
-**Impact**: A local attacker can inject IPC commands (unlock keystore, read contacts, etc.) before permissions are restricted.
-**Recommendation**: Set the process umask to `0o177` before calling `bind()`, or use `socket(2)` + `fchmod(2)` to atomically control permissions. On Linux, `SCM_RIGHTS`-based authentication or checking the peer's UID via `SO_PEERCRED` provides defense-in-depth.
-
-### H-2: No IPC authentication — any local process can send commands
-
-**File**: `lithiumd/src/ipc/mod.rs`
-**Description**: The IPC Unix socket has no authentication mechanism. Any local process running as the same user (or root) can connect and issue arbitrary commands, including `unlock_storage`, `contact_send`, `contact_fetch`, etc. There is also no connection limit or per-connection timeout.
-**Impact**: A malicious process on the same machine can read all contacts and messages, or trigger key operations, without knowing any password.
-**Recommendation**: Authenticate connecting processes using `SO_PEERCRED` (verify UID/PID). Enforce a connection limit and idle timeout.
-
-### H-3: Invite exchange is unauthenticated — MITM can substitute peer keys
-
-**File**: `lithiumd/src/commands/invite_codec.rs`, `invite_accept.rs`
-**Description**: The invite code contains the inviter's public keys (Ed25519, X25519, Kyber, Dilithium) and a server URL. These are transmitted out-of-band (QR code, copy-paste, etc.) with no integrity protection from the server. `invite_accept.rs` inserts peer keys into the contact store without verifying a server-level attestation or certificate binding them to the account. An attacker who intercepts or replaces the invite code (e.g., QR code substitution) can substitute their own keys.
-**Impact**: Full E2E key compromise for the new contact; attacker can decrypt all future messages.
-**Recommendation**: Bind peer public keys to accounts via server-signed certificates (signed with the server's ML-DSA-87 key, now required after the recent fix). Include a fingerprint in the invite that users can verify out-of-band.
 
 ### H-4: Private keys serialized into plain `serde_json::Value` during invite creation
 

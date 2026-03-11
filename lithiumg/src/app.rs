@@ -1,9 +1,13 @@
-use std::sync::mpsc::{Receiver, Sender};
+use std::{
+    collections::HashSet,
+    sync::mpsc::{Receiver, Sender},
+};
 
 use eframe::egui;
 
 use crate::ipc::{
-    self, AcceptInviteResult, ContactInfo, CreateInviteResult, MessageItem, MessagesResult, PingResult,
+    self, AcceptInviteResult, ContactInfo, CreateInviteResult, MessageItem, MessagesResult,
+    PingResult, VerifyEmojiResult,
 };
 
 #[derive(Debug, Clone)]
@@ -20,6 +24,7 @@ pub enum Command {
     CreateInvite { contact_id: Option<String> },
     AcceptInvite { code: String, label: String, contact_id: Option<String> },
     ForgetContact { contact_id: String },
+    LoadVerifyEmoji { contact_id: String },
     WipeLocal,
 }
 
@@ -41,6 +46,10 @@ pub enum WorkerEvent {
     ForgetContact {
         contact_id: String,
         result: Result<(), String>,
+    },
+    VerifyEmoji {
+        contact_id: String,
+        result: Result<VerifyEmojiResult, String>,
     },
     WipeLocal(Result<(), String>),
 }
@@ -64,6 +73,7 @@ pub struct LithiumApp {
     screen: Screen,
     busy: bool,
     status_line: String,
+    last_ping: Option<PingResult>,
 
     data_password: String,
     data_password_confirm: String,
@@ -84,6 +94,12 @@ pub struct LithiumApp {
 
     account_password_confirm: String,
     confirm_wipe_local: bool,
+
+    pending_verify_contact_id: Option<String>,
+    verify_modal_open: bool,
+    verify_modal_contact_id: Option<String>,
+    verify_modal_emojis: Vec<String>,
+    shown_verify_for_contact_ids: HashSet<String>,
 }
 
 impl LithiumApp {
@@ -94,6 +110,7 @@ impl LithiumApp {
             screen: Screen::Connecting,
             busy: false,
             status_line: "Connecting to daemon...".into(),
+            last_ping: None,
             data_password: String::new(),
             data_password_confirm: String::new(),
             handler: String::new(),
@@ -106,6 +123,11 @@ impl LithiumApp {
             invite_label_input: String::new(),
             generated_invite_code: String::new(),
             pending_select_contact_id: None,
+            pending_verify_contact_id: None,
+            verify_modal_open: false,
+            verify_modal_contact_id: None,
+            verify_modal_emojis: Vec::new(),
+            shown_verify_for_contact_ids: HashSet::new(),
             account_password_confirm: String::new(),
             confirm_wipe_local: false,
         };
@@ -117,6 +139,31 @@ impl LithiumApp {
     fn send(&mut self, cmd: Command) {
         self.busy = true;
         let _ = self.tx.send(cmd);
+    }
+
+    fn draw_verify_card(&mut self, ui: &mut egui::Ui) {
+        let emoji_line = self.verify_modal_emojis.join("   ");
+
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.label("Verify this contact over your trusted out-of-band channel.");
+                ui.add_space(8.0);
+
+                ui.label(
+                    egui::RichText::new(emoji_line)
+                        .size(30.0)
+                        .strong(),
+                );
+
+                ui.add_space(8.0);
+                ui.label("If they do not match, remove the contact and start again.");
+
+                ui.add_space(8.0);
+                if ui.button("Hide").clicked() {
+                    self.clear_verify_modal();
+                }
+            });
+        });
     }
 
     fn selected_contact(&self) -> Option<&ContactInfo> {
@@ -133,6 +180,12 @@ impl LithiumApp {
             self.busy = false;
             self.handle_event(evt);
         }
+    }
+
+    fn clear_verify_modal(&mut self) {
+        self.verify_modal_open = false;
+        self.verify_modal_contact_id = None;
+        self.verify_modal_emojis.clear();
     }
 
     fn handle_ping(&mut self, ping: PingResult) {
@@ -152,31 +205,62 @@ impl LithiumApp {
             ping.actions_needed.len(),
         );
 
-        self.screen = match ping.ui_state.as_str() {
-            "keystore_locked" => {
-                if s.has_keystore_on_disk {
-                    Screen::UnlockDataPassword
-                } else {
-                    Screen::SetDataPassword
+        self.last_ping = Some(ping.clone());
+
+        let has_ipc_auth = ipc::has_auth_token();
+
+        self.screen = if ping.ui_state != "keystore_locked" && !has_ipc_auth {
+            Screen::UnlockDataPassword
+        } else {
+            match ping.ui_state.as_str() {
+                "keystore_locked" => {
+                    if s.has_keystore_on_disk {
+                        Screen::UnlockDataPassword
+                    } else {
+                        Screen::SetDataPassword
+                    }
                 }
+                "needs_credentials" => Screen::Credentials,
+                "needs_register" => Screen::Register,
+                "storage_locked" => Screen::UnlockStorage,
+                "ready" => Screen::Ready,
+                _ => Screen::DaemonOffline,
             }
-            "needs_credentials" => Screen::Credentials,
-            "needs_register" => Screen::Register,
-            "storage_locked" => Screen::UnlockStorage,
-            "ready" => Screen::Ready,
-            _ => Screen::DaemonOffline,
         };
 
-        self.set_status(match self.screen {
-            Screen::Connecting => "Connecting...",
-            Screen::DaemonOffline => "Daemon offline or not responding.",
-            Screen::SetDataPassword => "First run: set your data password.",
-            Screen::UnlockDataPassword => "Enter your data password.",
-            Screen::Credentials => "Enter account credentials.",
-            Screen::Register => "Account needs registration.",
-            Screen::UnlockStorage => "Unlock local storage.",
-            Screen::Ready => "Ready.",
-        });
+        let status = if ping.ui_state != "keystore_locked" && !has_ipc_auth {
+            "Re-enter your data password to authorize this GUI session.".to_string()
+        } else {
+            match self.screen {
+                Screen::Connecting => "Connecting...".to_string(),
+                Screen::DaemonOffline => "Daemon offline or not responding.".to_string(),
+                Screen::SetDataPassword => {
+                    if s.first_run {
+                        "First run: set your data password.".to_string()
+                    } else {
+                        "Local keystore is missing. Set a new data password to reinitialize local state."
+                            .to_string()
+                    }
+                }
+                Screen::UnlockDataPassword => {
+                    "Enter your data password. If you lost it, wipe local data and register again."
+                        .to_string()
+                }
+                Screen::Credentials => "Enter account credentials.".to_string(),
+                Screen::Register => {
+                    if s.needs_register {
+                        "This local profile must be registered before storage can be unlocked."
+                            .to_string()
+                    } else {
+                        "Account needs registration.".to_string()
+                    }
+                }
+                Screen::UnlockStorage => "Unlock local storage.".to_string(),
+                Screen::Ready => "Ready.".to_string(),
+            }
+        };
+
+        self.set_status(status);
 
         if self.screen == Screen::Ready {
             self.send(Command::LoadContacts);
@@ -188,6 +272,7 @@ impl LithiumApp {
             WorkerEvent::Ping(res) => match res {
                 Ok(ping) => self.handle_ping(ping),
                 Err(e) => {
+                    self.last_ping = None;
                     self.screen = Screen::DaemonOffline;
                     self.set_status(format!("Daemon unavailable: {e}"));
                 }
@@ -231,6 +316,15 @@ impl LithiumApp {
                 Err(e) => {
                     let e_lower = e.to_ascii_lowercase();
 
+                    if e_lower.contains("register_required") {
+                        self.screen = Screen::Register;
+                        self.confirm_wipe_local = false;
+                        self.set_status(
+                            "This local profile needs registration before storage can be unlocked.",
+                        );
+                        return;
+                    }
+
                     let should_reask_credentials =
                         e_lower.contains("invalid_credentials")
                             || e_lower.contains("bad_credentials")
@@ -267,6 +361,19 @@ impl LithiumApp {
                         }
                     }
 
+                    if let Some(cid) = self.pending_verify_contact_id.clone() {
+                        let ready = self
+                            .contacts
+                            .iter()
+                            .any(|c| c.contact_id == cid && c.peer_set);
+
+                        if ready && !self.shown_verify_for_contact_ids.contains(&cid) {
+                            self.pending_verify_contact_id = None;
+                            self.send(Command::LoadVerifyEmoji { contact_id: cid });
+                            return;
+                        }
+                    }
+
                     if let Some(cid) = self.selected_contact_id.clone() {
                         self.send(Command::LoadMessages { contact_id: cid });
                     } else {
@@ -285,9 +392,35 @@ impl LithiumApp {
             } => match result {
                 Ok(page) => {
                     let _ = (page.paging.has_more, page.paging.next_before_id);
-                    if self.selected_contact_id.as_deref() == Some(contact_id.as_str()) {
-                        self.messages = page.messages;
+
+                    let should_probe_verify = if self.selected_contact_id.as_deref()
+                        == Some(contact_id.as_str())
+                    {
+                        self.messages = page.messages.clone();
+
+                        let has_outbound = page.messages.iter().any(|m| m.direction == "out");
+                        let peer_set = self
+                            .contacts
+                            .iter()
+                            .find(|c| c.contact_id == contact_id)
+                            .map(|c| c.peer_set)
+                            .unwrap_or(false);
+
+                        peer_set
+                            && !has_outbound
+                            && !self.verify_modal_open
+                            && !self.shown_verify_for_contact_ids.contains(&contact_id)
+                    } else {
+                        false
+                    };
+
+                    if should_probe_verify {
+                        self.send(Command::LoadVerifyEmoji {
+                            contact_id: contact_id.clone(),
+                        });
+                        return;
                     }
+
                     if let Some(note) = note {
                         self.set_status(note);
                     } else {
@@ -297,10 +430,25 @@ impl LithiumApp {
                 Err(e) => self.set_status(format!("Loading messages failed: {e}")),
             },
 
+            WorkerEvent::VerifyEmoji { contact_id, result } => match result {
+                Ok(v) => {
+                    self.verify_modal_open = true;
+                    self.verify_modal_contact_id = Some(contact_id.clone());
+                    self.verify_modal_emojis = v.emojis;
+                    self.shown_verify_for_contact_ids.insert(contact_id);
+                    self.set_status("Compare these emoji with the peer.");
+                }
+                Err(e) => {
+                    self.clear_verify_modal();
+                    self.set_status(format!("Loading verify emoji failed: {e}"));
+                }
+            },
+
             WorkerEvent::CreateInvite(res) => match res {
                 Ok(v) => {
                     self.generated_invite_code = v.code;
-                    self.pending_select_contact_id = Some(v.contact_id);
+                    self.pending_select_contact_id = Some(v.contact_id.clone());
+                    self.pending_verify_contact_id = Some(v.contact_id);
                     self.set_status("Invite created.");
                     self.send(Command::LoadContacts);
                 }
@@ -311,7 +459,8 @@ impl LithiumApp {
                 Ok(v) => {
                     let _ = v.my_code;
                     self.generated_invite_code.clear();
-                    self.pending_select_contact_id = Some(v.contact_id);
+                    self.pending_select_contact_id = Some(v.contact_id.clone());
+                    self.pending_verify_contact_id = Some(v.contact_id);
                     self.invite_code_input.clear();
                     self.confirm_wipe_local = false;
                     self.set_status("Invite accepted.");
@@ -327,6 +476,8 @@ impl LithiumApp {
                         self.messages.clear();
                     }
                     self.confirm_wipe_local = false;
+                    self.shown_verify_for_contact_ids.remove(&contact_id);
+                    self.clear_verify_modal();
                     self.set_status("Contact removed.");
                     self.send(Command::LoadContacts);
                 }
@@ -337,6 +488,7 @@ impl LithiumApp {
                 Ok(()) => {
                     self.screen = Screen::Connecting;
                     self.confirm_wipe_local = false;
+                    self.last_ping = None;
 
                     self.data_password.clear();
                     self.data_password_confirm.clear();
@@ -353,6 +505,9 @@ impl LithiumApp {
                     self.invite_label_input.clear();
                     self.generated_invite_code.clear();
                     self.pending_select_contact_id = None;
+                    self.pending_verify_contact_id = None;
+                    self.shown_verify_for_contact_ids.clear();
+                    self.clear_verify_modal();
 
                     self.set_status("Local data wiped.");
                     self.send(Command::Ping);
@@ -398,7 +553,9 @@ impl LithiumApp {
                     self.send(Command::WipeLocal);
                 } else {
                     self.confirm_wipe_local = true;
-                    self.set_status("Click 'Confirm wipe local' to remove all local daemon data.");
+                    self.set_status(
+                        "Click 'Confirm wipe local' to remove all local daemon data.",
+                    );
                 }
             }
 
@@ -416,7 +573,18 @@ impl LithiumApp {
 
     fn draw_set_data_password(&mut self, ui: &mut egui::Ui) {
         ui.heading("Set data password");
-        ui.label("This looks like the first run. Set the local data password for the daemon.");
+
+        let first_run = self
+            .last_ping
+            .as_ref()
+            .map(|p| p.status.first_run)
+            .unwrap_or(false);
+
+        if first_run {
+            ui.label("This looks like the first run. Set the local data password for the daemon.");
+        } else {
+            ui.label("No local keystore was found.");
+        }
 
         ui.add(
             egui::TextEdit::singleline(&mut self.data_password)
@@ -445,6 +613,9 @@ impl LithiumApp {
     fn draw_unlock_data_password(&mut self, ui: &mut egui::Ui) {
         ui.heading("Unlock keystore");
         ui.label("Enter your existing data password.");
+        ui.label(
+            "If you lost the data password, use 'Wipe local'. That removes local daemon data and you will need to set a new data password and register this local profile again.",
+        );
 
         ui.add(
             egui::TextEdit::singleline(&mut self.data_password)
@@ -467,10 +638,7 @@ impl LithiumApp {
         ui.heading("Account credentials");
         ui.label("Enter handler and account password.");
 
-        ui.add(
-            egui::TextEdit::singleline(&mut self.handler)
-                .hint_text("Handler"),
-        );
+        ui.add(egui::TextEdit::singleline(&mut self.handler).hint_text("Handler"));
 
         ui.add(
             egui::TextEdit::singleline(&mut self.account_password)
@@ -508,7 +676,12 @@ impl LithiumApp {
 
     fn draw_register(&mut self, ui: &mut egui::Ui) {
         ui.heading("Register");
-        ui.label("The daemon is ready, but the account still needs registration.");
+        ui.label(
+            "This local profile is ready, but it still needs registration before local storage can be unlocked.",
+        );
+        ui.label(
+            "This is expected on first run and after destructive local reset flows such as wiping local data.",
+        );
 
         if ui
             .add_enabled(!self.busy, egui::Button::new("Register"))
@@ -648,8 +821,7 @@ impl LithiumApp {
 
         ui.add_sized(
             [ui.available_width(), 24.0],
-            egui::TextEdit::singleline(&mut self.invite_label_input)
-                .hint_text("Contact label"),
+            egui::TextEdit::singleline(&mut self.invite_label_input).hint_text("Contact label"),
         );
 
         Self::draw_invite_box(
@@ -728,6 +900,10 @@ impl LithiumApp {
         let selected = self.selected_contact().cloned();
 
         if let Some(contact) = selected {
+            let show_verify_here = self.verify_modal_open
+                && self.verify_modal_contact_id.as_deref() == Some(contact.contact_id.as_str())
+                && !self.verify_modal_emojis.is_empty();
+
             ui.horizontal_wrapped(|ui| {
                 let title = if contact.label.is_empty() {
                     contact.contact_id.clone()
@@ -769,26 +945,40 @@ impl LithiumApp {
 
             ui.separator();
 
-            let list_height = (ui.available_height() - 140.0).max(120.0);
+            let compose_height = if show_verify_here { 220.0 } else { 130.0 };
+            let list_height = (ui.available_height() - compose_height).max(120.0);
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .max_height(list_height)
                 .show(ui, |ui| {
-                    for msg in &self.messages {
-                        let who = if msg.direction == "out" { "You" } else { "Peer" };
-                        let text = msg.text.clone().unwrap_or_else(|| "<non-text>".into());
-                        let _ = (&msg.kind, &msg.ui);
+                    if self.messages.is_empty() {
+                        if show_verify_here {
+                            self.draw_verify_card(ui);
+                            ui.add_space(10.0);
+                        }
+                        ui.label("No messages yet.");
+                    } else {
+                        for msg in &self.messages {
+                            let who = if msg.direction == "out" { "You" } else { "Peer" };
+                            let text = msg.text.clone().unwrap_or_else(|| "<non-text>".into());
+                            let _ = (&msg.kind, &msg.ui);
 
-                        ui.group(|ui| {
-                            ui.label(format!("{who} · {} · {}", msg.created_at, msg.id));
-                            ui.label(text);
-                        });
-                        ui.add_space(6.0);
+                            ui.group(|ui| {
+                                ui.label(format!("{who} · {} · {}", msg.created_at, msg.id));
+                                ui.label(text);
+                            });
+                            ui.add_space(6.0);
+                        }
                     }
                 });
 
             ui.separator();
+
+            if show_verify_here && !self.messages.is_empty() {
+                self.draw_verify_card(ui);
+                ui.add_space(8.0);
+            }
 
             ui.label("Compose");
             ui.add(
@@ -797,7 +987,7 @@ impl LithiumApp {
                     .hint_text("Type message"),
             );
 
-            let can_send = !self.busy && !self.message_text.trim().is_empty();
+            let can_send = !self.busy && contact.peer_set && !self.message_text.trim().is_empty();
 
             if ui
                 .add_enabled(can_send, egui::Button::new("Send"))
@@ -814,7 +1004,6 @@ impl LithiumApp {
             ui.label("Select a contact.");
         }
     }
-
 }
 
 impl eframe::App for LithiumApp {
@@ -910,7 +1099,15 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
             }
         }
 
-        Command::SendMessage { contact_id, plaintext } => {
+        Command::LoadVerifyEmoji { contact_id } => WorkerEvent::VerifyEmoji {
+            contact_id: contact_id.clone(),
+            result: ipc::contact_verify_emoji(&contact_id).await,
+        },
+
+        Command::SendMessage {
+            contact_id,
+            plaintext,
+        } => {
             let res = match ipc::contact_send(&contact_id, &plaintext).await {
                 Ok(()) => ipc::messages_list(&contact_id, 100, None).await,
                 Err(e) => Err(e),
@@ -942,13 +1139,20 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
             WorkerEvent::CreateInvite(ipc::create_invite(contact_id.as_deref()).await)
         }
 
-        Command::AcceptInvite { code, label, contact_id } => {
-            WorkerEvent::AcceptInvite(ipc::accept_invite(&code, &label, contact_id.as_deref()).await)
-        }
+        Command::AcceptInvite {
+            code,
+            label,
+            contact_id,
+        } => WorkerEvent::AcceptInvite(
+            ipc::accept_invite(&code, &label, contact_id.as_deref()).await,
+        ),
 
         Command::ForgetContact { contact_id } => {
             let res = ipc::contact_forget(&contact_id).await;
-            WorkerEvent::ForgetContact { contact_id, result: res }
+            WorkerEvent::ForgetContact {
+                contact_id,
+                result: res,
+            }
         }
 
         Command::WipeLocal => WorkerEvent::WipeLocal(ipc::wipe_local().await),

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use serde_json::{json, Value};
 
 use lithium_core::{
-    secrets::{Byte32, SecretJson},
+    secrets::{Byte32, SecretJson, SecretString},
     secrets::bytes::SecretBytes,
 };
 
@@ -32,6 +32,7 @@ use crate::{
     protocol_manager::Endpoint,
     state::DaemonState,
 };
+use crate::commands::e2e::drop_bootstrap_private_if_established;
 
 const PREKEY_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 
@@ -106,6 +107,8 @@ pub async fn handle(
         return err_resp(id, "keystore_locked");
     };
 
+    let plaintext = SecretString::new(plaintext);
+
     let contact_id = match hex::decode(contact_id_hex.trim()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "invalid_contact_id"),
@@ -132,11 +135,14 @@ pub async fn handle(
         return crypto_err(id);
     }
 
-    self_v.with_exposed_mut(|self_state| {
-        peer_v.with_exposed_mut(|peer_state| {
-            ensure_mailbox_state(self_state, peer_state);
-        });
-    });
+    if self_v
+        .with_exposed_mut(|self_state| {
+            peer_v.with_exposed_mut(|peer_state| ensure_mailbox_state(self_state, peer_state))
+        })
+        .is_err()
+    {
+        return crypto_err(id);
+    }
 
     if let Err(e) = ensure_local_prekeys(dm.as_ref(), contact_id.as_slice(), &mut self_v).await {
         return err_resp(id, e);
@@ -175,7 +181,7 @@ pub async fn handle(
     let (wire, ui_meta) = match encrypt_for_peer(
         &mut self_v,
         &mut peer_v,
-        plaintext.as_bytes(),
+        plaintext.expose().as_bytes(),
         "text/utf8",
         &advertise,
         use_recovery,
@@ -204,9 +210,13 @@ pub async fn handle(
         prekeys_mark_advertised(&mut self_v);
     }
 
-    self_v.with_exposed_mut(mark_outbound_message_sent);
+    if self_v.with_exposed_mut(mark_outbound_message_sent).is_err() {
+        return crypto_err(id);
+    }
 
-    let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+    drop_bootstrap_private_if_established(&mut self_v, &peer_v);
+
+    let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
         serde_json::to_writer(out.as_mut_vec(), v)?;
         Ok(out)
@@ -215,7 +225,7 @@ pub async fn handle(
         Err(_) => return err_resp(id, "json_error"),
     };
 
-    let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+    let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
         serde_json::to_writer(out.as_mut_vec(), v)?;
         Ok(out)
@@ -237,7 +247,7 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let stored = match build_stored_message(&plaintext, &ui_meta, &mailbox_hex, mailbox_gen) {
+    let stored = match build_stored_message(plaintext.expose(), &ui_meta, &mailbox_hex, mailbox_gen) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };

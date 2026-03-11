@@ -25,6 +25,17 @@ fn default_server_string(state: &DaemonState) -> SecretString {
     SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string())
 }
 
+fn get_self_string_or_fallback(
+    self_json: &SecretJson,
+    key: &'static str,
+    fallback: &'static str,
+) -> Result<SecretString, ()> {
+    self_json
+        .get_string(key)
+        .or_else(|_| self_json.get_string(fallback))
+        .map_err(|_| ())
+}
+
 pub async fn handle(
     id: u64,
     contact_id_opt: Option<String>,
@@ -82,6 +93,21 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
+        let mbox_in_pub = match get_self_string_or_fallback(&self_json, "mbox_in_pub", "x_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let mbox_out_cur_pub =
+            match get_self_string_or_fallback(&self_json, "mbox_out_cur_pub", "x_pub") {
+                Ok(v) => v,
+                Err(_) => return err_resp(id, "self_state_corrupt"),
+            };
+        let mbox_out_next_pub =
+            match get_self_string_or_fallback(&self_json, "mbox_out_next_pub", "x_pub") {
+                Ok(v) => v,
+                Err(_) => return err_resp(id, "self_state_corrupt"),
+            };
+
         let pub_code = InvitePublic {
             server: server_ss,
             cid_hex,
@@ -89,6 +115,10 @@ pub async fn handle(
             k_pub_hex: k_pub,
             ed_pub_hex: ed_pub,
             dili_pub_hex: dili_pub,
+
+            mbox_in_pub_hex: mbox_in_pub,
+            mbox_out_cur_pub_hex: mbox_out_cur_pub,
+            mbox_out_next_pub_hex: mbox_out_next_pub,
         };
 
         let code = match encode_invite_code(&pub_code) {
@@ -180,6 +210,19 @@ pub async fn handle(
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
 
+    let mbox_in_pub = match self_json.get_string("mbox_in_pub") {
+        Ok(v) => v,
+        Err(_) => return err_resp(id, "self_state_corrupt"),
+    };
+    let mbox_out_cur_pub = match self_json.get_string("mbox_out_cur_pub") {
+        Ok(v) => v,
+        Err(_) => return err_resp(id, "self_state_corrupt"),
+    };
+    let mbox_out_next_pub = match self_json.get_string("mbox_out_next_pub") {
+        Ok(v) => v,
+        Err(_) => return err_resp(id, "self_state_corrupt"),
+    };
+
     let pub_code = InvitePublic {
         server: server_ss,
         cid_hex,
@@ -187,6 +230,10 @@ pub async fn handle(
         k_pub_hex: k_pub,
         ed_pub_hex: ed_pub,
         dili_pub_hex: dili_pub,
+
+        mbox_in_pub_hex: mbox_in_pub,
+        mbox_out_cur_pub_hex: mbox_out_cur_pub,
+        mbox_out_next_pub_hex: mbox_out_next_pub,
     };
 
     let code = match encode_invite_code(&pub_code) {

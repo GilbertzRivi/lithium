@@ -2,22 +2,34 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
+pub struct IpcRequest {
+    pub id: u64,
+
+    #[serde(default)]
+    pub auth_token: Option<String>,
+
+    #[serde(flatten)]
+    pub cmd: IpcCommand,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
-pub enum IpcRequest {
-    Ping { id: u64 },
-    UnlockKeystore { id: u64, data_password: String },
-    SetCredentials { id: u64, handler: String, password: String },
-    Register { id: u64 },
-    UnlockStorage { id: u64 },
-    Shutdown { id: u64 },
-    WipeLocal { id: u64 },
-    CreateInvite { id: u64, contact_id: Option<String>, server: Option<String> },
-    AcceptInvite { id: u64, code: String, contact_id: Option<String>, label: String },
-    ContactsList { id: u64 },
-    ContactSend { id: u64, contact_id: String, plaintext: String },
-    ContactFetch { id: u64, contact_id: String },
-    ContactForget { id: u64, contact_id: String },
-    MessagesList { id: u64, contact_id: String, limit: Option<u64>, before_id: Option<i64> },
+pub enum IpcCommand {
+    Ping,
+    UnlockKeystore { data_password: String },
+    SetCredentials { handler: String, password: String },
+    Register,
+    UnlockStorage,
+    Shutdown,
+    WipeLocal,
+    CreateInvite { contact_id: Option<String>, server: Option<String> },
+    AcceptInvite { code: String, contact_id: Option<String>, label: String },
+    ContactsList,
+    ContactSend { contact_id: String, plaintext: String },
+    ContactFetch { contact_id: String },
+    ContactForget { contact_id: String },
+    MessagesList { contact_id: String, limit: Option<u64>, before_id: Option<i64> },
+    ContactVerifyEmoji { contact_id: String },
 }
 
 #[derive(Debug, Serialize)]

@@ -18,17 +18,23 @@ impl AppError {
     pub fn bad_request(msg: &'static str) -> Self {
         Self { code: StatusCode::BAD_REQUEST, msg, source: None }
     }
+
     pub fn unauthorized(msg: &'static str) -> Self {
         Self { code: StatusCode::UNAUTHORIZED, msg, source: None }
     }
+
+    pub fn too_many_requests(msg: &'static str) -> Self {
+        Self { code: StatusCode::TOO_MANY_REQUESTS, msg, source: None }
+    }
+
     pub fn internal(msg: &'static str) -> Self {
         Self { code: StatusCode::INTERNAL_SERVER_ERROR, msg, source: None }
     }
+
     pub fn from_source(code: StatusCode, msg: &'static str, source: impl Into<anyhow::Error>) -> Self {
         Self { code, msg, source: Some(source.into()) }
     }
 }
-
 impl From<LithiumError> for AppError {
     fn from(e: LithiumError) -> Self {
         AppError::from_source(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", e)

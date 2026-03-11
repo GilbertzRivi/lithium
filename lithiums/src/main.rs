@@ -1,83 +1,22 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-use poem::{
-    get, handler, listener::TcpListener, middleware::Tracing, post, Endpoint, EndpointExt, Route,
-    Server,
-};
-use poem::web::Json;
-use serde_json::json;
+use poem::{listener::TcpListener, EndpointExt, Server};
+use poem::middleware::Tracing;
 use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
-use lithium_core::db::manager::DataManager;
-use lithium_core::error::LithiumError;
-use lithium_core::keys::manager::{KeyManager, KeyStoreKind};
+use lithium_core::{
+    db::manager::DataManager,
+    error::{LithiumError, Result},
+    keys::{KeyManager, KeyStoreKind},
+    utils::store::EphemeralStoreManager,
+};
 use lithium_core::keys::PlainFileMkProvider;
-use lithium_core::utils::store::EphemeralStoreManager;
-use log::info;
-use crate::middleware::crypto::CryptoMiddleware;
-use crate::middleware::guard::GuardMiddleware;
-use crate::state::AppState;
-use crate::transport::{AuthMode, CryptoCfg};
 
-mod api;
-mod db;
-mod error;
-mod middleware;
-mod state;
-mod transport;
-
-#[handler]
-async fn root() -> Json<serde_json::Value> {
-    Json(json!({
-        "message": "Welcome to Lithium, real private messenger"
-    }))
-}
-
-pub fn api_routes(state: state::SharedState) -> impl Endpoint {
-    Route::new()
-        .at("/", get(root))
-        .at(
-            "/shake",
-            post(api::handshake::handshake).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::shake("shake").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .at(
-            "/user/register",
-            post(api::user::register).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("register").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .at(
-            "/user/login",
-            post(api::user::login).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("login").auth(AuthMode::LoginByHandler),
-            )),
-        )
-        .at(
-            "/msg/send",
-            post(api::messages::send).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("msg_send").auth(AuthMode::JwtUser),
-            )),
-        )
-        .at(
-            "/msg/fetch",
-            post(api::messages::fetch).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("msg_fetch")
-                    .auth(AuthMode::KeysInHeaders)
-            )),
-        )
-        .with(GuardMiddleware::new(state))
-}
+use lithiums::{api_routes, db, error, state::AppState};
 
 #[tokio::main]
-async fn main() -> Result<(), error::AppError> {
+async fn main() -> error::AppResult<()> {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -107,19 +46,6 @@ async fn main() -> Result<(), error::AppError> {
 
     let dbm = Arc::new(DataManager::new(db, key_manager.clone()));
     dbm.init().await?;
-
-    // let pk = {
-    //     let guard = key_manager.lock().await;
-    //     guard.public_keys().clone()
-    // };
-    //
-    // info!(
-    //     "PublicKeys {{ ed25519: {}, x25519: {}, kyber: {}, dilithium: {} }}",
-    //     hex::encode(pk.ed25519.as_slice()),
-    //     hex::encode(pk.x25519.as_slice()),
-    //     hex::encode(pk.kyber.as_slice()),
-    //     hex::encode(pk.dilithium.as_slice()),
-    // );
 
     let state = Arc::new(AppState {
         key_manager,
