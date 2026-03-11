@@ -8,11 +8,13 @@ use lithium_core::{
 };
 
 const INV_MAGIC: &[u8; 4] = b"LCI1";
-const INV_VER: u8 = 2;
+const INV_VER: u8 = 3;
+
+const MLKEM1024_PUBLIC_KEY_LEN: usize = 1568;
+const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
 
 #[derive(Clone)]
 pub struct InvitePublic {
-    pub server: SecretString,
     pub cid_hex: SecretString,
     pub x_pub_hex: SecretString,
     pub k_pub_hex: SecretString,
@@ -46,13 +48,13 @@ struct SelfStateSerde<'a> {
     mbox_out_next_pub: &'a str,
 }
 
-pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
-    let server_b = p.server.expose().as_bytes();
-    if server_b.len() > u16::MAX as usize {
-        return Err(LithiumError::invalid_len(u16::MAX as usize, server_b.len()));
-    }
+#[inline]
+fn invalid_invite_code() -> LithiumError {
+    LithiumError::invalid_credentials("invalid_invite_code")
+}
 
-    let cid = SecretBytes::from_hex(p.cid_hex.expose().trim())?;
+pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
+    let cid = Byte32::from_hex(p.cid_hex.expose().trim())?;
     let x_pub = Byte32::from_hex(p.x_pub_hex.expose().trim())?;
     let k_pub = SecretBytes::from_hex(p.k_pub_hex.expose().trim())?;
     let ed_pub = Byte32::from_hex(p.ed_pub_hex.expose().trim())?;
@@ -62,16 +64,16 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
     let mbox_out_cur_pub = Byte32::from_hex(p.mbox_out_cur_pub_hex.expose().trim())?;
     let mbox_out_next_pub = Byte32::from_hex(p.mbox_out_next_pub_hex.expose().trim())?;
 
-    if !(cid.len() == 16 || cid.len() == 32) {
-        return Err(LithiumError::invalid_len(32, cid.len()));
+    if k_pub.len() != MLKEM1024_PUBLIC_KEY_LEN {
+        return Err(invalid_invite_code());
     }
-    if k_pub.len() > u16::MAX as usize || dili_pub.len() > u16::MAX as usize {
-        return Err(LithiumError::internal());
+    if dili_pub.len() != MLDSA87_PUBLIC_KEY_LEN {
+        return Err(invalid_invite_code());
     }
 
     let mut out = SecretBytes::new(Vec::with_capacity(
-        4 + 1 + 2 + server_b.len()
-            + 1 + cid.len()
+        4 + 1
+            + 32
             + 32
             + 2 + k_pub.len()
             + 32
@@ -82,13 +84,7 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
     out.as_mut_vec().extend_from_slice(INV_MAGIC);
     out.as_mut_vec().push(INV_VER);
 
-    out.as_mut_vec()
-        .extend_from_slice(&(server_b.len() as u16).to_be_bytes());
-    out.as_mut_vec().extend_from_slice(server_b);
-
-    out.as_mut_vec().push(cid.len() as u8);
     out.as_mut_vec().extend_from_slice(cid.as_slice());
-
     out.as_mut_vec().extend_from_slice(x_pub.as_slice());
 
     out.as_mut_vec()
@@ -114,50 +110,40 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
     let blob = SecretBytes::from_hex(hex_part)?;
     let blob = blob.as_slice();
 
-    if blob.len() < 4 + 1 + 2 + 1 + 32 + 2 + 32 + 2 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+    const MIN_INVITE_LEN: usize =
+        4 + 1
+            + 32
+            + 32
+            + 2 + MLKEM1024_PUBLIC_KEY_LEN
+            + 32
+            + 2 + MLDSA87_PUBLIC_KEY_LEN
+            + 32 + 32 + 32;
+
+    if blob.len() < MIN_INVITE_LEN {
+        return Err(invalid_invite_code());
     }
     if &blob[0..4] != INV_MAGIC {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+        return Err(invalid_invite_code());
     }
-
-    let ver = blob[4];
-    if ver != 1 && ver != 2 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+    if blob[4] != INV_VER {
+        return Err(invalid_invite_code());
     }
 
     let mut i = 5;
 
-    let server_len = u16::from_be_bytes([blob[i], blob[i + 1]]) as usize;
-    i += 2;
-    if blob.len() < i + server_len + 1 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
-    }
-    let server = String::from_utf8(blob[i..i + server_len].to_vec())
-        .map_err(|e| LithiumError::invalid_credentials("invalid_invite_code").with_source(e))?;
-    i += server_len;
-
-    let cid_len = blob[i] as usize;
-    i += 1;
-    if !(cid_len == 16 || cid_len == 32) {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
-    }
-    if blob.len() < i + cid_len + 32 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
-    }
-    let cid = &blob[i..i + cid_len];
-    i += cid_len;
+    let cid = &blob[i..i + 32];
+    i += 32;
 
     let x_pub = &blob[i..i + 32];
     i += 32;
 
-    if blob.len() < i + 2 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
-    }
     let k_len = u16::from_be_bytes([blob[i], blob[i + 1]]) as usize;
     i += 2;
-    if blob.len() < i + k_len + 32 + 2 {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+    if k_len != MLKEM1024_PUBLIC_KEY_LEN {
+        return Err(invalid_invite_code());
+    }
+    if blob.len() < i + k_len + 32 + 2 + MLDSA87_PUBLIC_KEY_LEN + 32 + 32 + 32 {
+        return Err(invalid_invite_code());
     }
     let k_pub = &blob[i..i + k_len];
     i += k_len;
@@ -167,29 +153,29 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
 
     let dili_len = u16::from_be_bytes([blob[i], blob[i + 1]]) as usize;
     i += 2;
-    if blob.len() < i + dili_len {
-        return Err(LithiumError::invalid_credentials("invalid_invite_code"));
+    if dili_len != MLDSA87_PUBLIC_KEY_LEN {
+        return Err(invalid_invite_code());
+    }
+    if blob.len() < i + dili_len + 32 + 32 + 32 {
+        return Err(invalid_invite_code());
     }
     let dili_pub = &blob[i..i + dili_len];
     i += dili_len;
 
-    let (mbox_in_pub, mbox_out_cur_pub, mbox_out_next_pub) = if ver >= 2 {
-        if blob.len() < i + 32 + 32 + 32 {
-            return Err(LithiumError::invalid_credentials("invalid_invite_code"));
-        }
-        let mbox_in_pub = &blob[i..i + 32];
-        i += 32;
-        let mbox_out_cur_pub = &blob[i..i + 32];
-        i += 32;
-        let mbox_out_next_pub = &blob[i..i + 32];
+    let mbox_in_pub = &blob[i..i + 32];
+    i += 32;
 
-        (mbox_in_pub, mbox_out_cur_pub, mbox_out_next_pub)
-    } else {
-        (x_pub, x_pub, x_pub)
-    };
+    let mbox_out_cur_pub = &blob[i..i + 32];
+    i += 32;
+
+    let mbox_out_next_pub = &blob[i..i + 32];
+    i += 32;
+
+    if i != blob.len() {
+        return Err(invalid_invite_code());
+    }
 
     Ok(InvitePublic {
-        server: SecretString::new(server),
         cid_hex: SecretString::new(hex::encode(cid)),
         x_pub_hex: SecretString::new(hex::encode(x_pub)),
         k_pub_hex: SecretString::new(hex::encode(k_pub)),
@@ -202,10 +188,7 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
 }
 
 pub fn decode_contact_id_hex(s: &SecretString) -> Result<Vec<u8>> {
-    let b = SecretBytes::from_hex(s.expose().trim())?;
-    if !(b.len() == 16 || b.len() == 32) {
-        return Err(LithiumError::invalid_len(32, b.len()));
-    }
+    let b = Byte32::from_hex(s.expose().trim())?;
     Ok(b.as_slice().to_vec())
 }
 

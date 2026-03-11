@@ -48,18 +48,23 @@ fn derive_ecdh_key(priv_x: &Byte32, peer_pub_x: &Byte32, ctx: &str) -> Result<By
     let peer_pub = XPublicKey::from(*peer_pub_x.as_array());
     let shared = my_secret.diffie_hellman(&peer_pub);
 
+    let shared_secret = Byte32::new(shared.to_bytes());
+
     kdf::derive32(
-        &SecretBytes::from_slice(shared.as_bytes()),
+        &SecretBytes::from_slice(shared_secret.as_slice()),
         None,
         &label(ctx, "ecdh-key"),
     )
 }
 
 #[inline]
-fn derive_base_key(ecdh_key: &Byte32, seed_plain: &SecretBytes, ctx: &str) -> Result<Byte32> {
+fn derive_base_key(ecdh_key: &Byte32, seed_plain: &Byte32, ctx: &str) -> Result<Byte32> {
+    let ecdh_input = SecretBytes::from_slice(ecdh_key.as_slice());
+    let seed_salt = SecretBytes::from_slice(seed_plain.as_slice());
+
     kdf::derive32(
-        &SecretBytes::from_slice(ecdh_key.as_slice()),
-        Some(seed_plain),
+        &ecdh_input,
+        Some(&seed_salt),
         &label(ctx, "base-key"),
     )
 }
@@ -87,7 +92,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
 
     let (ss_bytes, ct_kem) = {
         let (ss, ct_kem): (KyberSharedSecret, KyberCiphertext) = kyber_encapsulate(&pk);
-        let ss_bytes = SecretBytes::from_slice(ss.as_bytes());
+        let ss_bytes = Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?;
         (ss_bytes, ct_kem)
     };
 
@@ -133,7 +138,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     Ok(SecretBytes::from_vec(out))
 }
 
-fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> Result<SecretBytes> {
+fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> Result<Byte32> {
     if blob.len() < 1 + 1 + 1 + 1 + 32 + 2 {
         return Err(LithiumError::internal());
     }
@@ -176,7 +181,7 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
         let sk = KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
         let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
         let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
-        SecretBytes::from_slice(ss.as_bytes())
+        Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?
     };
 
     let mut aead_key = Byte32::new_zeroed();
@@ -197,11 +202,13 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
     aad_full.extend_from_slice(&header);
     aad_full.extend_from_slice(user_aad);
 
-    aead::decrypt(
+    let seed_plain = aead::decrypt(
         &SecretBytes::from_slice(aead_blob),
         &aead_key,
         &SecretBytes::from_vec(aad_full),
-    )
+    )?;
+
+    Byte32::from_slice(seed_plain.as_slice()).map_err(|_| LithiumError::internal())
 }
 
 pub fn encrypt(
@@ -221,7 +228,7 @@ pub fn encrypt(
         label(ctx, "seed").as_slice(),
     )?;
 
-    let base_key = derive_base_key(&ecdh_key, &SecretBytes::from_slice(seed_plain.as_slice()), ctx)?;
+    let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 

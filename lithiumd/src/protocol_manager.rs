@@ -1,6 +1,6 @@
 use std::{env, sync::Arc, time::Duration};
 
-use aead::rand_core::UnwrapErr;
+use rand::rand_core::UnwrapErr;
 use hex;
 use rand::RngExt;
 use rand::rngs::SysRng;

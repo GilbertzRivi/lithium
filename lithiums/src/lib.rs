@@ -4,7 +4,6 @@ use serde_json::json;
 
 use crate::middleware::crypto::CryptoMiddleware;
 use crate::middleware::guard::GuardMiddleware;
-use crate::state::AppState;
 use crate::transport::{AuthMode, CryptoCfg};
 
 pub mod api;
@@ -13,6 +12,7 @@ pub mod error;
 pub mod middleware;
 pub mod state;
 pub mod transport;
+pub mod mk_rotator;
 
 #[handler]
 async fn root() -> Json<serde_json::Value> {

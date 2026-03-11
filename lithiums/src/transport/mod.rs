@@ -64,6 +64,9 @@ const LOGIN_FAIL_WINDOW_SECS: u64 = 15 * 60;
 const LOGIN_LOCK_BASE_SECS: u64 = 30;
 const LOGIN_LOCK_MAX_SECS: u64 = 15 * 60;
 const LOGIN_FAIL_THRESHOLD: u32 = 5;
+const REGISTER_FAIL_WINDOW_SECS: u64 = 60 * 60;
+const REGISTER_LOCK_SECS: u64 = 60 * 60;
+const REGISTER_FAIL_THRESHOLD: u32 = 3;
 
 #[inline]
 fn normalize_login_handler(handler: &str) -> String {
@@ -157,6 +160,80 @@ pub async fn login_rate_limit_success(
 ) -> Result<(), AppError> {
     let _ = state.store.del(&login_fail_key(handler)).await;
     let _ = state.store.del(&login_lock_key(handler)).await;
+    Ok(())
+}
+
+#[inline]
+fn normalize_register_handler(handler: &str) -> String {
+    handler.trim().to_lowercase()
+}
+
+#[inline]
+fn register_fail_key(handler: &str) -> String {
+    format!("auth:register:fail:{}", normalize_register_handler(handler))
+}
+
+#[inline]
+fn register_lock_key(handler: &str) -> String {
+    format!("auth:register:lock:{}", normalize_register_handler(handler))
+}
+
+pub async fn register_rate_limit_check(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let lock_key = register_lock_key(handler);
+
+    if state.store.peek(&lock_key).await?.is_some() {
+        return Err(AppError::too_many_requests("try_later"));
+    }
+
+    Ok(())
+}
+
+pub async fn register_rate_limit_fail(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let fail_key = register_fail_key(handler);
+
+    let current = match state.store.peek(&fail_key).await? {
+        Some(v) => parse_u32_ascii(v.as_slice()),
+        None => 0,
+    };
+
+    let next = current.saturating_add(1);
+
+    state
+        .store
+        .set(
+            &fail_key,
+            &SecretBytes::from_slice(next.to_string().as_bytes()),
+            Duration::from_secs(REGISTER_FAIL_WINDOW_SECS),
+        )
+        .await?;
+
+    if next >= REGISTER_FAIL_THRESHOLD {
+        let lock_key = register_lock_key(handler);
+        state
+            .store
+            .set(
+                &lock_key,
+                &SecretBytes::from_slice(next.to_string().as_bytes()),
+                Duration::from_secs(REGISTER_LOCK_SECS),
+            )
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn register_rate_limit_success(
+    state: &SharedState,
+    handler: &str,
+) -> Result<(), AppError> {
+    let _ = state.store.del(&register_fail_key(handler)).await;
+    let _ = state.store.del(&register_lock_key(handler)).await;
     Ok(())
 }
 
@@ -300,7 +377,7 @@ pub async fn get_user_from_token(
         &DecodingKey::from_secret(secret.as_slice()),
         &validation,
     )
-        .map_err(|_| AppError::unauthorized("invalid jwt 1"))?;
+        .map_err(|_| AppError::unauthorized("invalid jwt"))?;
 
     let value = store
         .take(&format!("token:{token}"))
@@ -308,7 +385,7 @@ pub async fn get_user_from_token(
         .ok_or(AppError::unauthorized("invalid jwt 2"))?;
 
     if value.len() < 32 {
-        return Err(AppError::unauthorized("invalid jwt 3"));
+        return Err(AppError::unauthorized("invalid jwt"));
     }
 
     let seed = &value.as_slice()[..32];
@@ -316,13 +393,13 @@ pub async fn get_user_from_token(
 
     let sub = token_data.claims.sub;
     if hmac_id(id, seed)? != sub {
-        return Err(AppError::unauthorized("invalid jwt 4"));
+        return Err(AppError::unauthorized("invalid jwt"));
     }
 
     let user = dbm
         .get_user_by_id(id)
         .await?
-        .ok_or(AppError::unauthorized("invalid jwt 5"))?;
+        .ok_or(AppError::unauthorized("invalid jwt"))?;
 
     Ok(user)
 }
@@ -333,14 +410,6 @@ pub async fn build_crypto_context(
     headers_map: &HashMap<String, Vec<u8>>,
     cipher_body: SecretBytes,
 ) -> Result<CryptoReq, AppError> {
-    debug!(
-        endpoint = cfg.endpoint,
-        mode = ?cfg.mode,
-        auth = ?cfg.auth,
-        body_len = cipher_body.as_slice().len(),
-        "build_crypto_context start"
-    );
-
     match cfg.mode {
         CryptoMode::Shake => verify_headers(headers_map, &["key-x", "key-k", "seed", "data"])?,
         CryptoMode::Session => {
@@ -375,10 +444,7 @@ pub async fn build_crypto_context(
                 .with_x25519_and_kyber_sk(|x_priv, k_priv| {
                     kyberbox::decrypt(req_label.as_str(), &x_priv, &peer_key_x, &k_priv, &wire)
                 }) {
-                Ok(v) => {
-                    debug!(endpoint = cfg.endpoint, "shake decrypt ok");
-                    v
-                }
+                Ok(v) => { v }
                 Err(e) => {
                     error!(
                         endpoint = cfg.endpoint,
@@ -420,10 +486,7 @@ pub async fn build_crypto_context(
                     seed_enc: seed_enc_z,
                 },
             ) {
-                Ok(v) => {
-                    debug!(endpoint = cfg.endpoint, "session decrypt ok");
-                    v
-                }
+                Ok(v) => { v }
                 Err(e) => {
                     error!(
                         endpoint = cfg.endpoint,
@@ -456,26 +519,7 @@ pub async fn build_crypto_context(
         error!(endpoint = cfg.endpoint, error = ?e, "headers json parse failed");
         AppError::from(e)
     })?;
-
-    let body_keys = body_json.with_exposed(|v| {
-        v.as_object()
-            .map(|o| o.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default()
-    });
-
-    let header_keys = headers_json.with_exposed(|v| {
-        v.as_object()
-            .map(|o| o.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default()
-    });
-
-    debug!(
-        endpoint = cfg.endpoint,
-        body_keys = ?body_keys,
-        app_header_keys = ?header_keys,
-        "parsed decrypted json"
-    );
-
+    
     let ts = body_json.get_string("timestamp").map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "timestamp missing");
         AppError::from(e)

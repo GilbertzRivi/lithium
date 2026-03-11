@@ -1,8 +1,8 @@
 use poem::{handler, Response};
 use serde_json::json;
-use tracing::{debug, warn};
 
 use lithium_core::passwords::passwords::verify_password_phc;
+use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
@@ -10,10 +10,11 @@ use crate::transport::{
     login_rate_limit_check,
     login_rate_limit_fail,
     login_rate_limit_success,
+    register_rate_limit_check,
+    register_rate_limit_fail,
+    register_rate_limit_success,
     CryptoReq,
 };
-
-use lithium_core::secrets::bytes::SecretBytes;
 
 #[handler]
 pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
@@ -34,25 +35,13 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
         let password = ctx.body.take_string("password")?;
         let dek_hex = ctx.body.take_string("dek")?;
 
-        debug!(
-            handler = %handler.expose(),
-            dek_hex_len = dek_hex.expose().len(),
-            ed_len = ed_key.as_slice().len(),
-            dili_len = dili_key.as_slice().len(),
-            "register payload extracted"
-        );
-
         (ctx.state.clone(), handler, password, dek_hex, ed_key, dili_key)
     };
 
-    let _dek_blob = SecretBytes::from_hex(dek_hex.expose()).map_err(|_| {
-        warn!(
-            handler = %handler.expose(),
-            dek_hex_len = dek_hex.expose().len(),
-            "register invalid_dek: hex decode failed"
-        );
-        AppError::bad_request("invalid_dek")
-    })?;
+    register_rate_limit_check(&state, handler.expose()).await?;
+
+    let _dek_blob = SecretBytes::from_hex(dek_hex.expose())
+        .map_err(|_| AppError::bad_request("invalid_dek"))?;
 
     let created = state
         .db
@@ -65,26 +54,18 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
         )
         .await?;
 
-    if !created {
-        warn!(
-            handler = %handler.expose(),
-            "register user_exists"
-        );
-        return Err(AppError::bad_request("user_exists"));
+    if created {
+        register_rate_limit_success(&state, handler.expose()).await?;
+    } else {
+        register_rate_limit_fail(&state, handler.expose()).await?;
     }
 
-    let user = state
-        .db
-        .get_user(handler.expose())
-        .await?
-        .ok_or_else(|| AppError::internal("user_create_failed"))?;
-
     let mut ctx = req.lock().await;
-    ctx.user = Some(user);
-
-    ctx.reply_ok_authed(120, json!({"msg":"Ok"})).await
+    ctx.reply_ok(json!({
+        "msg": "Ok"
+    }))
+        .await
 }
-
 
 #[handler]
 pub async fn login(req: CryptoReq) -> Result<Response, AppError> {

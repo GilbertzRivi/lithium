@@ -1,7 +1,8 @@
 use argon2::{
-    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Algorithm, Argon2, Params, Version,
 };
+
 use crate::{
     crypto::{aead, keys},
     error::{LithiumError, Result},
@@ -11,7 +12,7 @@ use crate::{
 
 const DEK_WRAP_VER: u8 = 1;
 const DEK_WRAP_AAD: &[u8] = b"lithium/dek-wrap/v1";
-const DEK_WRAP_SALT_LEN: usize = 16;
+const DEK_WRAP_SALT_LEN: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PasswordPolicy {
@@ -92,6 +93,7 @@ pub fn validate_password(password: &SecretString, pol: PasswordPolicy) -> Result
 
     Ok(())
 }
+
 pub fn validate_passwords_distinct(a: &SecretString, b: &SecretString) -> Result<()> {
     if a.expose() == b.expose() {
         return Err(LithiumError::invalid_credentials("passwords_not_distinct"));
@@ -101,8 +103,10 @@ pub fn validate_passwords_distinct(a: &SecretString, b: &SecretString) -> Result
 
 pub fn hash_password_phc(password: &SecretString) -> Result<String> {
     let argon2 = argon2_std()?;
+    let salt = SaltString::generate(&mut OsRng);
+
     let phc = argon2
-        .hash_password(password.expose().as_bytes())
+        .hash_password(password.expose().as_bytes(), &salt)
         .map_err(|_| LithiumError::internal())?;
 
     Ok(phc.to_string())

@@ -113,6 +113,9 @@ pub async fn handle(
         Ok(v) => v,
         Err(_) => return err_resp(id, "invalid_contact_id"),
     };
+    if contact_id.len() != 32 {
+        return err_resp(id, "invalid_contact_id");
+    }
 
     let row_opt = match dm.get_contact(contact_id.as_slice()).await {
         Ok(v) => v,

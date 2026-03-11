@@ -9,13 +9,22 @@ use pqcrypto::traits::kem::{PublicKey as _, SecretKey as _};
 use pqcrypto::traits::sign::{PublicKey as SignPub, SecretKey as SignSk};
 use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 
-use crate::crypto::{kdf, keys};
+use crate::crypto::keys;
 use crate::error::{LithiumError, Result};
-use crate::secrets::{Byte32, SecretBytes};
+use crate::secrets::{Byte32, MasterKey32, SecretBytes};
 
 use super::keyfile;
 
-const KT_STATE: &str = "keystore-state-v1";
+const DEFAULT_ROTATE_EVERY: Duration = Duration::from_secs(3600);
+
+const PUB_DIR: &str = "pub";
+const PRIV_DIR: &str = "priv";
+const SECRETS_DIR: &str = "secrets";
+const ROTATE_DIR: &str = ".rotate";
+const ROTATE_STAGE_DIR: &str = "staged";
+const ROTATE_READY_FILE: &str = "ready";
+const ROTATE_NEXT_OLD_FILE: &str = "next-mk-old.keyf";
+const ROTATE_NEXT_NEW_FILE: &str = "next-mk-new.keyf";
 
 const ED_PUB: &str = "ed25519.pub";
 const X_PUB: &str = "x25519.pub";
@@ -27,12 +36,16 @@ const X_PRIV: &str = "x25519.keyf";
 const KYBER_PRIV: &str = "kyber-mlkem1024.keyf";
 const DILI_PRIV: &str = "dilithium-mldsa87.keyf";
 
-const STATE_FILE: &str = "state.keyf";
+const LEGACY_STATE_FILE: &str = "state.keyf";
 
-const STATE_MAGIC: &[u8; 4] = b"KST1";
-const STATE_VER: u8 = 1;
+const KT_ED_SEED: &str = "ed25519-seed-v2";
+const KT_X_SEED: &str = "x25519-seed-v2";
+const KT_KYBER_SK: &str = "kyber-mlkem1024-sk-v2";
+const KT_DILI_SK: &str = "dilithium-mldsa87-sk-v2";
+const KT_ROTATE_NEXT_OLD: &str = "rotate-next-mk-old-v1";
+const KT_ROTATE_NEXT_NEW: &str = "rotate-next-mk-new-v1";
 
-const DEFAULT_ROTATE_EVERY: Duration = Duration::from_secs(3600);
+const JWT_LABEL: &[u8] = b"lithium/jwt-secret/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyStoreKind {
@@ -53,12 +66,8 @@ pub trait MkProvider {
     fn load_mk(&self) -> Result<Byte32>;
     fn store_mk(&self, mk: &Byte32) -> Result<()>;
 
-    fn derive_secret32(&self, mk: &Byte32, label: &[u8]) -> Result<Byte32> {
-        kdf::derive32(
-            &SecretBytes::from_slice(mk.as_slice()),
-            None,
-            &SecretBytes::from_slice(label),
-        )
+    fn derive_secret32(&self, _mk: &Byte32, _label: &[u8]) -> Result<Byte32> {
+        Err(LithiumError::invalid_credentials("mk_provider_derive_secret32_unused"))
     }
 }
 
@@ -91,22 +100,12 @@ pub struct PublicKeys {
     pub dilithium: SecretBytes,
 }
 
-struct KeyStoreState {
-    active_mk: Byte32,
-
-    ed25519_seed: Byte32,
-    x25519_seed: Byte32,
-
-    kyber_pub: SecretBytes,
-    kyber_sk: SecretBytes,
-
-    dilithium_pub: SecretBytes,
-    dilithium_sk: SecretBytes,
-}
-
 pub struct KeyManager<P: MkProvider> {
+    root_dir: PathBuf,
     pub_dir: PathBuf,
-    state_path: PathBuf,
+    priv_dir: PathBuf,
+    secrets_dir: PathBuf,
+    rotate_dir: PathBuf,
     mk_provider: P,
     public_keys: PublicKeys,
     jwt_secret: Byte32,
@@ -114,151 +113,40 @@ pub struct KeyManager<P: MkProvider> {
     next_rotation_at: Instant,
 }
 
-fn encode_state(state: &KeyStoreState) -> SecretBytes {
-    let mut out = SecretBytes::new(Vec::with_capacity(
-        4 + 1 + 32 + 32 + 32 + 4 + 4 + 4 + 4
-            + state.kyber_pub.len()
-            + state.kyber_sk.len()
-            + state.dilithium_pub.len()
-            + state.dilithium_sk.len(),
-    ));
-
-    out.as_mut_vec().extend_from_slice(STATE_MAGIC);
-    out.as_mut_vec().push(STATE_VER);
-
-    out.as_mut_vec().extend_from_slice(state.active_mk.as_slice());
-    out.as_mut_vec()
-        .extend_from_slice(state.ed25519_seed.as_slice());
-    out.as_mut_vec()
-        .extend_from_slice(state.x25519_seed.as_slice());
-
-    out.as_mut_vec()
-        .extend_from_slice(&(state.kyber_pub.len() as u32).to_be_bytes());
-    out.as_mut_vec()
-        .extend_from_slice(&(state.kyber_sk.len() as u32).to_be_bytes());
-    out.as_mut_vec()
-        .extend_from_slice(&(state.dilithium_pub.len() as u32).to_be_bytes());
-    out.as_mut_vec()
-        .extend_from_slice(&(state.dilithium_sk.len() as u32).to_be_bytes());
-
-    out.as_mut_vec().extend_from_slice(state.kyber_pub.as_slice());
-    out.as_mut_vec().extend_from_slice(state.kyber_sk.as_slice());
-    out.as_mut_vec()
-        .extend_from_slice(state.dilithium_pub.as_slice());
-    out.as_mut_vec()
-        .extend_from_slice(state.dilithium_sk.as_slice());
-
-    out
+#[derive(Clone)]
+struct RewrapTarget {
+    live_path: PathBuf,
+    relative_path: PathBuf,
+    key_type: String,
 }
 
-fn decode_state(blob: &[u8]) -> Result<KeyStoreState> {
-    if blob.len() < 4 + 1 + 32 + 32 + 32 + 4 + 4 + 4 + 4 {
-        return Err(LithiumError::invalid_credentials("keystore_state_invalid"));
+#[inline]
+fn sync_dir(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
     }
-    if &blob[..4] != STATE_MAGIC {
-        return Err(LithiumError::invalid_credentials("keystore_state_invalid"));
-    }
-    if blob[4] != STATE_VER {
-        return Err(LithiumError::invalid_credentials(
-            "keystore_state_version_unsupported",
-        ));
-    }
-
-    let mut i = 5usize;
-
-    let active_mk = Byte32::from_slice(&blob[i..i + 32])?;
-    i += 32;
-
-    let ed25519_seed = Byte32::from_slice(&blob[i..i + 32])?;
-    i += 32;
-
-    let x25519_seed = Byte32::from_slice(&blob[i..i + 32])?;
-    i += 32;
-
-    let kyber_pub_len = u32::from_be_bytes(
-        blob[i..i + 4]
-            .try_into()
-            .map_err(|_| LithiumError::internal())?,
-    ) as usize;
-    i += 4;
-
-    let kyber_sk_len = u32::from_be_bytes(
-        blob[i..i + 4]
-            .try_into()
-            .map_err(|_| LithiumError::internal())?,
-    ) as usize;
-    i += 4;
-
-    let dilithium_pub_len = u32::from_be_bytes(
-        blob[i..i + 4]
-            .try_into()
-            .map_err(|_| LithiumError::internal())?,
-    ) as usize;
-    i += 4;
-
-    let dilithium_sk_len = u32::from_be_bytes(
-        blob[i..i + 4]
-            .try_into()
-            .map_err(|_| LithiumError::internal())?,
-    ) as usize;
-    i += 4;
-
-    let total = i
-        .checked_add(kyber_pub_len)
-        .and_then(|v| v.checked_add(kyber_sk_len))
-        .and_then(|v| v.checked_add(dilithium_pub_len))
-        .and_then(|v| v.checked_add(dilithium_sk_len))
-        .ok_or_else(LithiumError::internal)?;
-
-    if blob.len() != total {
-        return Err(LithiumError::invalid_credentials("keystore_state_invalid"));
-    }
-
-    let kyber_pub = SecretBytes::from_slice(&blob[i..i + kyber_pub_len]);
-    i += kyber_pub_len;
-
-    let kyber_sk = SecretBytes::from_slice(&blob[i..i + kyber_sk_len]);
-    i += kyber_sk_len;
-
-    let dilithium_pub = SecretBytes::from_slice(&blob[i..i + dilithium_pub_len]);
-    i += dilithium_pub_len;
-
-    let dilithium_sk = SecretBytes::from_slice(&blob[i..i + dilithium_sk_len]);
-
-    Ok(KeyStoreState {
-        active_mk,
-        ed25519_seed,
-        x25519_seed,
-        kyber_pub,
-        kyber_sk,
-        dilithium_pub,
-        dilithium_sk,
-    })
+    let dir = fs::File::open(path).map_err(LithiumError::io)?;
+    dir.sync_all().map_err(LithiumError::io)
 }
 
-fn derive_public_keys_from_state(state: &KeyStoreState) -> PublicKeys {
-    let signing = SigningKey::from_bytes(state.ed25519_seed.as_array());
-    let ed_pub = signing.verifying_key().to_bytes();
-
-    let x_secret = XStaticSecret::from(*state.x25519_seed.as_array());
-    let x_pub = XPublicKey::from(&x_secret);
-
-    PublicKeys {
-        ed25519: Byte32::from(ed_pub),
-        x25519: Byte32::from(*x_pub.as_bytes()),
-        kyber: state.kyber_pub.clone(),
-        dilithium: state.dilithium_pub.clone(),
+#[inline]
+fn write_marker(path: &Path, data: &[u8]) -> Result<()> {
+    keyfile::write_secure(path, data)?;
+    if let Some(parent) = path.parent() {
+        sync_dir(parent)?;
     }
+    Ok(())
 }
 
-fn save_state(path: &Path, root_mk: &Byte32, state: &KeyStoreState) -> Result<()> {
-    let encoded = encode_state(state);
-    keyfile::save_bytes_encrypted(path, root_mk, encoded.as_slice(), KT_STATE)
+#[inline]
+fn read_pub32(path: &Path) -> Result<Byte32> {
+    let bytes = keyfile::read_keyfile_bytes(path)?;
+    Byte32::from_slice(bytes.as_slice())
 }
 
-fn load_state(path: &Path, root_mk: &Byte32) -> Result<KeyStoreState> {
-    let blob = keyfile::load_bytes_decrypted(path, root_mk, KT_STATE)?;
-    decode_state(blob.as_slice())
+#[inline]
+fn read_pub_bytes(path: &Path) -> Result<SecretBytes> {
+    keyfile::read_keyfile_bytes(path)
 }
 
 fn sync_public_cache(pub_dir: &Path, pks: &PublicKeys) -> Result<()> {
@@ -267,82 +155,371 @@ fn sync_public_cache(pub_dir: &Path, pks: &PublicKeys) -> Result<()> {
     keyfile::write_secure(&pub_dir.join(X_PUB), pks.x25519.as_slice())?;
     keyfile::write_secure(&pub_dir.join(KYBER_PUB), pks.kyber.as_slice())?;
     keyfile::write_secure(&pub_dir.join(DILI_PUB), pks.dilithium.as_slice())?;
+    sync_dir(pub_dir)?;
     Ok(())
 }
 
-fn legacy_or_inconsistent_layout_present(root_dir: &Path) -> bool {
-    let pub_dir = root_dir.join("pub");
-    let priv_dir = root_dir.join("priv");
+fn load_public_cache(pub_dir: &Path) -> Result<PublicKeys> {
+    Ok(PublicKeys {
+        ed25519: read_pub32(&pub_dir.join(ED_PUB))?,
+        x25519: read_pub32(&pub_dir.join(X_PUB))?,
+        kyber: read_pub_bytes(&pub_dir.join(KYBER_PUB))?,
+        dilithium: read_pub_bytes(&pub_dir.join(DILI_PUB))?,
+    })
+}
 
-    let candidates = [
-        pub_dir.join(ED_PUB),
-        pub_dir.join(X_PUB),
-        pub_dir.join(KYBER_PUB),
-        pub_dir.join(DILI_PUB),
-        priv_dir.join(ED_PRIV),
-        priv_dir.join(X_PRIV),
-        priv_dir.join(KYBER_PRIV),
-        priv_dir.join(DILI_PRIV),
+fn ensure_secret32_keyfile(
+    path: &Path,
+    mk: &MasterKey32,
+    key_type: &str,
+    generator: impl FnOnce() -> Result<Byte32>,
+) -> Result<Byte32> {
+    if path.exists() {
+        return keyfile::load_secret32_decrypted(path, mk, key_type);
+    }
+
+    let v = generator()?;
+    keyfile::save_secret32_encrypted(path, mk, &v, key_type)?;
+    Ok(v)
+}
+
+fn label_hex(label: &[u8]) -> String {
+    hex::encode(label)
+}
+
+fn label_key_type(label: &[u8]) -> String {
+    format!("secret32:{}", label_hex(label))
+}
+
+fn label_key_type_from_hex(hex_label: &str) -> String {
+    format!("secret32:{}", hex_label)
+}
+
+fn label_secret_path(secrets_dir: &Path, label: &[u8]) -> PathBuf {
+    secrets_dir.join(format!("{}.keyf", label_hex(label)))
+}
+
+fn load_or_create_label_secret32(
+    secrets_dir: &Path,
+    mk: &MasterKey32,
+    label: &[u8],
+) -> Result<Byte32> {
+    let path = label_secret_path(secrets_dir, label);
+    let key_type = label_key_type(label);
+
+    if path.exists() {
+        return keyfile::load_secret32_decrypted(&path, mk, &key_type);
+    }
+
+    let v = keys::random_32()?;
+    keyfile::save_secret32_encrypted(&path, mk, &v, &key_type)?;
+    Ok(v)
+}
+
+fn derive_ed25519_pub(seed: &Byte32) -> Byte32 {
+    let sk = SigningKey::from_bytes(seed.as_array());
+    Byte32::new(sk.verifying_key().to_bytes())
+}
+
+fn derive_x25519_pub(seed: &Byte32) -> Byte32 {
+    let sk = XStaticSecret::from(*seed.as_array());
+    let pk = XPublicKey::from(&sk);
+    Byte32::new(pk.to_bytes())
+}
+
+fn ensure_asymmetric_material(
+    pub_dir: &Path,
+    priv_dir: &Path,
+    mk: &MasterKey32,
+) -> Result<PublicKeys> {
+    fs::create_dir_all(pub_dir).map_err(LithiumError::io)?;
+    fs::create_dir_all(priv_dir).map_err(LithiumError::io)?;
+
+    let ed_seed = ensure_secret32_keyfile(
+        &priv_dir.join(ED_PRIV),
+        mk,
+        KT_ED_SEED,
+        || keys::random_fixed::<32>(),
+    )?;
+
+    let x_seed = ensure_secret32_keyfile(
+        &priv_dir.join(X_PRIV),
+        mk,
+        KT_X_SEED,
+        || keys::random_fixed::<32>(),
+    )?;
+
+    let kyber_pub = {
+        let priv_path = priv_dir.join(KYBER_PRIV);
+        let pub_path = pub_dir.join(KYBER_PUB);
+        if priv_path.exists() && pub_path.exists() {
+            let _ = keyfile::load_bytes_decrypted(&priv_path, mk, KT_KYBER_SK)?;
+            read_pub_bytes(&pub_path)?
+        } else if priv_path.exists() || pub_path.exists() {
+            return Err(LithiumError::invalid_credentials("keystore_layout_inconsistent"));
+        } else {
+            let (pk, sk) = mlkem1024::keypair();
+            let sk_bytes = SecretBytes::from_slice(sk.as_bytes());
+            let pk_bytes = SecretBytes::from_slice(pk.as_bytes());
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_KYBER_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            pk_bytes
+        }
+    };
+
+    let dili_pub = {
+        let priv_path = priv_dir.join(DILI_PRIV);
+        let pub_path = pub_dir.join(DILI_PUB);
+        if priv_path.exists() && pub_path.exists() {
+            let _ = keyfile::load_bytes_decrypted(&priv_path, mk, KT_DILI_SK)?;
+            read_pub_bytes(&pub_path)?
+        } else if priv_path.exists() || pub_path.exists() {
+            return Err(LithiumError::invalid_credentials("keystore_layout_inconsistent"));
+        } else {
+            let (pk, sk) = mldsa87::keypair();
+            let sk_bytes = SecretBytes::from_slice(SignSk::as_bytes(&sk));
+            let pk_bytes = SecretBytes::from_slice(SignPub::as_bytes(&pk));
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_DILI_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            pk_bytes
+        }
+    };
+
+    let pks = PublicKeys {
+        ed25519: derive_ed25519_pub(&ed_seed),
+        x25519: derive_x25519_pub(&x_seed),
+        kyber: kyber_pub,
+        dilithium: dili_pub,
+    };
+
+    sync_public_cache(pub_dir, &pks)?;
+    Ok(pks)
+}
+
+fn has_legacy_or_inconsistent_layout(root_dir: &Path) -> bool {
+    root_dir.join(LEGACY_STATE_FILE).exists()
+}
+
+fn list_dir_keyfiles(dir: &Path) -> Result<Vec<PathBuf>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    for ent in fs::read_dir(dir).map_err(LithiumError::io)? {
+        let ent = ent.map_err(LithiumError::io)?;
+        let path = ent.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("keyf") {
+            out.push(path);
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+fn collect_rewrap_targets(root_dir: &Path, priv_dir: &Path, secrets_dir: &Path) -> Result<Vec<RewrapTarget>> {
+    let mut out = Vec::new();
+
+    let fixed = [
+        (priv_dir.join(ED_PRIV), KT_ED_SEED.to_owned()),
+        (priv_dir.join(X_PRIV), KT_X_SEED.to_owned()),
+        (priv_dir.join(KYBER_PRIV), KT_KYBER_SK.to_owned()),
+        (priv_dir.join(DILI_PRIV), KT_DILI_SK.to_owned()),
     ];
 
-    candidates.iter().any(|p| p.exists())
+    for (path, key_type) in fixed {
+        if path.exists() {
+            let relative_path = path
+                .strip_prefix(root_dir)
+                .map_err(|_| LithiumError::internal())?
+                .to_path_buf();
+            out.push(RewrapTarget {
+                live_path: path,
+                relative_path,
+                key_type,
+            });
+        }
+    }
+
+    for path in list_dir_keyfiles(secrets_dir)? {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(LithiumError::internal)?
+            .to_owned();
+
+        let relative_path = path
+            .strip_prefix(root_dir)
+            .map_err(|_| LithiumError::internal())?
+            .to_path_buf();
+
+        out.push(RewrapTarget {
+            live_path: path,
+            relative_path,
+            key_type: label_key_type_from_hex(&stem),
+        });
+    }
+
+    out.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    Ok(out)
+}
+
+fn stage_target_path(rotate_dir: &Path, relative_path: &Path) -> PathBuf {
+    rotate_dir.join(ROTATE_STAGE_DIR).join(relative_path)
+}
+
+fn cleanup_rotation_dir(rotate_dir: &Path) -> Result<()> {
+    if rotate_dir.exists() {
+        fs::remove_dir_all(rotate_dir).map_err(LithiumError::io)?;
+        if let Some(parent) = rotate_dir.parent() {
+            sync_dir(parent)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_staged_files(rotate_dir: &Path, targets: &[RewrapTarget]) -> Result<()> {
+    for target in targets {
+        let staged_path = stage_target_path(rotate_dir, &target.relative_path);
+        let staged = keyfile::read_keyfile_bytes(&staged_path)?;
+        keyfile::write_secure(&target.live_path, staged.as_slice())?;
+        if let Some(parent) = target.live_path.parent() {
+            sync_dir(parent)?;
+        }
+    }
+    Ok(())
+}
+
+fn prepare_staged_files(
+    rotate_dir: &Path,
+    old_mk: &MasterKey32,
+    new_mk: &MasterKey32,
+    targets: &[RewrapTarget],
+) -> Result<()> {
+    let staged_root = rotate_dir.join(ROTATE_STAGE_DIR);
+    fs::create_dir_all(&staged_root).map_err(LithiumError::io)?;
+
+    for target in targets {
+        let out = keyfile::rewrap_keyfile_dek_to_bytes(
+            &target.live_path,
+            old_mk,
+            new_mk,
+            &target.key_type,
+        )?;
+        let staged_path = stage_target_path(rotate_dir, &target.relative_path);
+        if let Some(parent) = staged_path.parent() {
+            fs::create_dir_all(parent).map_err(LithiumError::io)?;
+        }
+        keyfile::write_secure(&staged_path, out.as_slice())?;
+        if let Some(parent) = staged_path.parent() {
+            sync_dir(parent)?;
+        }
+    }
+
+    sync_dir(&staged_root)?;
+    Ok(())
+}
+
+fn recover_pending_rotation_if_any<P: MkProvider>(
+    root_dir: &Path,
+    priv_dir: &Path,
+    secrets_dir: &Path,
+    rotate_dir: &Path,
+    mk_provider: &P,
+) -> Result<()> {
+    if !rotate_dir.exists() {
+        return Ok(());
+    }
+
+    let ready_path = rotate_dir.join(ROTATE_READY_FILE);
+    if !ready_path.exists() {
+        cleanup_rotation_dir(rotate_dir)?;
+        return Ok(());
+    }
+
+    let targets = collect_rewrap_targets(root_dir, priv_dir, secrets_dir)?;
+    let current_mk = mk_provider.load_mk()?;
+    let next_old_path = rotate_dir.join(ROTATE_NEXT_OLD_FILE);
+    let next_new_path = rotate_dir.join(ROTATE_NEXT_NEW_FILE);
+
+    let (new_mk, provider_already_switched) = if next_new_path.exists() {
+        match keyfile::load_secret32_decrypted(&next_new_path, &current_mk, KT_ROTATE_NEXT_NEW) {
+            Ok(candidate) => (candidate, true),
+            Err(_) => {
+                let candidate = keyfile::load_secret32_decrypted(
+                    &next_old_path,
+                    &current_mk,
+                    KT_ROTATE_NEXT_OLD,
+                )?;
+                (candidate, false)
+            }
+        }
+    } else {
+        let candidate = keyfile::load_secret32_decrypted(
+            &next_old_path,
+            &current_mk,
+            KT_ROTATE_NEXT_OLD,
+        )?;
+        (candidate, false)
+    };
+
+    apply_staged_files(rotate_dir, &targets)?;
+
+    if !provider_already_switched {
+        mk_provider.store_mk(&new_mk)?;
+    }
+
+    cleanup_rotation_dir(rotate_dir)?;
+    Ok(())
 }
 
 impl<P: MkProvider> KeyManager<P> {
     pub fn start(base_dir: &Path, kind: KeyStoreKind, name: &str, mk_provider: P) -> Result<Self> {
         let root_dir = base_dir.join(kind.dir_name()).join(name);
-        let pub_dir = root_dir.join("pub");
-        let state_path = root_dir.join(STATE_FILE);
+        let pub_dir = root_dir.join(PUB_DIR);
+        let priv_dir = root_dir.join(PRIV_DIR);
+        let secrets_dir = root_dir.join(SECRETS_DIR);
+        let rotate_dir = root_dir.join(ROTATE_DIR);
 
         fs::create_dir_all(&root_dir).map_err(LithiumError::io)?;
         fs::create_dir_all(&pub_dir).map_err(LithiumError::io)?;
+        fs::create_dir_all(&priv_dir).map_err(LithiumError::io)?;
+        fs::create_dir_all(&secrets_dir).map_err(LithiumError::io)?;
 
-        let root_mk = match mk_provider.load_mk() {
-            Ok(mk) => mk,
+        match mk_provider.load_mk() {
+            Ok(_) => {}
             Err(e) if e.is_not_found() => {
                 let new_mk = keys::random_master_key32()?;
                 mk_provider.store_mk(&new_mk)?;
-                new_mk
             }
             Err(e) => return Err(e),
-        };
+        }
 
-        let state = if state_path.exists() {
-            load_state(&state_path, &root_mk)?
-        } else {
-            if legacy_or_inconsistent_layout_present(&root_dir) {
-                return Err(LithiumError::invalid_credentials(
-                    "legacy_keystore_layout_unsupported",
-                ));
-            }
+        if has_legacy_or_inconsistent_layout(&root_dir) {
+            return Err(LithiumError::invalid_credentials(
+                "legacy_keystore_layout_unsupported",
+            ));
+        }
 
-            let ed25519_seed = keys::random_fixed::<32>()?;
-            let x25519_seed = keys::random_fixed::<32>()?;
-            let (kyber_pk, kyber_sk) = mlkem1024::keypair();
-            let (dili_pk, dili_sk) = mldsa87::keypair();
+        recover_pending_rotation_if_any(
+            &root_dir,
+            &priv_dir,
+            &secrets_dir,
+            &rotate_dir,
+            &mk_provider,
+        )?;
 
-            let state = KeyStoreState {
-                active_mk: keys::random_master_key32()?,
-                ed25519_seed,
-                x25519_seed,
-                kyber_pub: SecretBytes::from_slice(kyber_pk.as_bytes()),
-                kyber_sk: SecretBytes::from_slice(kyber_sk.as_bytes()),
-                dilithium_pub: SecretBytes::from_slice(SignPub::as_bytes(&dili_pk)),
-                dilithium_sk: SecretBytes::from_slice(SignSk::as_bytes(&dili_sk)),
-            };
+        let root_mk = mk_provider.load_mk()?;
 
-            save_state(&state_path, &root_mk, &state)?;
-            state
-        };
-
-        let public_keys = derive_public_keys_from_state(&state);
-        sync_public_cache(&pub_dir, &public_keys)?;
-
-        let jwt_secret = Self::derive_secret32_from_mk(&state.active_mk, b"lithium/jwt-secret/v1")?;
+        let public_keys = ensure_asymmetric_material(&pub_dir, &priv_dir, &root_mk)?;
+        let jwt_secret = keys::random_32()?;
 
         Ok(Self {
+            root_dir,
             pub_dir,
-            state_path,
+            priv_dir,
+            secrets_dir,
+            rotate_dir,
             mk_provider,
             public_keys,
             jwt_secret,
@@ -375,79 +552,93 @@ impl<P: MkProvider> KeyManager<P> {
     }
 
     pub fn reload_public_keys(&mut self) -> Result<()> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        self.public_keys = derive_public_keys_from_state(&state);
-        sync_public_cache(&self.pub_dir, &self.public_keys)?;
+        self.public_keys = load_public_cache(&self.pub_dir)?;
         Ok(())
     }
 
     pub fn derive_secret32(&self, label: &[u8]) -> Result<Byte32> {
+        if label == JWT_LABEL {
+            return Ok(self.jwt_secret.clone());
+        }
+
         let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        self.mk_provider.derive_secret32(&state.active_mk, label)
+        load_or_create_label_secret32(&self.secrets_dir, &root_mk, label)
     }
 
     pub fn mk_provider_mut(&mut self) -> &mut P {
         &mut self.mk_provider
     }
 
-    fn derive_secret32_from_mk(mk: &Byte32, label: &[u8]) -> Result<Byte32> {
-        kdf::derive32(
-            &SecretBytes::from_slice(mk.as_slice()),
-            None,
-            &SecretBytes::from_slice(label),
-        )
-    }
-
     pub fn with_ed_sk<R>(&self, f: impl FnOnce(Byte32) -> Result<R>) -> Result<R> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        f(state.ed25519_seed)
+        let mk = self.mk_provider.load_mk()?;
+        let seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(ED_PRIV), &mk, KT_ED_SEED)?;
+        f(seed)
     }
 
     pub fn with_x25519_sk<R>(&self, f: impl FnOnce(Byte32) -> Result<R>) -> Result<R> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        f(state.x25519_seed)
+        let mk = self.mk_provider.load_mk()?;
+        let seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(X_PRIV), &mk, KT_X_SEED)?;
+        f(seed)
     }
 
     pub fn with_kyber_sk<R>(&self, f: impl FnOnce(SecretBytes) -> Result<R>) -> Result<R> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        f(state.kyber_sk)
+        let mk = self.mk_provider.load_mk()?;
+        let sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(KYBER_PRIV), &mk, KT_KYBER_SK)?;
+        f(sk)
     }
 
     pub fn with_dilithium_sk<R>(&self, f: impl FnOnce(SecretBytes) -> Result<R>) -> Result<R> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        f(state.dilithium_sk)
+        let mk = self.mk_provider.load_mk()?;
+        let sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(DILI_PRIV), &mk, KT_DILI_SK)?;
+        f(sk)
     }
 
     pub fn with_x25519_and_kyber_sk<R>(
         &self,
         f: impl FnOnce(Byte32, SecretBytes) -> Result<R>,
     ) -> Result<R> {
-        let root_mk = self.mk_provider.load_mk()?;
-        let state = load_state(&self.state_path, &root_mk)?;
-        f(state.x25519_seed, state.kyber_sk)
+        let mk = self.mk_provider.load_mk()?;
+        let x_seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(X_PRIV), &mk, KT_X_SEED)?;
+        let kyber_sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(KYBER_PRIV), &mk, KT_KYBER_SK)?;
+        f(x_seed, kyber_sk)
     }
 
     pub fn maybe_rotate_mk(&mut self) -> Result<()> {
+        recover_pending_rotation_if_any(
+            &self.root_dir,
+            &self.priv_dir,
+            &self.secrets_dir,
+            &self.rotate_dir,
+            &self.mk_provider,
+        )?;
+
         if Instant::now() < self.next_rotation_at {
             return Ok(());
         }
 
-        let root_mk = self.mk_provider.load_mk()?;
-        let mut state = load_state(&self.state_path, &root_mk)?;
+        cleanup_rotation_dir(&self.rotate_dir)?;
+        fs::create_dir_all(&self.rotate_dir).map_err(LithiumError::io)?;
+        sync_dir(&self.rotate_dir)?;
 
-        state.active_mk = keys::random_master_key32()?;
-        save_state(&self.state_path, &root_mk, &state)?;
+        let old_mk = self.mk_provider.load_mk()?;
+        let new_mk = keys::random_master_key32()?;
+        let targets = collect_rewrap_targets(&self.root_dir, &self.priv_dir, &self.secrets_dir)?;
 
-        self.jwt_secret =
-            Self::derive_secret32_from_mk(&state.active_mk, b"lithium/jwt-secret/v1")?;
+        let next_old_path = self.rotate_dir.join(ROTATE_NEXT_OLD_FILE);
+        let next_new_path = self.rotate_dir.join(ROTATE_NEXT_NEW_FILE);
+        keyfile::save_secret32_encrypted(&next_old_path, &old_mk, &new_mk, KT_ROTATE_NEXT_OLD)?;
+        keyfile::save_secret32_encrypted(&next_new_path, &new_mk, &new_mk, KT_ROTATE_NEXT_NEW)?;
+        sync_dir(&self.rotate_dir)?;
+
+        prepare_staged_files(&self.rotate_dir, &old_mk, &new_mk, &targets)?;
+        write_marker(&self.rotate_dir.join(ROTATE_READY_FILE), b"ready")?;
+
+        apply_staged_files(&self.rotate_dir, &targets)?;
+        self.mk_provider.store_mk(&new_mk)?;
+        self.jwt_secret = keys::random_32()?;
         self.next_rotation_at = Instant::now() + self.rotate_every;
 
+        cleanup_rotation_dir(&self.rotate_dir)?;
         Ok(())
     }
 }

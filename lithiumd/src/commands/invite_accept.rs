@@ -38,17 +38,6 @@ struct PeerStatePeer<'a> {
     mbox_out_next_pub: &'a str,
 }
 
-fn get_self_string_or_fallback(
-    self_json: &SecretJson,
-    key: &'static str,
-    fallback: &'static str,
-) -> Result<SecretString, ()> {
-    self_json
-        .get_string(key)
-        .or_else(|_| self_json.get_string(fallback))
-        .map_err(|_| ())
-}
-
 pub async fn handle(
     id: u64,
     code: String,
@@ -67,10 +56,9 @@ pub async fn handle(
         Err(_) => return err_resp(id, "invalid_invite_code"),
     };
 
-    let server_ss = peer.server.clone();
     let mut should_return_my_code = false;
 
-    let (contact_id, self_json) = if let Some(cid_hex) = contact_id_opt {
+    let (contact_id, self_json, server_ss) = if let Some(cid_hex) = contact_id_opt {
         let cid_ss = SecretString::new(cid_hex);
         let contact_id = match decode_contact_id_hex(&cid_ss) {
             Ok(v) => v,
@@ -111,15 +99,18 @@ pub async fn handle(
                     Err(_) => return err_resp(id, "self_state_corrupt"),
                 };
 
-                (contact_id, sj)
+                (contact_id, sj, SecretString::new(row.server.clone()))
             }
             Ok(None) => return err_resp(id, "contact_not_found"),
             Err(_) => return storage_err(id),
         }
     } else {
         should_return_my_code = true;
-        match gen_self_state(server_ss.clone()) {
-            Ok(v) => v,
+        let local_server =
+            SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string());
+
+        match gen_self_state(local_server.clone()) {
+            Ok((contact_id, self_json)) => (contact_id, self_json, local_server),
             Err(_) => return internal_err(id),
         }
     };
@@ -128,7 +119,7 @@ pub async fn handle(
         v: 1,
         label: &label,
         peer: PeerStatePeer {
-            server: peer.server.expose(),
+            server: server_ss.expose(),
             cid: peer.cid_hex.expose(),
             x_pub: peer.x_pub_hex.expose(),
             k_pub: peer.k_pub_hex.expose(),
@@ -205,23 +196,20 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
-        let mbox_in_pub = match get_self_string_or_fallback(&self_json, "mbox_in_pub", "x_pub") {
+        let mbox_in_pub = match self_json.get_string("mbox_in_pub") {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
-        let mbox_out_cur_pub =
-            match get_self_string_or_fallback(&self_json, "mbox_out_cur_pub", "x_pub") {
-                Ok(v) => v,
-                Err(_) => return err_resp(id, "self_state_corrupt"),
-            };
-        let mbox_out_next_pub =
-            match get_self_string_or_fallback(&self_json, "mbox_out_next_pub", "x_pub") {
-                Ok(v) => v,
-                Err(_) => return err_resp(id, "self_state_corrupt"),
-            };
+        let mbox_out_cur_pub = match self_json.get_string("mbox_out_cur_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let mbox_out_next_pub = match self_json.get_string("mbox_out_next_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
 
         let my_pub = InvitePublic {
-            server: server_ss.clone(),
             cid_hex,
             x_pub_hex: x_pub,
             k_pub_hex: k_pub,

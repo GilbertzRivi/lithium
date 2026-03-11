@@ -40,15 +40,21 @@ pub async fn ensure_schema_sqlite(db: &DatabaseConnection) -> Result<()> {
 
     let mut t_contacts = schema.create_table_from_entity(models::contacts::Entity);
     t_contacts.if_not_exists();
-    db.execute(&t_contacts).await.map_err(LithiumError::io)?;
+    db.execute(db.get_database_backend().build(&t_contacts))
+        .await
+        .map_err(LithiumError::io)?;
 
     let mut t_messages = schema.create_table_from_entity(models::messages::Entity);
     t_messages.if_not_exists();
-    db.execute(&t_messages).await.map_err(LithiumError::io)?;
+    db.execute(db.get_database_backend().build(&t_messages))
+        .await
+        .map_err(LithiumError::io)?;
 
     let mut t_prekeys = schema.create_table_from_entity(models::prekeys::Entity);
     t_prekeys.if_not_exists();
-    db.execute(&t_prekeys).await.map_err(LithiumError::io)?;
+    db.execute(db.get_database_backend().build(&t_prekeys))
+        .await
+        .map_err(LithiumError::io)?;
 
     Ok(())
 }

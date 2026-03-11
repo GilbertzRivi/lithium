@@ -73,6 +73,12 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         Ok(v) => v,
         Err(_) => return err_resp(id, "invalid_contact_id"),
     };
+    if contact_id.len() != 32 {
+        return err_resp(id, "invalid_contact_id");
+    }
+
+    let contact_lock = state.contact_fetch_lock(contact_id.as_slice()).await;
+    let _contact_guard = contact_lock.lock().await;
 
     let row_opt = match dm.get_contact(contact_id.as_slice()).await {
         Ok(v) => v,
@@ -359,7 +365,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         }
     }
 
-    let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+    let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
         serde_json::to_writer(out.as_mut_vec(), v)?;
         Ok(out)
@@ -368,7 +374,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         Err(_) => return err_resp(id, "json_error"),
     };
 
-    let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+    let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
         serde_json::to_writer(out.as_mut_vec(), v)?;
         Ok(out)

@@ -1,8 +1,7 @@
 use std::{
     env,
     path::PathBuf,
-    sync::{Mutex, OnceLock},
-    time::Duration,
+    sync::{Mutex, OnceLock}
 };
 
 use serde::Deserialize;
@@ -437,12 +436,6 @@ pub async fn wipe_local() -> Result<(), String> {
 pub struct ContactFetchMessageResult {
     #[serde(default)]
     pub ok: bool,
-
-    #[serde(default)]
-    pub text: Option<String>,
-
-    #[serde(default)]
-    pub ui: serde_json::Value,
 
     #[serde(default)]
     pub err: Option<String>,

@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::Duration};
-
+use log::error;
 use reqwest::Client;
 use serde_json::json;
 use tokio::sync::{Mutex, watch};
@@ -56,6 +56,11 @@ pub async fn handle(
         return err_resp(id, "passwords_must_be_distinct");
     }
 
+    if let Some(old) = state.mk_rotator.lock().await.take() {
+        let _ = old.stop_tx.send(true);
+        let _ = old.handle.await;
+    }
+
     *state.data_pass.lock().await = Some(dp.clone());
 
     let mk_path = state
@@ -81,11 +86,6 @@ pub async fn handle(
     *state.keys.lock().await = Some(Arc::clone(&keys));
     *state.local_db.lock().await = None;
 
-    if let Some(old) = state.mk_rotator.lock().await.take() {
-        let _ = old.stop_tx.send(true);
-        old.handle.abort();
-    }
-
     let (stop_tx, mut stop_rx) = watch::channel(false);
     let keys2 = Arc::clone(&keys);
     let handle = tokio::spawn(async move {
@@ -94,7 +94,7 @@ pub async fn handle(
                 _ = tokio::time::sleep(Duration::from_secs(30)) => {
                     let mut km = keys2.lock().await;
                     if let Err(e) = km.maybe_rotate_mk() {
-                        eprintln!("mk rotation failed: {e:?}");
+                        error!("mk rotation failed: {e:?}");
                     }
                 }
                 changed = stop_rx.changed() => {

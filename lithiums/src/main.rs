@@ -7,13 +7,12 @@ use tracing_subscriber::EnvFilter;
 
 use lithium_core::{
     db::manager::DataManager,
-    error::{LithiumError, Result},
-    keys::{KeyManager, KeyStoreKind},
+    error::LithiumError,
+    keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithium_core::keys::PlainFileMkProvider;
 
-use lithiums::{api_routes, db, error, state::AppState};
+use lithiums::{api_routes, db, error, mk_rotator::spawn_mk_rotator, state::AppState};
 
 #[tokio::main]
 async fn main() -> error::AppResult<()> {
@@ -42,9 +41,10 @@ async fn main() -> error::AppResult<()> {
     km.set_rotate_interval(Duration::from_secs(rotate_secs));
 
     let key_manager = Arc::new(Mutex::new(km));
-    let db = db::connect_from_env().await?;
+    let _mk_rotator = spawn_mk_rotator(Arc::clone(&key_manager), Duration::from_secs(30));
 
-    let dbm = Arc::new(DataManager::new(db, key_manager.clone()));
+    let db = db::connect_from_env().await?;
+    let dbm = Arc::new(DataManager::new(db, Arc::clone(&key_manager)));
     dbm.init().await?;
 
     let state = Arc::new(AppState {

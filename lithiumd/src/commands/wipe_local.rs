@@ -20,7 +20,8 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
                 id,
                 ok: true,
                 result: Some(json!({
-                    "wiped": true
+                    "wiped": true,
+                    "best_effort": true
                 })),
                 error: None,
             }

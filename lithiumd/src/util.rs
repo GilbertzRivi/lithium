@@ -1,4 +1,9 @@
-use std::{fs, path::{Path, PathBuf}, time::Duration};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use lithium_core::error::{LithiumError, Result};
 
 #[derive(Clone, Debug)]
@@ -129,11 +134,76 @@ pub fn mark_registered(base_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn wipe_dir_all(p: &Path) -> std::io::Result<()> {
-    if p.exists() {
-        fs::remove_dir_all(p)?;
+
+fn overwrite_regular_file_best_effort(path: &Path, len: u64) -> io::Result<()> {
+    let mut f = OpenOptions::new().write(true).open(path)?;
+
+    let zeros = [0u8; 1024 * 1024];
+    let mut remaining = len;
+
+    while remaining > 0 {
+        let n = remaining.min(zeros.len() as u64) as usize;
+        f.write_all(&zeros[..n])?;
+        remaining -= n as u64;
+    }
+
+    f.sync_all()?;
+    f.set_len(0)?;
+    f.sync_all()?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent_dir(path: &Path) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
     }
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_parent_dir(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+fn wipe_path_best_effort(path: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    let ft = meta.file_type();
+
+    if ft.is_symlink() {
+        fs::remove_file(path)?;
+        sync_parent_dir(path)?;
+        return Ok(());
+    }
+
+    if ft.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            wipe_path_best_effort(&entry.path())?;
+        }
+
+        fs::remove_dir(path)?;
+        sync_parent_dir(path)?;
+        return Ok(());
+    }
+
+    if ft.is_file() {
+        overwrite_regular_file_best_effort(path, meta.len())?;
+        fs::remove_file(path)?;
+        sync_parent_dir(path)?;
+        return Ok(());
+    }
+
+    fs::remove_file(path)?;
+    sync_parent_dir(path)?;
+    Ok(())
+}
+
+pub fn wipe_dir_all(p: &Path) -> std::io::Result<()> {
+    if !p.exists() {
+        return Ok(());
+    }
+    wipe_path_best_effort(p)
 }
 
 #[derive(Clone, Debug)]

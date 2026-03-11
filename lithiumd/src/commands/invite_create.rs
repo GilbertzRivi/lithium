@@ -25,23 +25,14 @@ fn default_server_string(state: &DaemonState) -> SecretString {
     SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string())
 }
 
-fn get_self_string_or_fallback(
-    self_json: &SecretJson,
-    key: &'static str,
-    fallback: &'static str,
-) -> Result<SecretString, ()> {
-    self_json
-        .get_string(key)
-        .or_else(|_| self_json.get_string(fallback))
-        .map_err(|_| ())
-}
-
 pub async fn handle(
     id: u64,
     contact_id_opt: Option<String>,
     server_opt: Option<String>,
     state: Arc<DaemonState>,
 ) -> IpcResponse {
+    let _ = server_opt;
+
     let dm_opt = state.local_db.lock().await.clone();
     let Some(dm) = dm_opt else {
         return err_resp(id, "storage_locked");
@@ -68,10 +59,6 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
-        let server_ss = server_opt
-            .map(SecretString::new)
-            .unwrap_or_else(|| default_server_string(&state));
-
         let cid_hex = match self_json.get_string("cid") {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
@@ -93,23 +80,20 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
-        let mbox_in_pub = match get_self_string_or_fallback(&self_json, "mbox_in_pub", "x_pub") {
+        let mbox_in_pub = match self_json.get_string("mbox_in_pub") {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
-        let mbox_out_cur_pub =
-            match get_self_string_or_fallback(&self_json, "mbox_out_cur_pub", "x_pub") {
-                Ok(v) => v,
-                Err(_) => return err_resp(id, "self_state_corrupt"),
-            };
-        let mbox_out_next_pub =
-            match get_self_string_or_fallback(&self_json, "mbox_out_next_pub", "x_pub") {
-                Ok(v) => v,
-                Err(_) => return err_resp(id, "self_state_corrupt"),
-            };
+        let mbox_out_cur_pub = match self_json.get_string("mbox_out_cur_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
+        let mbox_out_next_pub = match self_json.get_string("mbox_out_next_pub") {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "self_state_corrupt"),
+        };
 
         let pub_code = InvitePublic {
-            server: server_ss,
             cid_hex,
             x_pub_hex: x_pub,
             k_pub_hex: k_pub,
@@ -137,11 +121,9 @@ pub async fn handle(
         };
     }
 
-    let server_ss = server_opt
-        .map(SecretString::new)
-        .unwrap_or_else(|| default_server_string(&state));
+    let local_server = default_server_string(&state);
 
-    let (contact_id, self_json) = match gen_self_state(server_ss.clone()) {
+    let (contact_id, self_json) = match gen_self_state(local_server.clone()) {
         Ok(v) => v,
         Err(_) => return internal_err(id),
     };
@@ -179,7 +161,7 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            server_ss.expose().to_owned(),
+            local_server.expose().to_owned(),
             peer_bytes,
             self_bytes,
         )
@@ -224,7 +206,6 @@ pub async fn handle(
     };
 
     let pub_code = InvitePublic {
-        server: server_ss,
         cid_hex,
         x_pub_hex: x_pub,
         k_pub_hex: k_pub,

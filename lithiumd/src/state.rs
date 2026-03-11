@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use reqwest::Url;
 use tokio::sync::{Mutex, watch};
@@ -40,6 +40,7 @@ pub struct DaemonState {
     pub local_db: Arc<Mutex<Option<Arc<DataManager<PasswordFileMkProvider>>>>>,
 
     pub ipc_auth: Arc<Mutex<IpcAuthState>>,
+    pub contact_fetch_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 
     pub base_dir: PathBuf,
     pub base_url: Url,
@@ -63,16 +64,25 @@ impl DaemonState {
             keys: Arc::new(Mutex::new(None)),
             local_db: Arc::new(Mutex::new(None)),
             ipc_auth: Arc::new(Mutex::new(IpcAuthState::default())),
+            contact_fetch_locks: Arc::new(Mutex::new(HashMap::new())),
             base_dir,
             base_url,
             bootstrap,
         }
     }
 
+    pub async fn contact_fetch_lock(&self, contact_id: &[u8]) -> Arc<Mutex<()>> {
+        let key = hex::encode(contact_id);
+        let mut locks = self.contact_fetch_locks.lock().await;
+        locks.entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
     pub async fn lock_keystore(&self) {
         if let Some(rot) = self.mk_rotator.lock().await.take() {
             let _ = rot.stop_tx.send(true);
-            rot.handle.abort();
+            let _ = rot.handle.await;
         }
 
         *self.dek_plain.lock().await = None;

@@ -36,10 +36,6 @@ impl PasswordFileMkProvider {
         self.server_dek = Some(dek);
     }
 
-    pub fn clear_server_dek(&mut self) {
-        self.server_dek = None;
-    }
-
     fn argon2_32(&self, salt: &[u8]) -> Result<Byte32> {
         let params = Params::new(64 * 1024, 3, 1, Some(32))
             .map_err(|_| LithiumError::internal())?;
@@ -155,7 +151,14 @@ impl MkProvider for PasswordFileMkProvider {
         keyfile::write_secure(&self.path, &bytes.as_slice())
     }
 
-    fn derive_secret32(&self, _mk: &Byte32, label: &[u8]) -> Result<Byte32> {
+    // NOTE:
+    // This provider intentionally ignores the `mk` argument.
+    // Unlike the default MkProvider contract, derived secrets here are bound to
+    // the password-derived root combined with the server DEK, not to KeyManager's
+    // rotating `active_mk`.
+    // This is intentional for user-bound storage semantics.
+    fn derive_secret32(&self, mk_ignored_by_design: &Byte32, label: &[u8]) -> Result<Byte32> {
+        let _ = mk_ignored_by_design;
         let root = self.derive_combined_root()?;
         kdf::derive32(
             &SecretBytes::from_slice(root.as_slice()),

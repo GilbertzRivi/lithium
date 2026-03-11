@@ -370,12 +370,12 @@ pub fn load_bytes_decrypted(
     decrypt_payload_bytes(&dek, &nonce_payload, &ct_payload, &aad)
 }
 
-pub fn rewrap_keyfile_dek(
+pub fn rewrap_keyfile_dek_to_bytes(
     path: &Path,
     old_mk: &MasterKey32,
     new_mk: &MasterKey32,
     key_type: &str,
-) -> Result<()> {
+) -> Result<SecretBytes> {
     let buf = read_keyfile_bytes(path)?;
     let (
         version,
@@ -410,11 +410,19 @@ pub fn rewrap_keyfile_dek(
         &ct_payload,
     );
 
-    write_secure(path, &out)?;
-
     salt_old.zeroize();
     nonce_wrap_old.zeroize();
     ct_wrap_old.zeroize();
 
-    Ok(())
+    Ok(SecretBytes::from_vec(out))
+}
+
+pub fn rewrap_keyfile_dek(
+    path: &Path,
+    old_mk: &MasterKey32,
+    new_mk: &MasterKey32,
+    key_type: &str,
+) -> Result<()> {
+    let out = rewrap_keyfile_dek_to_bytes(path, old_mk, new_mk, key_type)?;
+    write_secure(path, out.as_slice())
 }

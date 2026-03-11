@@ -2,7 +2,6 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
-use zeroize::{Zeroize};
 
 use crate::error::{CryptoErrorKind, LithiumError, Result};
 use crate::secrets::SecretString;

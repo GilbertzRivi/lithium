@@ -61,6 +61,12 @@ async fn uuid5_from_handler<P: MkProvider + Send + Sync + 'static>(
     Ok(Uuid::new_v5(&ns, name.as_bytes()))
 }
 
+// NOTE:
+// User IDs are encrypted deterministically on purpose so we can perform
+// stable lookups by derived UUID without storing plaintext identifiers.
+// This leaks equality of the encrypted user ID across rows / snapshots:
+// the same logical user always maps to the same ciphertext under the same DEK.
+// We accept this trade-off for indexed lookup semantics.
 async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
     dm: &DataManager<P>,
     id: &Uuid,
