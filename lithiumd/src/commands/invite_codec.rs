@@ -29,7 +29,6 @@ pub struct InvitePublic {
 #[derive(Serialize)]
 struct SelfStateSerde<'a> {
     v: u8,
-    server: &'a str,
     cid: &'a str,
     x_priv: &'a str,
     x_pub: &'a str,
@@ -192,7 +191,7 @@ pub fn decode_contact_id_hex(s: &SecretString) -> Result<Vec<u8>> {
     Ok(b.as_slice().to_vec())
 }
 
-pub fn gen_self_state(server: SecretString) -> Result<(Vec<u8>, SecretJson)> {
+pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
     let cid: Byte32 = keys::random_32()?;
 
     let (x_priv, x_pub) = keys::random_x25519_keypair()?;
@@ -223,7 +222,6 @@ pub fn gen_self_state(server: SecretString) -> Result<(Vec<u8>, SecretJson)> {
 
     let state = SelfStateSerde {
         v: 1,
-        server: server.expose(),
         cid: cid_hex.expose(),
         x_priv: x_priv_hex.expose(),
         x_pub: x_pub_hex.expose(),

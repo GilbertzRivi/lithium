@@ -21,17 +21,11 @@ struct EmptyPeerState {
     peer: Option<()>,
 }
 
-fn default_server_string(state: &DaemonState) -> SecretString {
-    SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string())
-}
-
 pub async fn handle(
     id: u64,
     contact_id_opt: Option<String>,
-    server_opt: Option<String>,
     state: Arc<DaemonState>,
 ) -> IpcResponse {
-    let _ = server_opt;
 
     let dm_opt = state.local_db.lock().await.clone();
     let Some(dm) = dm_opt else {
@@ -121,9 +115,7 @@ pub async fn handle(
         };
     }
 
-    let local_server = default_server_string(&state);
-
-    let (contact_id, self_json) = match gen_self_state(local_server.clone()) {
+    let (contact_id, self_json) = match gen_self_state() {
         Ok(v) => v,
         Err(_) => return internal_err(id),
     };
@@ -161,7 +153,7 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            local_server.expose().to_owned(),
+            state.base_url.to_string().trim_end_matches('/').to_string(),
             peer_bytes,
             self_bytes,
         )

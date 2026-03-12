@@ -220,7 +220,7 @@ pub fn load_ipc_policy() -> Result<IpcPolicy> {
         Ok(v) => v
             .parse::<usize>()
             .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_MAX_CONNECTIONS"))?,
-        Err(_) => 16,
+        Err(_) => 1,
     }
         .max(1);
 

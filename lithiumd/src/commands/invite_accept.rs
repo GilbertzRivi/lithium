@@ -26,7 +26,6 @@ struct PeerState<'a> {
 
 #[derive(Serialize)]
 struct PeerStatePeer<'a> {
-    server: &'a str,
     cid: &'a str,
     x_pub: &'a str,
     k_pub: &'a str,
@@ -99,18 +98,18 @@ pub async fn handle(
                     Err(_) => return err_resp(id, "self_state_corrupt"),
                 };
 
-                (contact_id, sj, SecretString::new(row.server.clone()))
+                (contact_id, sj, row.server.clone())
             }
             Ok(None) => return err_resp(id, "contact_not_found"),
             Err(_) => return storage_err(id),
         }
     } else {
         should_return_my_code = true;
-        let local_server =
-            SecretString::new(state.base_url.to_string().trim_end_matches('/').to_string());
-
-        match gen_self_state(local_server.clone()) {
-            Ok((contact_id, self_json)) => (contact_id, self_json, local_server),
+        match gen_self_state() {
+            Ok((contact_id, self_json)) => {
+                let server = state.base_url.to_string().trim_end_matches('/').to_string();
+                (contact_id, self_json, server)
+            }
             Err(_) => return internal_err(id),
         }
     };
@@ -119,7 +118,6 @@ pub async fn handle(
         v: 1,
         label: &label,
         peer: PeerStatePeer {
-            server: server_ss.expose(),
             cid: peer.cid_hex.expose(),
             x_pub: peer.x_pub_hex.expose(),
             k_pub: peer.k_pub_hex.expose(),
@@ -164,7 +162,7 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            server_ss.expose().to_owned(),
+            server_ss.clone(),
             peer_bytes,
             self_bytes,
         )

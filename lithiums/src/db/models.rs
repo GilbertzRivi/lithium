@@ -10,7 +10,6 @@ pub mod users {
         pub id: Vec<u8>,
 
         pub password_hash: Vec<u8>,
-        pub handler: Vec<u8>,
 
         pub ed_key: Vec<u8>,
         pub dili_key: Vec<u8>,

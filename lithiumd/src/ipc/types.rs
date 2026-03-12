@@ -22,7 +22,7 @@ pub enum IpcCommand {
     UnlockStorage,
     Shutdown,
     WipeLocal,
-    CreateInvite { contact_id: Option<String>, server: Option<String> },
+    CreateInvite { contact_id: Option<String> },
     AcceptInvite { code: String, contact_id: Option<String>, label: String },
     ContactsList,
     ContactSend { contact_id: String, plaintext: String },

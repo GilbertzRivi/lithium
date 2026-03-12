@@ -31,7 +31,6 @@ const UIDENC_NONCE_LABEL: &[u8] = b"user-idenc/nonce/v1";
 const AAD_MSG: &[u8] = b"message-content/v1";
 
 const AAD_USER_PASSWORD_HASH: &[u8] = b"user-password-hash/v1";
-const AAD_USER_HANDLER: &[u8] = b"user-handler/v1";
 const AAD_USER_ED_KEY: &[u8] = b"user-ed-key/v1";
 const AAD_USER_DILI_KEY: &[u8] = b"user-dili-key/v1";
 const AAD_USER_DEK: &[u8] = b"user-dek/v1";
@@ -220,20 +219,10 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let pw = SecretString::new(password.to_owned());
         let password_hash = hash_password_phc(&pw)?;
 
-        let norm = normalize_handler(handler);
-        let handler_phc = hash_password_phc(&SecretString::new(norm))?;
-
         let password_hash_enc = self
             .encrypt_db_blob(
                 &SecretBytes::from_slice(password_hash.as_bytes()),
                 &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
-            )
-            .await?;
-
-        let handler_enc = self
-            .encrypt_db_blob(
-                &SecretBytes::from_slice(handler_phc.as_bytes()),
-                &SecretBytes::from_slice(AAD_USER_HANDLER),
             )
             .await?;
 
@@ -261,7 +250,6 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let am = users::ActiveModel {
             id: Set(id_enc.as_slice().to_vec()),
             password_hash: Set(password_hash_enc.as_slice().to_vec()),
-            handler: Set(handler_enc.as_slice().to_vec()),
             ed_key: Set(ed_key_enc.as_slice().to_vec()),
             dili_key: Set(dili_key_enc.as_slice().to_vec()),
             dek: Set(dek_enc.as_slice().to_vec()),

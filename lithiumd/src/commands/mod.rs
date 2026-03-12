@@ -48,8 +48,8 @@ pub async fn dispatch(
         IpcCommand::Shutdown => shutdown::handle(id, state, shutdown_tx).await,
         IpcCommand::WipeLocal => wipe_local::handle(id, state).await,
 
-        IpcCommand::CreateInvite { contact_id, server } => {
-            invite_create::handle(id, contact_id, server, state).await
+        IpcCommand::CreateInvite { contact_id } => {
+            invite_create::handle(id, contact_id, state).await
         }
         IpcCommand::AcceptInvite { code, contact_id, label } => {
             invite_accept::handle(id, code, contact_id, label, state).await
