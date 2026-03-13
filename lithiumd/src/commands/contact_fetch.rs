@@ -45,7 +45,7 @@ fn build_stored_message(
     });
 
     let mut out = SecretBytes::new(Vec::new());
-    serde_json::to_writer(out.as_mut_vec(), &v)?;
+    serde_json::to_writer(out.expose_as_mut_vec(), &v)?;
     Ok(out)
 }
 
@@ -88,11 +88,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         return err_resp(id, "contact_not_found");
     };
 
-    let mut self_v = match SecretJson::from_bytes(row.self_state.as_slice()) {
+    let mut self_v = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let mut peer_v = match SecretJson::from_bytes(row.peer_state.as_slice()) {
+    let mut peer_v = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
@@ -113,7 +113,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
     {
         let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
             let mut out = SecretBytes::new(Vec::new());
-            serde_json::to_writer(out.as_mut_vec(), v)?;
+            serde_json::to_writer(out.expose_as_mut_vec(), v)?;
             Ok(out)
         }) {
             Ok(v) => v,
@@ -122,7 +122,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
 
         let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
             let mut out = SecretBytes::new(Vec::new());
-            serde_json::to_writer(out.as_mut_vec(), v)?;
+            serde_json::to_writer(out.expose_as_mut_vec(), v)?;
             Ok(out)
         }) {
             Ok(v) => v,
@@ -183,7 +183,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                     }
                 };
 
-                let w = match unpack_wire(raw.as_slice()) {
+                let w = match unpack_wire(raw.expose_as_slice()) {
                     Ok(v) => v,
                     Err(_) => {
                         out.push(json!({
@@ -367,7 +367,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
 
     let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.as_mut_vec(), v)?;
+        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
         Ok(out)
     }) {
         Ok(v) => v,
@@ -376,7 +376,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
 
     let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
         let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.as_mut_vec(), v)?;
+        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
         Ok(out)
     }) {
         Ok(v) => v,

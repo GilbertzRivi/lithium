@@ -35,7 +35,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
             Err(_) => return storage_err(id),
         };
 
-        let peer_json = match SecretJson::from_vec(peer_pt.as_slice().to_vec()) {
+        let peer_json = match SecretJson::from_vec(peer_pt.expose_as_slice().to_vec()) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "peer_state_corrupt"),
         };

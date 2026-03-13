@@ -146,7 +146,7 @@ fn id_from_peer_pubs(peer_x_pub_hex: &str, peer_k_pub_hex: &str) -> Result<[u8; 
 
     let mut inb = Vec::with_capacity(32 + k.len());
     inb.extend_from_slice(x.as_slice());
-    inb.extend_from_slice(k.as_slice());
+    inb.extend_from_slice(k.expose_as_slice());
 
     let id = kdf::derive32(
         &SecretBytes::from_vec(inb),
@@ -298,15 +298,15 @@ fn build_sig_input(
         E2E_SIG_LABEL.len() + 32 + 32 + 4 + hdr_unsigned.len() + 4 + pt_body.len(),
     ));
 
-    out.as_mut_vec().extend_from_slice(E2E_SIG_LABEL);
-    out.as_mut_vec().extend_from_slice(to_id);
-    out.as_mut_vec().extend_from_slice(from_x_pub);
-    out.as_mut_vec()
+    out.expose_as_mut_vec().extend_from_slice(E2E_SIG_LABEL);
+    out.expose_as_mut_vec().extend_from_slice(to_id);
+    out.expose_as_mut_vec().extend_from_slice(from_x_pub);
+    out.expose_as_mut_vec()
         .extend_from_slice(&(hdr_unsigned.len() as u32).to_be_bytes());
-    out.as_mut_vec().extend_from_slice(hdr_unsigned);
-    out.as_mut_vec()
+    out.expose_as_mut_vec().extend_from_slice(hdr_unsigned);
+    out.expose_as_mut_vec()
         .extend_from_slice(&(pt_body.len() as u32).to_be_bytes());
-    out.as_mut_vec().extend_from_slice(pt_body);
+    out.expose_as_mut_vec().extend_from_slice(pt_body);
 
     out
 }
@@ -321,8 +321,8 @@ fn sign_e2e_payload(
     let (ed_priv, dili_priv) = get_self_identity_privs(self_v)?;
     let sig_input = build_sig_input(to_id, from_x_pub, hdr_unsigned, pt_body);
 
-    let sig_ed = sign::sign_message(sig_input.as_slice(), ed_priv.as_slice())?;
-    let sig_dili = sign::sign_message_dili(sig_input.as_slice(), dili_priv.as_slice())?;
+    let sig_ed = sign::sign_message(sig_input.expose_as_slice(), ed_priv.as_slice())?;
+    let sig_dili = sign::sign_message_dili(sig_input.expose_as_slice(), dili_priv.expose_as_slice())?;
 
     Ok((
         sig_ed.to_hex().expose().to_owned(),
@@ -423,11 +423,11 @@ fn verify_e2e_payload(
     let sig_dili = SecretBytes::from_hex(sig_dili_hex.trim())
         .map_err(|_| LithiumError::invalid_credentials("bad_sig_dili_hex"))?;
 
-    if !sign::verify_signature(sig_input.as_slice(), sig_ed.as_slice(), &ed_pub) {
+    if !sign::verify_signature(sig_input.expose_as_slice(), sig_ed.expose_as_slice(), &ed_pub) {
         return Err(malicious_message_err());
     }
 
-    if !sign::verify_signature_dili(sig_input.as_slice(), sig_dili.as_slice(), &dili_pub) {
+    if !sign::verify_signature_dili(sig_input.expose_as_slice(), sig_dili.expose_as_slice(), &dili_pub) {
         return Err(malicious_message_err());
     }
 
@@ -458,7 +458,7 @@ fn decrypt_with_privs(
     )?;
 
     let hdr_v: Value =
-        serde_json::from_slice(pt_headers.as_slice()).map_err(LithiumError::json_parse)?;
+        serde_json::from_slice(pt_headers.expose_as_slice()).map_err(LithiumError::json_parse)?;
 
     let (hdr_unsigned, sig_ed_hex, sig_dili_hex) =
         signed_header_parts(&hdr_v).map_err(|_| malicious_message_err())?;
@@ -468,7 +468,7 @@ fn decrypt_with_privs(
         &w.to_id,
         &w.from_x_pub,
         &hdr_unsigned,
-        pt_body.as_slice(),
+        pt_body.expose_as_slice(),
         &sig_ed_hex,
         &sig_dili_hex,
     )?;
@@ -541,7 +541,7 @@ fn decrypt_with_privs(
         .to_string();
 
     Ok((
-        pt_body.as_slice().to_vec(),
+        pt_body.expose_as_slice().to_vec(),
         json!({
             "ts_ms": ts_ms,
             "msg_id": msg_id,
@@ -829,7 +829,7 @@ pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, Value)> {
 
     let priv_blob = {
         let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.as_mut_vec(), &priv_state).map_err(LithiumError::json_parse)?;
+        serde_json::to_writer(out.expose_as_mut_vec(), &priv_state).map_err(LithiumError::json_parse)?;
         out
     };
 
@@ -844,7 +844,7 @@ pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, Value)> {
 }
 
 pub fn prekey_blob_to_privs(blob: &SecretBytes) -> Result<(Byte32, SecretBytes)> {
-    let v = SecretJson::from_bytes(blob.as_slice())?;
+    let v = SecretJson::from_bytes(blob.expose_as_slice())?;
 
     v.with_exposed(|v| -> Result<(Byte32, SecretBytes)> {
         let x_priv_hex = v
@@ -1088,9 +1088,9 @@ pub fn encrypt_for_peer(
         WireV1 {
             to_id: target_id,
             from_x_pub,
-            seed: wire.seed_enc.as_slice().to_vec(),
-            enc_headers: wire.enc_headers.as_slice().to_vec(),
-            enc_body: wire.enc_body.as_slice().to_vec(),
+            seed: wire.seed_enc.expose_as_slice().to_vec(),
+            enc_headers: wire.enc_headers.expose_as_slice().to_vec(),
+            enc_body: wire.enc_body.expose_as_slice().to_vec(),
         },
         json!({
             "ts_ms": ts_ms,

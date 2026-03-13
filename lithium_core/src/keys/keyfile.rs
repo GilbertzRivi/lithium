@@ -85,7 +85,7 @@ fn wrap_dek(
         aad,
     )?;
 
-    Ok((ct.as_slice().to_vec(), *nonce.as_array()))
+    Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
 #[inline]
@@ -102,7 +102,7 @@ fn encrypt_payload(
         aad,
     )?;
 
-    Ok((ct.as_slice().to_vec(), *nonce.as_array()))
+    Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
 fn build_record(
@@ -166,7 +166,7 @@ fn read_u32(buf: &[u8], idx: &mut usize) -> Result<u32> {
 fn parse_keyfile(
     buf: &SecretBytes,
 ) -> Result<(u8, u8, u16, [u8; 32], [u8; 12], Vec<u8>, [u8; 12], Vec<u8>)> {
-    let buf = buf.as_slice();
+    let buf = buf.expose_as_slice();
     let mut idx = 0;
 
     if buf.len() < 8 {
@@ -248,7 +248,7 @@ fn unwrap_dek(
         &nonce,
         aad,
     )?;
-    Byte32::from_slice(dek_bytes.as_slice())
+    Byte32::from_slice(dek_bytes.expose_as_slice())
 }
 
 fn decrypt_payload_bytes(
@@ -273,7 +273,7 @@ fn decrypt_payload_32(
     aad: &SecretBytes,
 ) -> Result<FixedBytes<32>> {
     let pt = decrypt_payload_bytes(dek, nonce_payload, ct_payload, aad)?;
-    FixedBytes::<32>::from_slice(pt.as_slice())
+    FixedBytes::<32>::from_slice(pt.expose_as_slice())
 }
 
 pub fn save_secret32_encrypted(
@@ -424,5 +424,5 @@ pub fn rewrap_keyfile_dek(
     key_type: &str,
 ) -> Result<()> {
     let out = rewrap_keyfile_dek_to_bytes(path, old_mk, new_mk, key_type)?;
-    write_secure(path, out.as_slice())
+    write_secure(path, out.expose_as_slice())
 }

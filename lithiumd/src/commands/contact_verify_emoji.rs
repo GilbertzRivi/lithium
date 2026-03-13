@@ -104,12 +104,12 @@ pub async fn handle(
         Err(_) => return storage_err(id),
     };
 
-    let self_v = match SecretJson::from_bytes(row.self_state.as_slice()) {
+    let self_v = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
 
-    let peer_v = match SecretJson::from_bytes(row.peer_state.as_slice()) {
+    let peer_v = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };

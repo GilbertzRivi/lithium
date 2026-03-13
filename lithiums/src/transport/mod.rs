@@ -1,4 +1,5 @@
 use rand::distr::{Alphanumeric, Distribution};
+use subtle::ConstantTimeEq;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -123,7 +124,7 @@ pub async fn login_rate_limit_fail(
     let fail_key = login_fail_key(handler);
 
     let current = match state.store.peek(&fail_key).await? {
-        Some(v) => parse_u32_ascii(v.as_slice()),
+        Some(v) => parse_u32_ascii(v.expose_as_slice()),
         None => 0,
     };
 
@@ -198,7 +199,7 @@ pub async fn register_rate_limit_fail(
     let fail_key = register_fail_key(handler);
 
     let current = match state.store.peek(&fail_key).await? {
-        Some(v) => parse_u32_ascii(v.as_slice()),
+        Some(v) => parse_u32_ascii(v.expose_as_slice()),
         None => 0,
     };
 
@@ -349,8 +350,8 @@ pub async fn create_token_for_user(
         .map_err(|_| AppError::internal("jwt encode error"))?;
 
     let mut value = SecretBytes::new(Vec::with_capacity(32 + user.id.len()));
-    value.as_mut_vec().extend_from_slice(seed.as_slice());
-    value.as_mut_vec().extend_from_slice(user.id.as_slice());
+    value.expose_as_mut_vec().extend_from_slice(seed.as_slice());
+    value.expose_as_mut_vec().extend_from_slice(user.id.as_slice());
 
     store
         .set(
@@ -388,11 +389,11 @@ pub async fn get_user_from_token(
         return Err(AppError::unauthorized("invalid jwt"));
     }
 
-    let seed = &value.as_slice()[..32];
-    let id = &value.as_slice()[32..];
+    let seed = &value.expose_as_slice()[..32];
+    let id = &value.expose_as_slice()[32..];
 
     let sub = token_data.claims.sub;
-    if hmac_id(id, seed)? != sub {
+    if hmac_id(id, seed)?.as_bytes().ct_eq(sub.as_bytes()).unwrap_u8() == 0 {
         return Err(AppError::unauthorized("invalid jwt"));
     }
 
@@ -472,7 +473,7 @@ pub async fn build_crypto_context(
                 .await?
                 .ok_or_else(|| AppError::bad_request("invalid session k"))?;
 
-            let x_byte = Byte32::from_slice(x_priv.as_slice())?;
+            let x_byte = Byte32::from_slice(x_priv.expose_as_slice())?;
             let k_byte = k_priv;
 
             match kyberbox::decrypt(
@@ -500,22 +501,22 @@ pub async fn build_crypto_context(
         }
     };
 
-    unpad_block(dec_body.as_mut_vec()).map_err(|e| {
+    unpad_block(dec_body.expose_as_mut_vec()).map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "body unpad failed");
         e
     })?;
 
-    unpad_block(dec_headers.as_mut_vec()).map_err(|e| {
+    unpad_block(dec_headers.expose_as_mut_vec()).map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "headers unpad failed");
         e
     })?;
 
-    let body_json = SecretJson::from_vec(dec_body.into_vec()).map_err(|e| {
+    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "body json parse failed");
         AppError::from(e)
     })?;
 
-    let headers_json = SecretJson::from_vec(dec_headers.into_vec()).map_err(|e| {
+    let headers_json = SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(|e| {
         error!(endpoint = cfg.endpoint, error = ?e, "headers json parse failed");
         AppError::from(e)
     })?;
@@ -594,7 +595,7 @@ pub async fn build_crypto_context(
 
             let token_bytes = SecretBytes::from_hex(token_hex.expose())
                 .map_err(|_| AppError::unauthorized("invalid jwt"))?;
-            let token = SecretString::from_utf8_bytes(token_bytes.as_slice())
+            let token = SecretString::from_utf8_bytes(token_bytes.expose_as_slice())
                 .map_err(|_| AppError::unauthorized("invalid jwt"))?;
 
             let jwt_secret = { state.key_manager.lock().await.jwt_secret().clone() };
@@ -644,7 +645,7 @@ impl CryptoContext {
             .store
             .set(
                 session_k_id.expose(),
-                &SecretBytes::from_slice(session_priv_k.as_slice()),
+                &SecretBytes::from_slice(session_priv_k.expose_as_slice()),
                 self.cfg.session_ttl,
             )
             .await?;
@@ -684,12 +685,12 @@ impl CryptoContext {
         )?;
 
         let clear_headers = json!({
-            "sig-ed": hex::encode(resp_sig_ed.as_slice()),
-            "sig-dili": hex::encode(resp_sig_dili.as_slice()),
-            "data": hex::encode(encrypted.enc_headers.as_slice()),
-            "seed": hex::encode(encrypted.seed_enc.as_slice()),
+            "sig-ed": hex::encode(resp_sig_ed.expose_as_slice()),
+            "sig-dili": hex::encode(resp_sig_dili.expose_as_slice()),
+            "data": hex::encode(encrypted.enc_headers.expose_as_slice()),
+            "seed": hex::encode(encrypted.seed_enc.expose_as_slice()),
             "key-x": hex::encode(session_pub_x.as_slice()),
-            "key-k": hex::encode(session_pub_k.as_slice()),
+            "key-k": hex::encode(session_pub_k.expose_as_slice()),
         });
 
         Ok(api_success(encrypted.enc_body, clear_headers))
@@ -737,7 +738,7 @@ pub fn api_success(blob: SecretBytes, meta: Value) -> Response {
         }
     }
 
-    resp.body(Body::from(blob.as_slice().to_vec()))
+    resp.body(Body::from(blob.expose_as_slice().to_vec()))
 }
 
 pub fn verify_headers(
@@ -781,7 +782,7 @@ pub fn verify_signature(
 
     let ok_dili = sign::verify_signature_dili(
         raw_json.expose().as_bytes(),
-        sig_dili.as_slice(),
+        sig_dili.expose_as_slice(),
         peer_pub_dili_key,
     );
 
@@ -837,7 +838,7 @@ fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
     let pad_len = (block_size - (total_len % block_size)) % block_size;
 
     let mut out = SecretBytes::new(Vec::with_capacity(total_len + pad_len));
-    let v = out.as_mut_vec();
+    let v = out.expose_as_mut_vec();
     v.extend_from_slice(input);
     v.push(0x80);
     v.resize(total_len + pad_len, 0u8);

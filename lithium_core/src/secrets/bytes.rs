@@ -1,5 +1,6 @@
 use core::fmt;
 use core::hash::{Hash, Hasher};
+use subtle::ConstantTimeEq;
 
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 
@@ -91,7 +92,9 @@ impl<const N: usize> Clone for FixedBytes<N> {
 }
 
 impl<const N: usize> PartialEq for FixedBytes<N> {
-    fn eq(&self, other: &Self) -> bool { self.as_array() == other.as_array() }
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice().ct_eq(other.as_slice()).into()
+    }
 }
 impl<const N: usize> Eq for FixedBytes<N> {}
 impl<const N: usize> Hash for FixedBytes<N> {
@@ -126,17 +129,17 @@ impl SecretBytes {
     #[inline]
     pub fn from_slice(v: &[u8]) -> Self { Self::new(v.to_vec()) }
     #[inline]
-    pub fn as_slice(&self) -> &[u8] { self.0.expose_secret().as_slice() }
+    pub fn expose_as_slice(&self) -> &[u8] { self.0.expose_secret().as_slice() }
     #[inline]
-    pub fn as_mut_vec(&mut self) -> &mut Vec<u8> { self.0.expose_secret_mut() }
+    pub fn expose_as_mut_vec(&mut self) -> &mut Vec<u8> { self.0.expose_secret_mut() }
     #[inline]
-    pub fn into_vec(self) -> Vec<u8> { self.0.expose_secret().clone() }
+    pub fn expose_into_vec(self) -> Vec<u8> { self.0.expose_secret().clone() }
     #[inline]
-    pub fn to_hex(&self) -> SecretString { SecretString::new(hex::encode(self.as_slice())) }
+    pub fn to_hex(&self) -> SecretString { SecretString::new(hex::encode(self.expose_as_slice())) }
     #[inline]
-    pub fn len(&self) -> usize { self.as_slice().len() }
+    pub fn len(&self) -> usize { self.expose_as_slice().len() }
     #[inline]
-    pub fn is_empty(&self) -> bool { self.as_slice().is_empty() }
+    pub fn is_empty(&self) -> bool { self.expose_as_slice().is_empty() }
 
     #[inline]
     pub fn from_hex(s: &str) -> Result<Self> {
@@ -158,13 +161,13 @@ impl SecretBytes {
         }
 
         let mut out = Self::new(vec![0u8; s.len() / 2]);
-        hex::decode_to_slice(s, out.as_mut_vec()).map_err(LithiumError::from)?;
+        hex::decode_to_slice(s, out.expose_as_mut_vec()).map_err(LithiumError::from)?;
         Ok(out)
     }
 }
 
 impl Clone for SecretBytes {
-    fn clone(&self) -> Self { Self::from_slice(self.as_slice()) }
+    fn clone(&self) -> Self { Self::from_slice(self.expose_as_slice()) }
 }
 impl fmt::Debug for SecretBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("SecretBytes(..)") }
@@ -174,6 +177,6 @@ impl ExposeSecret<Vec<u8>> for SecretBytes {
 }
 impl AsRef<[u8]> for SecretBytes {
     fn as_ref(&self) -> &[u8] {
-        self.as_slice()
+        self.expose_as_slice()
     }
 }

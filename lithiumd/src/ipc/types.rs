@@ -1,3 +1,4 @@
+use lithium_core::secrets::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -16,8 +17,8 @@ pub struct IpcRequest {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum IpcCommand {
     Ping,
-    UnlockKeystore { data_password: String },
-    SetCredentials { handler: String, password: String },
+    UnlockKeystore { data_password: SecretString },
+    SetCredentials { handler: SecretString, password: SecretString },
     Register,
     UnlockStorage,
     Shutdown,
@@ -25,7 +26,7 @@ pub enum IpcCommand {
     CreateInvite { contact_id: Option<String> },
     AcceptInvite { code: String, contact_id: Option<String>, label: String },
     ContactsList,
-    ContactSend { contact_id: String, plaintext: String },
+    ContactSend { contact_id: String, plaintext: SecretString },
     ContactFetch { contact_id: String },
     ContactForget { contact_id: String },
     MessagesList { contact_id: String, limit: Option<u64>, before_id: Option<i64> },

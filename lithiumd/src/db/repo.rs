@@ -114,8 +114,8 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         {
             let mut am: contacts::ActiveModel = row.into();
             am.server = Set(server);
-            am.peer_state_enc = Set(peer_enc.as_slice().to_vec());
-            am.self_state_enc = Set(self_enc.as_slice().to_vec());
+            am.peer_state_enc = Set(peer_enc.expose_as_slice().to_vec());
+            am.self_state_enc = Set(self_enc.expose_as_slice().to_vec());
             am.updated_at = Set(now);
             am.update(self.db()).await.map_err(LithiumError::io)?;
             return Ok(());
@@ -125,8 +125,8 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             id: Default::default(),
             contact_id: Set(contact_id),
             server: Set(server),
-            peer_state_enc: Set(peer_enc.as_slice().to_vec()),
-            self_state_enc: Set(self_enc.as_slice().to_vec()),
+            peer_state_enc: Set(peer_enc.expose_as_slice().to_vec()),
+            self_state_enc: Set(self_enc.expose_as_slice().to_vec()),
             created_at: Set(now),
             updated_at: Set(now),
         };
@@ -186,7 +186,7 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             contact_id: Set(contact_id),
             mailbox: Set(mailbox),
             direction: Set(direction),
-            content_enc: Set(enc.as_slice().to_vec()),
+            content_enc: Set(enc.expose_as_slice().to_vec()),
             created_at: Set(now),
         };
 
@@ -221,9 +221,9 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
                 let contact_id = contact_id.clone();
                 let server = server.clone();
                 let mailbox = mailbox.clone();
-                let peer_enc = peer_enc.as_slice().to_vec();
-                let self_enc = self_enc.as_slice().to_vec();
-                let msg_enc = msg_enc.as_slice().to_vec();
+                let peer_enc = peer_enc.expose_as_slice().to_vec();
+                let self_enc = self_enc.expose_as_slice().to_vec();
+                let msg_enc = msg_enc.expose_as_slice().to_vec();
                 let now = now;
 
                 Box::pin(async move {
@@ -333,7 +333,7 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             id: Default::default(),
             contact_id: Set(contact_id),
             prekey_id: Set(prekey_id),
-            key_enc: Set(key_enc.as_slice().to_vec()),
+            key_enc: Set(key_enc.expose_as_slice().to_vec()),
             created_at: Set(now),
             expires_at: Set(expires_at),
             used_at: Set(None),

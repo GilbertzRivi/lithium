@@ -47,7 +47,7 @@ pub async fn handle(
     let mut out = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let parsed: Value = match serde_json::from_slice(row.content.as_slice()) {
+        let parsed: Value = match serde_json::from_slice(row.content.expose_as_slice()) {
             Ok(v) => v,
             Err(_) => {
                 out.push(json!({

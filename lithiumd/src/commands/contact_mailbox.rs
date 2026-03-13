@@ -51,9 +51,9 @@ fn sender_pub_map_mut(peer_v: &mut Value) -> Option<&mut Map<String, Value>> {
 
 fn mailbox_salt(sender_cid: &SecretBytes, receiver_cid: &SecretBytes, generation: u64) -> SecretBytes {
     let mut salt = SecretBytes::new(Vec::with_capacity(sender_cid.len() + receiver_cid.len() + 8));
-    salt.as_mut_vec().extend_from_slice(sender_cid.as_slice());
-    salt.as_mut_vec().extend_from_slice(receiver_cid.as_slice());
-    salt.as_mut_vec().extend_from_slice(&generation.to_be_bytes());
+    salt.expose_as_mut_vec().extend_from_slice(sender_cid.expose_as_slice());
+    salt.expose_as_mut_vec().extend_from_slice(receiver_cid.expose_as_slice());
+    salt.expose_as_mut_vec().extend_from_slice(&generation.to_be_bytes());
     salt
 }
 

@@ -12,7 +12,7 @@ fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
     if mb.len() != 16 && mb.len() != 32 {
         return Err(AppError::bad_request("invalid_mailbox"));
     }
-    Ok(mb.as_slice().to_vec())
+    Ok(mb.expose_as_slice().to_vec())
 }
 
 #[handler]

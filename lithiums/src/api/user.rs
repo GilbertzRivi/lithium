@@ -49,7 +49,7 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
             handler.expose(),
             password.expose(),
             ed_key.as_slice(),
-            dili_key.as_slice(),
+            dili_key.expose_as_slice(),
             dek_hex.expose().as_bytes(),
         )
         .await?;

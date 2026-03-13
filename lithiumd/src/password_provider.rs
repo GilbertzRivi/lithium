@@ -14,7 +14,7 @@ const MAGIC: &[u8; 4] = b"LMK1";
 const SALT_LEN: usize = 32;
 const AAD: &[u8] = b"lithium/mkfile/v1";
 
-const USER_ROOT_SALT: &[u8] = b"lithium/user-provider/root/v1";
+const USER_ROOT_SALT_FILE: &str = "root.salt";
 const USER_COMBINED_LABEL: &[u8] = b"lithium/user-provider/combined/v1";
 
 pub struct PasswordFileMkProvider {
@@ -36,6 +36,34 @@ impl PasswordFileMkProvider {
         self.server_dek = Some(dek);
     }
 
+    fn root_salt_path(&self) -> PathBuf {
+        match self.path.parent() {
+            Some(parent) => parent.join(USER_ROOT_SALT_FILE),
+            None => PathBuf::from(USER_ROOT_SALT_FILE),
+        }
+    }
+
+    fn load_root_salt(&self) -> Result<Option<Byte32>> {
+        let path = self.root_salt_path();
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let buf = keyfile::read_keyfile_bytes(&path)?;
+        let salt = Byte32::from_slice(buf.expose_as_slice())?;
+        Ok(Some(salt))
+    }
+
+    fn ensure_root_salt(&self) -> Result<Byte32> {
+        if let Some(existing) = self.load_root_salt()? {
+            return Ok(existing);
+        }
+
+        let salt = keys::random_32()?;
+        keyfile::write_secure(&self.root_salt_path(), salt.as_slice())?;
+        Ok(salt)
+    }
+
     fn argon2_32(&self, salt: &[u8]) -> Result<Byte32> {
         let params = Params::new(64 * 1024, 3, 1, Some(32))
             .map_err(|_| LithiumError::internal())?;
@@ -54,7 +82,8 @@ impl PasswordFileMkProvider {
     }
 
     fn derive_password_root(&self) -> Result<Byte32> {
-        self.argon2_32(USER_ROOT_SALT)
+        let root_salt = self.ensure_root_salt()?;
+        self.argon2_32(root_salt.as_slice())
     }
 
     fn derive_combined_root(&self) -> Result<Byte32> {
@@ -73,17 +102,17 @@ impl PasswordFileMkProvider {
     }
 
     fn encode_file(salt: &Byte32, blob: &SecretBytes) -> SecretBytes {
-        let mut out = Vec::with_capacity(4 + 1 + SALT_LEN + 4 + blob.as_slice().len());
+        let mut out = Vec::with_capacity(4 + 1 + SALT_LEN + 4 + blob.expose_as_slice().len());
         out.extend_from_slice(MAGIC);
         out.push(SALT_LEN as u8);
         out.extend_from_slice(salt.as_slice());
-        out.extend_from_slice(&(blob.as_slice().len() as u32).to_le_bytes());
-        out.extend_from_slice(blob.as_slice());
+        out.extend_from_slice(&(blob.expose_as_slice().len() as u32).to_le_bytes());
+        out.extend_from_slice(blob.expose_as_slice());
         SecretBytes::from_vec(out)
     }
 
     fn decode_file(buf: &SecretBytes) -> Result<(Byte32, SecretBytes)> {
-        let b = buf.as_slice();
+        let b = buf.expose_as_slice();
 
         if b.len() < 4 + 1 + SALT_LEN + 4 {
             return Err(LithiumError::internal());
@@ -131,12 +160,13 @@ impl MkProvider for PasswordFileMkProvider {
                     e
                 }
             })?;
-        Byte32::from_slice(pt.as_slice())
+        Byte32::from_slice(pt.expose_as_slice())
     }
 
     fn store_mk(&self, mk: &Byte32) -> Result<()> {
-        let salt = keys::random_32()?;
+        let _root_salt = self.ensure_root_salt()?;
 
+        let salt = keys::random_32()?;
         let user_key = self.derive_user_key(&salt)?;
 
         let nonce = keys::random_12()?;
@@ -148,15 +178,9 @@ impl MkProvider for PasswordFileMkProvider {
         )?;
 
         let bytes = Self::encode_file(&salt, &blob);
-        keyfile::write_secure(&self.path, &bytes.as_slice())
+        keyfile::write_secure(&self.path, &bytes.expose_as_slice())
     }
 
-    // NOTE:
-    // This provider intentionally ignores the `mk` argument.
-    // Unlike the default MkProvider contract, derived secrets here are bound to
-    // the password-derived root combined with the server DEK, not to KeyManager's
-    // rotating `active_mk`.
-    // This is intentional for user-bound storage semantics.
     fn derive_secret32(&self, mk_ignored_by_design: &Byte32, label: &[u8]) -> Result<Byte32> {
         let _ = mk_ignored_by_design;
         let root = self.derive_combined_root()?;

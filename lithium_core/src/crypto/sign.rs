@@ -27,7 +27,7 @@ pub fn sign_message_dili<S: AsRef<[u8]>>(message: &[u8], dili_sk_bytes: S) -> Re
 }
 
 pub fn verify_signature_dili(message: &[u8], signature: &[u8], dili_pk_bytes: &SecretBytes) -> bool {
-    let Ok(pk) = PublicKey::from_bytes(dili_pk_bytes.as_slice()) else { return false; };
+    let Ok(pk) = PublicKey::from_bytes(dili_pk_bytes.expose_as_slice()) else { return false; };
     let Ok(sig) = DetachedSignature::from_bytes(signature) else { return false; };
     verify_detached_signature(&sig, message, &pk).is_ok()
 }

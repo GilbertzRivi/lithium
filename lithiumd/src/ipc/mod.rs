@@ -1,4 +1,5 @@
-use std::{fmt::Write as _, io, sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
+use subtle::ConstantTimeEq;
 
 use serde_json::json;
 use tokio::{
@@ -70,7 +71,7 @@ async fn authorize_request(
         _ => return Some(err_resp(req.id, "ipc_auth_required")),
     };
 
-    if provided.as_bytes() != expected.as_bytes() {
+    if provided.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() == 0 {
         return Some(err_resp(req.id, "ipc_auth_failed"));
     }
 

@@ -157,7 +157,7 @@ pub fn wrap_dek_for_server_hex(
     let mut out = Vec::with_capacity(1 + DEK_WRAP_SALT_LEN + blob.len());
     out.push(DEK_WRAP_VER);
     out.extend_from_slice(salt.as_slice());
-    out.extend_from_slice(blob.as_slice());
+    out.extend_from_slice(blob.expose_as_slice());
 
     Ok(SecretString::new(hex::encode(out)))
 }
@@ -172,12 +172,12 @@ pub fn unwrap_dek_from_server_hex(
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    if blob.as_slice()[0] != DEK_WRAP_VER {
+    if blob.expose_as_slice()[0] != DEK_WRAP_VER {
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    let salt = &blob.as_slice()[1..1 + DEK_WRAP_SALT_LEN];
-    let wrapped = SecretBytes::from_slice(&blob.as_slice()[1 + DEK_WRAP_SALT_LEN..]);
+    let salt = &blob.expose_as_slice()[1..1 + DEK_WRAP_SALT_LEN];
+    let wrapped = SecretBytes::from_slice(&blob.expose_as_slice()[1 + DEK_WRAP_SALT_LEN..]);
 
     let key = derive_wrap_key(data_password, salt)?;
     let pt = aead::decrypt(
@@ -186,5 +186,5 @@ pub fn unwrap_dek_from_server_hex(
         &SecretBytes::from_slice(DEK_WRAP_AAD),
     )?;
 
-    Byte32::from_slice(pt.as_slice())
+    Byte32::from_slice(pt.expose_as_slice())
 }

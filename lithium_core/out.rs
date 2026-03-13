@@ -1,4 +1,4 @@
-// CONCATENATED *.rs FILES — 2026-03-12T22:46:30+01:00
+// CONCATENATED *.rs FILES — 2026-03-13T02:17:20+01:00
 
 
 // ===== FILE: ./src/crypto/aead.rs =====
@@ -30,8 +30,8 @@ pub fn encrypt_raw(
     let ct = cipher.encrypt(
         nonce,
         Payload {
-            msg: plaintext.as_slice(),
-            aad: aad.as_slice(),
+            msg: plaintext.expose_as_slice(),
+            aad: aad.expose_as_slice(),
         },
     )?;
 
@@ -58,8 +58,8 @@ pub fn decrypt_raw(
     let pt = cipher.decrypt(
         nonce,
         Payload {
-            msg: ciphertext.as_slice(),
-            aad: aad.as_slice(),
+            msg: ciphertext.expose_as_slice(),
+            aad: aad.expose_as_slice(),
         },
     )?;
 
@@ -71,15 +71,15 @@ pub fn encrypt(plaintext: &SecretBytes, key: &Byte32, nonce: &Byte12, aad: &Secr
     let mut out = Vec::with_capacity(1 + 12 + ct.len());
     out.push(AEAD_BLOB_VERSION);
     out.extend_from_slice(nonce.as_slice());
-    out.extend_from_slice(ct.as_slice());
+    out.extend_from_slice(ct.expose_as_slice());
     Ok(SecretBytes::from_vec(out))
 }
 
 pub fn decrypt(blob: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<SecretBytes> {
     if blob.len() < 1 + 12 + 16 { return Err(LithiumError::aead_failed()); }
-    if blob.as_slice()[0] != AEAD_BLOB_VERSION { return Err(LithiumError::aead_failed()); }
-    let nonce = Byte12::from_slice(&blob.as_slice()[1..13])?;
-    let ct = SecretBytes::from_slice(&blob.as_slice()[13..]);
+    if blob.expose_as_slice()[0] != AEAD_BLOB_VERSION { return Err(LithiumError::aead_failed()); }
+    let nonce = Byte12::from_slice(&blob.expose_as_slice()[1..13])?;
+    let ct = SecretBytes::from_slice(&blob.expose_as_slice()[13..]);
     decrypt_raw(&ct, key, &nonce, aad)
 }
 
@@ -93,9 +93,9 @@ use sha2::Sha256;
 use crate::{error::Result, secrets::Byte32, secrets::bytes::SecretBytes};
 
 pub fn derive32(input: &SecretBytes, salt: Option<&SecretBytes>, info: &SecretBytes) -> Result<Byte32> {
-    let hk = Hkdf::<Sha256>::new(salt.map(|s| s.as_slice()), input.as_slice());
+    let hk = Hkdf::<Sha256>::new(salt.map(|s| s.expose_as_slice()), input.expose_as_slice());
     let mut out = Byte32::new_zeroed();
-    hk.expand(info.as_slice(), out.as_mut_slice())?;
+    hk.expand(info.expose_as_slice(), out.as_mut_slice())?;
     Ok(out)
 }
 
@@ -295,7 +295,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     out.extend_from_slice(&header);
     out.extend_from_slice(&(ct_bytes.len() as u16).to_be_bytes());
     out.extend_from_slice(ct_bytes);
-    out.extend_from_slice(aead_blob.as_slice());
+    out.extend_from_slice(aead_blob.expose_as_slice());
 
     Ok(SecretBytes::from_vec(out))
 }
@@ -370,7 +370,7 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
         &SecretBytes::from_vec(aad_full),
     )?;
 
-    Byte32::from_slice(seed_plain.as_slice()).map_err(|_| LithiumError::internal())
+    Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())
 }
 
 pub fn encrypt(
@@ -385,9 +385,9 @@ pub fn encrypt(
 
     let seed_plain = keys::random_32()?;
     let seed_enc = encrypt_kyber_seed(
-        peer_k_pub.as_slice(),
+        peer_k_pub.expose_as_slice(),
         seed_plain.as_slice(),
-        label(ctx, "seed").as_slice(),
+        label(ctx, "seed").expose_as_slice(),
     )?;
 
     let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
@@ -428,9 +428,9 @@ pub fn decrypt(
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
     let seed_plain = decrypt_kyber_seed(
-        kyber_priv.as_slice(),
-        wire.seed_enc.as_slice(),
-        label(ctx, "seed").as_slice(),
+        kyber_priv.expose_as_slice(),
+        wire.seed_enc.expose_as_slice(),
+        label(ctx, "seed").expose_as_slice(),
     )?;
 
     let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
@@ -494,7 +494,7 @@ pub fn sign_message_dili<S: AsRef<[u8]>>(message: &[u8], dili_sk_bytes: S) -> Re
 }
 
 pub fn verify_signature_dili(message: &[u8], signature: &[u8], dili_pk_bytes: &SecretBytes) -> bool {
-    let Ok(pk) = PublicKey::from_bytes(dili_pk_bytes.as_slice()) else { return false; };
+    let Ok(pk) = PublicKey::from_bytes(dili_pk_bytes.expose_as_slice()) else { return false; };
     let Ok(sig) = DetachedSignature::from_bytes(signature) else { return false; };
     verify_detached_signature(&sig, message, &pk).is_ok()
 }
@@ -963,7 +963,7 @@ fn wrap_dek(
         aad,
     )?;
 
-    Ok((ct.as_slice().to_vec(), *nonce.as_array()))
+    Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
 #[inline]
@@ -980,7 +980,7 @@ fn encrypt_payload(
         aad,
     )?;
 
-    Ok((ct.as_slice().to_vec(), *nonce.as_array()))
+    Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
 fn build_record(
@@ -1044,7 +1044,7 @@ fn read_u32(buf: &[u8], idx: &mut usize) -> Result<u32> {
 fn parse_keyfile(
     buf: &SecretBytes,
 ) -> Result<(u8, u8, u16, [u8; 32], [u8; 12], Vec<u8>, [u8; 12], Vec<u8>)> {
-    let buf = buf.as_slice();
+    let buf = buf.expose_as_slice();
     let mut idx = 0;
 
     if buf.len() < 8 {
@@ -1126,7 +1126,7 @@ fn unwrap_dek(
         &nonce,
         aad,
     )?;
-    Byte32::from_slice(dek_bytes.as_slice())
+    Byte32::from_slice(dek_bytes.expose_as_slice())
 }
 
 fn decrypt_payload_bytes(
@@ -1151,7 +1151,7 @@ fn decrypt_payload_32(
     aad: &SecretBytes,
 ) -> Result<FixedBytes<32>> {
     let pt = decrypt_payload_bytes(dek, nonce_payload, ct_payload, aad)?;
-    FixedBytes::<32>::from_slice(pt.as_slice())
+    FixedBytes::<32>::from_slice(pt.expose_as_slice())
 }
 
 pub fn save_secret32_encrypted(
@@ -1302,7 +1302,7 @@ pub fn rewrap_keyfile_dek(
     key_type: &str,
 ) -> Result<()> {
     let out = rewrap_keyfile_dek_to_bytes(path, old_mk, new_mk, key_type)?;
-    write_secure(path, out.as_slice())
+    write_secure(path, out.expose_as_slice())
 }
 
 // ===== FILE: ./src/keys/manager.rs =====
@@ -1394,7 +1394,7 @@ impl PlainFileMkProvider {
 impl MkProvider for PlainFileMkProvider {
     fn load_mk(&self) -> Result<Byte32> {
         let bytes = keyfile::read_keyfile_bytes(&self.path)?;
-        Byte32::from_slice(bytes.as_slice())
+        Byte32::from_slice(bytes.expose_as_slice())
     }
 
     fn store_mk(&self, mk: &Byte32) -> Result<()> {
@@ -1451,7 +1451,7 @@ fn write_marker(path: &Path, data: &[u8]) -> Result<()> {
 #[inline]
 fn read_pub32(path: &Path) -> Result<Byte32> {
     let bytes = keyfile::read_keyfile_bytes(path)?;
-    Byte32::from_slice(bytes.as_slice())
+    Byte32::from_slice(bytes.expose_as_slice())
 }
 
 #[inline]
@@ -1463,8 +1463,8 @@ fn sync_public_cache(pub_dir: &Path, pks: &PublicKeys) -> Result<()> {
     fs::create_dir_all(pub_dir).map_err(LithiumError::io)?;
     keyfile::write_secure(&pub_dir.join(ED_PUB), pks.ed25519.as_slice())?;
     keyfile::write_secure(&pub_dir.join(X_PUB), pks.x25519.as_slice())?;
-    keyfile::write_secure(&pub_dir.join(KYBER_PUB), pks.kyber.as_slice())?;
-    keyfile::write_secure(&pub_dir.join(DILI_PUB), pks.dilithium.as_slice())?;
+    keyfile::write_secure(&pub_dir.join(KYBER_PUB), pks.kyber.expose_as_slice())?;
+    keyfile::write_secure(&pub_dir.join(DILI_PUB), pks.dilithium.expose_as_slice())?;
     sync_dir(pub_dir)?;
     Ok(())
 }
@@ -1571,8 +1571,8 @@ fn ensure_asymmetric_material(
             let (pk, sk) = mlkem1024::keypair();
             let sk_bytes = SecretBytes::from_slice(sk.as_bytes());
             let pk_bytes = SecretBytes::from_slice(pk.as_bytes());
-            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_KYBER_SK)?;
-            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.expose_as_slice(), KT_KYBER_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.expose_as_slice())?;
             pk_bytes
         }
     };
@@ -1589,8 +1589,8 @@ fn ensure_asymmetric_material(
             let (pk, sk) = mldsa87::keypair();
             let sk_bytes = SecretBytes::from_slice(SignSk::as_bytes(&sk));
             let pk_bytes = SecretBytes::from_slice(SignPub::as_bytes(&pk));
-            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_DILI_SK)?;
-            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.expose_as_slice(), KT_DILI_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.expose_as_slice())?;
             pk_bytes
         }
     };
@@ -1692,7 +1692,7 @@ fn apply_staged_files(rotate_dir: &Path, targets: &[RewrapTarget]) -> Result<()>
     for target in targets {
         let staged_path = stage_target_path(rotate_dir, &target.relative_path);
         let staged = keyfile::read_keyfile_bytes(&staged_path)?;
-        keyfile::write_secure(&target.live_path, staged.as_slice())?;
+        keyfile::write_secure(&target.live_path, staged.expose_as_slice())?;
         if let Some(parent) = target.live_path.parent() {
             sync_dir(parent)?;
         }
@@ -1720,7 +1720,7 @@ fn prepare_staged_files(
         if let Some(parent) = staged_path.parent() {
             fs::create_dir_all(parent).map_err(LithiumError::io)?;
         }
-        keyfile::write_secure(&staged_path, out.as_slice())?;
+        keyfile::write_secure(&staged_path, out.expose_as_slice())?;
         if let Some(parent) = staged_path.parent() {
             sync_dir(parent)?;
         }
@@ -2146,7 +2146,7 @@ pub fn wrap_dek_for_server_hex(
     let mut out = Vec::with_capacity(1 + DEK_WRAP_SALT_LEN + blob.len());
     out.push(DEK_WRAP_VER);
     out.extend_from_slice(salt.as_slice());
-    out.extend_from_slice(blob.as_slice());
+    out.extend_from_slice(blob.expose_as_slice());
 
     Ok(SecretString::new(hex::encode(out)))
 }
@@ -2161,12 +2161,12 @@ pub fn unwrap_dek_from_server_hex(
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    if blob.as_slice()[0] != DEK_WRAP_VER {
+    if blob.expose_as_slice()[0] != DEK_WRAP_VER {
         return Err(LithiumError::invalid_credentials("bad_dek_blob"));
     }
 
-    let salt = &blob.as_slice()[1..1 + DEK_WRAP_SALT_LEN];
-    let wrapped = SecretBytes::from_slice(&blob.as_slice()[1 + DEK_WRAP_SALT_LEN..]);
+    let salt = &blob.expose_as_slice()[1..1 + DEK_WRAP_SALT_LEN];
+    let wrapped = SecretBytes::from_slice(&blob.expose_as_slice()[1 + DEK_WRAP_SALT_LEN..]);
 
     let key = derive_wrap_key(data_password, salt)?;
     let pt = aead::decrypt(
@@ -2175,7 +2175,7 @@ pub fn unwrap_dek_from_server_hex(
         &SecretBytes::from_slice(DEK_WRAP_AAD),
     )?;
 
-    Byte32::from_slice(pt.as_slice())
+    Byte32::from_slice(pt.expose_as_slice())
 }
 
 // ===== FILE: ./src/secrets/bytes.rs =====
@@ -2183,6 +2183,7 @@ pub fn unwrap_dek_from_server_hex(
 
 use core::fmt;
 use core::hash::{Hash, Hasher};
+use subtle::ConstantTimeEq;
 
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 
@@ -2274,7 +2275,9 @@ impl<const N: usize> Clone for FixedBytes<N> {
 }
 
 impl<const N: usize> PartialEq for FixedBytes<N> {
-    fn eq(&self, other: &Self) -> bool { self.as_array() == other.as_array() }
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice().ct_eq(other.as_slice()).into()
+    }
 }
 impl<const N: usize> Eq for FixedBytes<N> {}
 impl<const N: usize> Hash for FixedBytes<N> {
@@ -2309,17 +2312,17 @@ impl SecretBytes {
     #[inline]
     pub fn from_slice(v: &[u8]) -> Self { Self::new(v.to_vec()) }
     #[inline]
-    pub fn as_slice(&self) -> &[u8] { self.0.expose_secret().as_slice() }
+    pub fn expose_as_slice(&self) -> &[u8] { self.0.expose_secret().as_slice() }
     #[inline]
-    pub fn as_mut_vec(&mut self) -> &mut Vec<u8> { self.0.expose_secret_mut() }
+    pub fn expose_as_mut_vec(&mut self) -> &mut Vec<u8> { self.0.expose_secret_mut() }
     #[inline]
-    pub fn into_vec(self) -> Vec<u8> { self.0.expose_secret().clone() }
+    pub fn expose_into_vec(self) -> Vec<u8> { self.0.expose_secret().clone() }
     #[inline]
-    pub fn to_hex(&self) -> SecretString { SecretString::new(hex::encode(self.as_slice())) }
+    pub fn to_hex(&self) -> SecretString { SecretString::new(hex::encode(self.expose_as_slice())) }
     #[inline]
-    pub fn len(&self) -> usize { self.as_slice().len() }
+    pub fn len(&self) -> usize { self.expose_as_slice().len() }
     #[inline]
-    pub fn is_empty(&self) -> bool { self.as_slice().is_empty() }
+    pub fn is_empty(&self) -> bool { self.expose_as_slice().is_empty() }
 
     #[inline]
     pub fn from_hex(s: &str) -> Result<Self> {
@@ -2341,13 +2344,13 @@ impl SecretBytes {
         }
 
         let mut out = Self::new(vec![0u8; s.len() / 2]);
-        hex::decode_to_slice(s, out.as_mut_vec()).map_err(LithiumError::from)?;
+        hex::decode_to_slice(s, out.expose_as_mut_vec()).map_err(LithiumError::from)?;
         Ok(out)
     }
 }
 
 impl Clone for SecretBytes {
-    fn clone(&self) -> Self { Self::from_slice(self.as_slice()) }
+    fn clone(&self) -> Self { Self::from_slice(self.expose_as_slice()) }
 }
 impl fmt::Debug for SecretBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("SecretBytes(..)") }
@@ -2357,7 +2360,7 @@ impl ExposeSecret<Vec<u8>> for SecretBytes {
 }
 impl AsRef<[u8]> for SecretBytes {
     fn as_ref(&self) -> &[u8] {
-        self.as_slice()
+        self.expose_as_slice()
     }
 }
 
@@ -2761,7 +2764,7 @@ impl EphemeralStoreManager {
             };
             if should_remove {
                 if let Some(mut removed) = guard.map.remove(&top.key) {
-                    removed.ciphertext.as_mut_vec().zeroize();
+                    removed.ciphertext.expose_as_mut_vec().zeroize();
                 }
             }
         }
@@ -2816,7 +2819,7 @@ impl EphemeralStoreManager {
         let mut guard = self.inner.lock().await;
         let Some(mut entry) = guard.map.remove(key) else { return Ok(None); };
         if entry.expires_at <= now {
-            entry.ciphertext.as_mut_vec().zeroize();
+            entry.ciphertext.expose_as_mut_vec().zeroize();
             return Ok(None);
         }
         Ok(Some(entry.ciphertext))
@@ -2824,7 +2827,7 @@ impl EphemeralStoreManager {
 
     pub async fn del(&self, key: &str) -> Result<()> {
         let mut guard = self.inner.lock().await;
-        if let Some(mut entry) = guard.map.remove(key) { entry.ciphertext.as_mut_vec().zeroize(); }
+        if let Some(mut entry) = guard.map.remove(key) { entry.ciphertext.expose_as_mut_vec().zeroize(); }
         Ok(())
     }
 }

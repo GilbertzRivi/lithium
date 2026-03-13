@@ -91,7 +91,7 @@ async fn pre_replay_rate_limit_hit(
     let fail_key = pre_replay_fail_key(remote);
 
     let current = match state.store.peek(&fail_key).await? {
-        Some(v) => parse_u32_ascii(v.as_slice()),
+        Some(v) => parse_u32_ascii(v.expose_as_slice()),
         None => 0,
     };
 

@@ -48,7 +48,7 @@ pub async fn handle(
             return err_resp(id, "contact_not_found");
         };
 
-        let self_json = match SecretJson::from_bytes(row.self_state.as_slice()) {
+        let self_json = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
@@ -123,10 +123,10 @@ pub async fn handle(
     let peer_json = {
         let peer_state = EmptyPeerState { v: 1, peer: None };
         let mut buf = SecretBytes::new(Vec::new());
-        if serde_json::to_writer(buf.as_mut_vec(), &peer_state).is_err() {
+        if serde_json::to_writer(buf.expose_as_mut_vec(), &peer_state).is_err() {
             return err_resp(id, "json_error");
         }
-        match SecretJson::from_bytes(buf.as_slice()) {
+        match SecretJson::from_bytes(buf.expose_as_slice()) {
             Ok(v) => v,
             Err(_) => return internal_err(id),
         }
@@ -134,7 +134,7 @@ pub async fn handle(
 
     let self_bytes = match self_json.with_exposed(|v| {
         let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.as_mut_vec(), v).ok()?;
+        serde_json::to_writer(out.expose_as_mut_vec(), v).ok()?;
         Some(out)
     }) {
         Some(v) => v,
@@ -143,7 +143,7 @@ pub async fn handle(
 
     let peer_bytes = match peer_json.with_exposed(|v| {
         let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.as_mut_vec(), v).ok()?;
+        serde_json::to_writer(out.expose_as_mut_vec(), v).ok()?;
         Some(out)
     }) {
         Some(v) => v,

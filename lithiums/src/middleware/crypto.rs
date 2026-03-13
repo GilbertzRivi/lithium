@@ -65,7 +65,7 @@ impl<E: Endpoint> Endpoint for CryptoEndpoint<E> {
             endpoint = self.cfg.endpoint,
             mode = ?self.cfg.mode,
             auth = ?self.cfg.auth,
-            body_len = cipher_body.as_slice().len(),
+            body_len = cipher_body.expose_as_slice().len(),
             headers = ?header_names,
             "crypto middleware start"
         );

@@ -86,10 +86,10 @@ async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
         &SecretBytes::from_slice(AAD_UIDENC),
     )?;
 
-    let mut out = Vec::with_capacity(1 + 12 + ct.as_slice().len());
+    let mut out = Vec::with_capacity(1 + 12 + ct.expose_as_slice().len());
     out.push(UIDENC_VER);
     out.extend_from_slice(nonce.as_slice());
-    out.extend_from_slice(ct.as_slice());
+    out.extend_from_slice(ct.expose_as_slice());
     Ok(SecretBytes::from_vec(out))
 }
 
@@ -97,10 +97,10 @@ fn seal_msg(plaintext: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<
     let nonce: Byte12 = keys::random_12()?;
     let ct = aead::encrypt_raw(plaintext, key, &nonce, aad)?;
 
-    let mut out = Vec::with_capacity(1 + 12 + ct.as_slice().len());
+    let mut out = Vec::with_capacity(1 + 12 + ct.expose_as_slice().len());
     out.push(MSG_VER);
     out.extend_from_slice(nonce.as_slice());
-    out.extend_from_slice(ct.as_slice());
+    out.extend_from_slice(ct.expose_as_slice());
     Ok(SecretBytes::from_vec(out))
 }
 
@@ -157,11 +157,11 @@ async fn decrypt_user_row<P: MkProvider + Send + Sync + 'static>(
 
     Ok(UserRecord {
         id: row.id,
-        password_hash: SecretString::from_utf8_bytes(password_hash_plain.as_slice())
+        password_hash: SecretString::from_utf8_bytes(password_hash_plain.expose_as_slice())
             .map_err(AppError::from)?,
-        ed_key: Byte32::from_slice(ed_key_plain.as_slice()).map_err(AppError::from)?,
+        ed_key: Byte32::from_slice(ed_key_plain.expose_as_slice()).map_err(AppError::from)?,
         dili_key: dili_key_plain,
-        dek: SecretString::from_utf8_bytes(dek_plain.as_slice()).map_err(AppError::from)?,
+        dek: SecretString::from_utf8_bytes(dek_plain.expose_as_slice()).map_err(AppError::from)?,
     })
 }
 
@@ -207,7 +207,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
-        if users::Entity::find_by_id(id_enc.as_slice().to_vec())
+        if users::Entity::find_by_id(id_enc.expose_as_slice().to_vec())
             .one(self.db())
             .await
             .map_err(LithiumError::io)?
@@ -248,11 +248,11 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
             .await?;
 
         let am = users::ActiveModel {
-            id: Set(id_enc.as_slice().to_vec()),
-            password_hash: Set(password_hash_enc.as_slice().to_vec()),
-            ed_key: Set(ed_key_enc.as_slice().to_vec()),
-            dili_key: Set(dili_key_enc.as_slice().to_vec()),
-            dek: Set(dek_enc.as_slice().to_vec()),
+            id: Set(id_enc.expose_as_slice().to_vec()),
+            password_hash: Set(password_hash_enc.expose_as_slice().to_vec()),
+            ed_key: Set(ed_key_enc.expose_as_slice().to_vec()),
+            dili_key: Set(dili_key_enc.expose_as_slice().to_vec()),
+            dek: Set(dek_enc.expose_as_slice().to_vec()),
         };
 
         match am.insert(self.db()).await {
@@ -272,7 +272,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
-        let Some(row) = users::Entity::find_by_id(id_enc.as_slice().to_vec())
+        let Some(row) = users::Entity::find_by_id(id_enc.expose_as_slice().to_vec())
             .one(self.db())
             .await
             .map_err(LithiumError::io)?
@@ -292,7 +292,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
-        let Some(row) = users::Entity::find_by_id(id_enc.as_slice().to_vec())
+        let Some(row) = users::Entity::find_by_id(id_enc.expose_as_slice().to_vec())
             .one(self.db())
             .await
             .map_err(LithiumError::io)?
@@ -337,7 +337,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let am = messages::ActiveModel {
             id: Default::default(),
             mailbox: Set(mailbox),
-            content: Set(blob.as_slice().to_vec()),
+            content: Set(blob.expose_as_slice().to_vec()),
             expires_at: Set(expires_at),
         };
 
@@ -406,7 +406,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
                 continue;
             };
 
-            let kb = kbox.as_slice();
+            let kb = kbox.expose_as_slice();
             if kb.len() != 32 {
                 continue;
             }

@@ -84,7 +84,7 @@ impl PlainFileMkProvider {
 impl MkProvider for PlainFileMkProvider {
     fn load_mk(&self) -> Result<Byte32> {
         let bytes = keyfile::read_keyfile_bytes(&self.path)?;
-        Byte32::from_slice(bytes.as_slice())
+        Byte32::from_slice(bytes.expose_as_slice())
     }
 
     fn store_mk(&self, mk: &Byte32) -> Result<()> {
@@ -141,7 +141,7 @@ fn write_marker(path: &Path, data: &[u8]) -> Result<()> {
 #[inline]
 fn read_pub32(path: &Path) -> Result<Byte32> {
     let bytes = keyfile::read_keyfile_bytes(path)?;
-    Byte32::from_slice(bytes.as_slice())
+    Byte32::from_slice(bytes.expose_as_slice())
 }
 
 #[inline]
@@ -153,8 +153,8 @@ fn sync_public_cache(pub_dir: &Path, pks: &PublicKeys) -> Result<()> {
     fs::create_dir_all(pub_dir).map_err(LithiumError::io)?;
     keyfile::write_secure(&pub_dir.join(ED_PUB), pks.ed25519.as_slice())?;
     keyfile::write_secure(&pub_dir.join(X_PUB), pks.x25519.as_slice())?;
-    keyfile::write_secure(&pub_dir.join(KYBER_PUB), pks.kyber.as_slice())?;
-    keyfile::write_secure(&pub_dir.join(DILI_PUB), pks.dilithium.as_slice())?;
+    keyfile::write_secure(&pub_dir.join(KYBER_PUB), pks.kyber.expose_as_slice())?;
+    keyfile::write_secure(&pub_dir.join(DILI_PUB), pks.dilithium.expose_as_slice())?;
     sync_dir(pub_dir)?;
     Ok(())
 }
@@ -261,8 +261,8 @@ fn ensure_asymmetric_material(
             let (pk, sk) = mlkem1024::keypair();
             let sk_bytes = SecretBytes::from_slice(sk.as_bytes());
             let pk_bytes = SecretBytes::from_slice(pk.as_bytes());
-            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_KYBER_SK)?;
-            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.expose_as_slice(), KT_KYBER_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.expose_as_slice())?;
             pk_bytes
         }
     };
@@ -279,8 +279,8 @@ fn ensure_asymmetric_material(
             let (pk, sk) = mldsa87::keypair();
             let sk_bytes = SecretBytes::from_slice(SignSk::as_bytes(&sk));
             let pk_bytes = SecretBytes::from_slice(SignPub::as_bytes(&pk));
-            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.as_slice(), KT_DILI_SK)?;
-            keyfile::write_secure(&pub_path, pk_bytes.as_slice())?;
+            keyfile::save_bytes_encrypted(&priv_path, mk, sk_bytes.expose_as_slice(), KT_DILI_SK)?;
+            keyfile::write_secure(&pub_path, pk_bytes.expose_as_slice())?;
             pk_bytes
         }
     };
@@ -382,7 +382,7 @@ fn apply_staged_files(rotate_dir: &Path, targets: &[RewrapTarget]) -> Result<()>
     for target in targets {
         let staged_path = stage_target_path(rotate_dir, &target.relative_path);
         let staged = keyfile::read_keyfile_bytes(&staged_path)?;
-        keyfile::write_secure(&target.live_path, staged.as_slice())?;
+        keyfile::write_secure(&target.live_path, staged.expose_as_slice())?;
         if let Some(parent) = target.live_path.parent() {
             sync_dir(parent)?;
         }
@@ -410,7 +410,7 @@ fn prepare_staged_files(
         if let Some(parent) = staged_path.parent() {
             fs::create_dir_all(parent).map_err(LithiumError::io)?;
         }
-        keyfile::write_secure(&staged_path, out.as_slice())?;
+        keyfile::write_secure(&staged_path, out.expose_as_slice())?;
         if let Some(parent) = staged_path.parent() {
             sync_dir(parent)?;
         }

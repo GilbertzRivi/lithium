@@ -429,9 +429,9 @@ impl<P: MkProvider> ProtocolManager<P> {
 
         let mut h = HeaderMap::new();
         h.insert("key-x", hv_hex(req_pub_x.as_slice())?);
-        h.insert("key-k", hv_hex(req_pub_k.as_slice())?);
-        h.insert("seed", hv_hex(wire.seed_enc.as_slice())?);
-        h.insert("data", hv_hex(wire.enc_headers.as_slice())?);
+        h.insert("key-k", hv_hex(req_pub_k.expose_as_slice())?);
+        h.insert("seed", hv_hex(wire.seed_enc.expose_as_slice())?);
+        h.insert("data", hv_hex(wire.enc_headers.expose_as_slice())?);
 
         if ep.requires_session() {
             let sx = ses_x.ok_or_else(|| LithiumError::state_missing(ST_SES_X))?;
@@ -455,7 +455,7 @@ impl<P: MkProvider> ProtocolManager<P> {
             .http
             .post(url)
             .headers(h)
-            .body(wire.enc_body.as_slice().to_vec())
+            .body(wire.enc_body.expose_as_slice().to_vec())
             .send()
             .await
             .map_err(|e| if e.is_timeout() { LithiumError::timeout(e) } else { LithiumError::transport(e) })?;
@@ -484,8 +484,8 @@ impl<P: MkProvider> ProtocolManager<P> {
             },
         )?;
 
-        let mut dec_body = dec_body_secret.as_slice().to_vec();
-        let mut dec_headers = dec_headers_secret.as_slice().to_vec();
+        let mut dec_body = dec_body_secret.expose_as_slice().to_vec();
+        let mut dec_headers = dec_headers_secret.expose_as_slice().to_vec();
 
         unpad_block(&mut dec_body)?;
         unpad_block(&mut dec_headers)?;
@@ -562,7 +562,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         let Some(v) = self.store.peek(key).await? else {
             return Ok(None);
         };
-        let s = SecretString::from_utf8_bytes(v.as_slice())?;
+        let s = SecretString::from_utf8_bytes(v.expose_as_slice())?;
         Ok(Some(s))
     }
 
@@ -570,7 +570,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         let Some(v) = self.store.take(key).await? else {
             return Ok(None);
         };
-        let s = SecretString::from_utf8_bytes(v.as_slice())?;
+        let s = SecretString::from_utf8_bytes(v.expose_as_slice())?;
         Ok(Some(s))
     }
 
@@ -592,7 +592,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         let Some(v) = self.store.take(key).await? else {
             return Ok(None);
         };
-        let b = Byte32::from_slice(v.as_slice())?;
+        let b = Byte32::from_slice(v.expose_as_slice())?;
         Ok(Some(b))
     }
 }

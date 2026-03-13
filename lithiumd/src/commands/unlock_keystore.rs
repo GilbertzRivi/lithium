@@ -1,7 +1,9 @@
 use std::{sync::Arc, time::Duration};
+
 use log::error;
 use reqwest::Client;
 use serde_json::json;
+use subtle::ConstantTimeEq;
 use tokio::sync::{Mutex, watch};
 
 use lithium_core::{
@@ -18,16 +20,18 @@ use crate::{
     state::{DaemonState, MkRotator},
 };
 
+#[inline]
+fn secret_string_eq_ct(a: &SecretString, b: &SecretString) -> bool {
+    bool::from(a.expose().as_bytes().ct_eq(b.expose().as_bytes()))
+}
+
 pub async fn handle(
     id: u64,
-    data_password: String,
+    data_password: SecretString,
     state: Arc<DaemonState>,
     pol: &PasswordPolicy,
 ) -> IpcResponse {
-    let dp = match SecretString::new_checked(data_password) {
-        Err(_) => return err_resp(id, "bad_data_password"),
-        Ok(dp) => dp,
-    };
+    let dp = data_password;
 
     if validate_password(&dp, *pol).is_err() {
         return err_resp(id, "bad_data_password");
@@ -37,7 +41,7 @@ pub async fn handle(
     if already {
         let current = state.data_pass.lock().await.clone();
         return match current {
-            Some(cur) if cur.expose() == dp.expose() => IpcResponse {
+            Some(cur) if secret_string_eq_ct(&cur, &dp) => IpcResponse {
                 id,
                 ok: true,
                 result: Some(json!({"unlocked": true})),

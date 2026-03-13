@@ -71,7 +71,7 @@ impl EphemeralStoreManager {
             };
             if should_remove {
                 if let Some(mut removed) = guard.map.remove(&top.key) {
-                    removed.ciphertext.as_mut_vec().zeroize();
+                    removed.ciphertext.expose_as_mut_vec().zeroize();
                 }
             }
         }
@@ -126,7 +126,7 @@ impl EphemeralStoreManager {
         let mut guard = self.inner.lock().await;
         let Some(mut entry) = guard.map.remove(key) else { return Ok(None); };
         if entry.expires_at <= now {
-            entry.ciphertext.as_mut_vec().zeroize();
+            entry.ciphertext.expose_as_mut_vec().zeroize();
             return Ok(None);
         }
         Ok(Some(entry.ciphertext))
@@ -134,7 +134,7 @@ impl EphemeralStoreManager {
 
     pub async fn del(&self, key: &str) -> Result<()> {
         let mut guard = self.inner.lock().await;
-        if let Some(mut entry) = guard.map.remove(key) { entry.ciphertext.as_mut_vec().zeroize(); }
+        if let Some(mut entry) = guard.map.remove(key) { entry.ciphertext.expose_as_mut_vec().zeroize(); }
         Ok(())
     }
 }

@@ -133,7 +133,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     out.extend_from_slice(&header);
     out.extend_from_slice(&(ct_bytes.len() as u16).to_be_bytes());
     out.extend_from_slice(ct_bytes);
-    out.extend_from_slice(aead_blob.as_slice());
+    out.extend_from_slice(aead_blob.expose_as_slice());
 
     Ok(SecretBytes::from_vec(out))
 }
@@ -208,7 +208,7 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
         &SecretBytes::from_vec(aad_full),
     )?;
 
-    Byte32::from_slice(seed_plain.as_slice()).map_err(|_| LithiumError::internal())
+    Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())
 }
 
 pub fn encrypt(
@@ -223,9 +223,9 @@ pub fn encrypt(
 
     let seed_plain = keys::random_32()?;
     let seed_enc = encrypt_kyber_seed(
-        peer_k_pub.as_slice(),
+        peer_k_pub.expose_as_slice(),
         seed_plain.as_slice(),
-        label(ctx, "seed").as_slice(),
+        label(ctx, "seed").expose_as_slice(),
     )?;
 
     let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
@@ -266,9 +266,9 @@ pub fn decrypt(
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
     let seed_plain = decrypt_kyber_seed(
-        kyber_priv.as_slice(),
-        wire.seed_enc.as_slice(),
-        label(ctx, "seed").as_slice(),
+        kyber_priv.expose_as_slice(),
+        wire.seed_enc.expose_as_slice(),
+        label(ctx, "seed").expose_as_slice(),
     )?;
 
     let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;

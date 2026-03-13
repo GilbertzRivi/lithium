@@ -80,34 +80,34 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
             + 32 + 32 + 32,
     ));
 
-    out.as_mut_vec().extend_from_slice(INV_MAGIC);
-    out.as_mut_vec().push(INV_VER);
+    out.expose_as_mut_vec().extend_from_slice(INV_MAGIC);
+    out.expose_as_mut_vec().push(INV_VER);
 
-    out.as_mut_vec().extend_from_slice(cid.as_slice());
-    out.as_mut_vec().extend_from_slice(x_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(cid.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(x_pub.as_slice());
 
-    out.as_mut_vec()
+    out.expose_as_mut_vec()
         .extend_from_slice(&(k_pub.len() as u16).to_be_bytes());
-    out.as_mut_vec().extend_from_slice(k_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(k_pub.expose_as_slice());
 
-    out.as_mut_vec().extend_from_slice(ed_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(ed_pub.as_slice());
 
-    out.as_mut_vec()
+    out.expose_as_mut_vec()
         .extend_from_slice(&(dili_pub.len() as u16).to_be_bytes());
-    out.as_mut_vec().extend_from_slice(dili_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(dili_pub.expose_as_slice());
 
-    out.as_mut_vec().extend_from_slice(mbox_in_pub.as_slice());
-    out.as_mut_vec().extend_from_slice(mbox_out_cur_pub.as_slice());
-    out.as_mut_vec().extend_from_slice(mbox_out_next_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(mbox_in_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(mbox_out_cur_pub.as_slice());
+    out.expose_as_mut_vec().extend_from_slice(mbox_out_next_pub.as_slice());
 
-    Ok(SecretString::new(format!("lci1:{}", hex::encode(out.as_slice()))))
+    Ok(SecretString::new(format!("lci1:{}", hex::encode(out.expose_as_slice()))))
 }
 
 pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
     let s = code.expose().trim();
     let hex_part = s.strip_prefix("lci1:").unwrap_or(s);
     let blob = SecretBytes::from_hex(hex_part)?;
-    let blob = blob.as_slice();
+    let blob = blob.expose_as_slice();
 
     const MIN_INVITE_LEN: usize =
         4 + 1
@@ -241,8 +241,8 @@ pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
     };
 
     let mut buf = SecretBytes::new(Vec::new());
-    serde_json::to_writer(buf.as_mut_vec(), &state).map_err(LithiumError::json_parse)?;
-    let sj = SecretJson::from_bytes(buf.as_slice())?;
+    serde_json::to_writer(buf.expose_as_mut_vec(), &state).map_err(LithiumError::json_parse)?;
+    let sj = SecretJson::from_bytes(buf.expose_as_slice())?;
 
     Ok((cid.as_slice().to_vec(), sj))
 }
