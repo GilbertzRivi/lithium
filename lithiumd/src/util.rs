@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
     time::Duration,
@@ -132,6 +132,7 @@ fn overwrite_regular_file_best_effort(path: &Path, len: u64) -> io::Result<()> {
 
 #[cfg(unix)]
 fn sync_parent_dir(path: &Path) -> io::Result<()> {
+    use std::fs::File;
     if let Some(parent) = path.parent() {
         File::open(parent)?.sync_all()?;
     }

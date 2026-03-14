@@ -8,13 +8,12 @@ use crate::{
     util,
 };
 
-/// Wipes all local data and locks the keystore.
-/// Caller must hold a valid auth session — auth is cleared as the last step.
+
 pub async fn wipe(state: &Arc<DaemonState>) -> Result<(), ()> {
     let dir = state.base_dir.clone();
+    state.lock_keystore().await;
     util::wipe_dir_all(&dir).map_err(|_| ())?;
     state.mark_needs_register().await;
-    state.lock_keystore().await;
     Ok(())
 }
 
