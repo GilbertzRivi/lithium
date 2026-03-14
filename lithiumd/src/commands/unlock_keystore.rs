@@ -114,9 +114,13 @@ pub async fn handle(
         Ok(eph) => eph,
     };
 
+    let Some(base_url) = state.server_url().await else {
+        return err_resp(id, "server_url_not_set");
+    };
+
     let http = Client::new();
     let proto = Arc::new(ProtocolManager::new(
-        state.base_url.clone(),
+        base_url,
         http,
         eph,
         Some(keys),

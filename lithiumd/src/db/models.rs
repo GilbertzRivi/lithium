@@ -11,7 +11,6 @@ pub mod contacts {
 
         #[sea_orm(unique)]
         pub contact_id: Vec<u8>,
-        pub server: String,
 
         pub peer_state_enc: Vec<u8>,
         pub self_state_enc: Vec<u8>,

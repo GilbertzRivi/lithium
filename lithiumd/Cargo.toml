@@ -14,7 +14,6 @@ reqwest = "0.13.2"
 hex = "0.4.3"
 zeroize = "1.8.2"
 dotenvy = "0.15.7"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 sea-orm = { version = "1.1.19", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 chrono = "0.4.43"
 libc = "0.2.182"

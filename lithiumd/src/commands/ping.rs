@@ -15,6 +15,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
     let has_creds = state.account_creds.lock().await.is_some();
     let has_data_pass = state.data_pass.lock().await.is_some();
 
+    let has_server_url = state.server_url().await.is_some();
     let has_server_identity = state.identity_path.exists();
     let keystore_path = state.base_dir.join("keystore");
     let registered_marker = util::registered_marker_path(&state.base_dir);
@@ -72,6 +73,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
                 "needs_register": needs_register,
                 "has_dek": has_dek,
                 "has_local_db": has_local_db,
+                "has_server_url": has_server_url,
                 "has_server_identity": has_server_identity,
                 "has_keystore_on_disk": has_keystore_on_disk,
                 "is_registered_on_disk": is_registered_on_disk,

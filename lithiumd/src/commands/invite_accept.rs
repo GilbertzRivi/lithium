@@ -57,7 +57,7 @@ pub async fn handle(
 
     let mut should_return_my_code = false;
 
-    let (contact_id, self_json, server_ss) = if let Some(cid_hex) = contact_id_opt {
+    let (contact_id, self_json) = if let Some(cid_hex) = contact_id_opt {
         let cid_ss = SecretString::new(cid_hex);
         let contact_id = match decode_contact_id_hex(&cid_ss) {
             Ok(v) => v,
@@ -98,7 +98,7 @@ pub async fn handle(
                     Err(_) => return err_resp(id, "self_state_corrupt"),
                 };
 
-                (contact_id, sj, row.server.clone())
+                (contact_id, sj)
             }
             Ok(None) => return err_resp(id, "contact_not_found"),
             Err(_) => return storage_err(id),
@@ -106,10 +106,7 @@ pub async fn handle(
     } else {
         should_return_my_code = true;
         match gen_self_state() {
-            Ok((contact_id, self_json)) => {
-                let server = state.base_url.to_string().trim_end_matches('/').to_string();
-                (contact_id, self_json, server)
-            }
+            Ok((contact_id, self_json)) => (contact_id, self_json),
             Err(_) => return internal_err(id),
         }
     };
@@ -162,7 +159,6 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            server_ss.clone(),
             peer_bytes,
             self_bytes,
         )

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use reqwest::Url;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, RwLock, watch};
 
 use lithium_core::db::manager::DataManager;
 use lithium_core::keys::KeyManager;
@@ -43,14 +43,14 @@ pub struct DaemonState {
     pub contact_fetch_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 
     pub base_dir: PathBuf,
-    pub base_url: Url,
+    pub base_url: Arc<RwLock<Option<Url>>>,
     pub identity_path: PathBuf,
 }
 
 impl DaemonState {
     pub fn new(
         base_dir: PathBuf,
-        base_url: Url,
+        base_url: Option<Url>,
         identity_path: PathBuf,
         needs_register: bool,
     ) -> Self {
@@ -66,9 +66,17 @@ impl DaemonState {
             ipc_auth: Arc::new(Mutex::new(IpcAuthState::default())),
             contact_fetch_locks: Arc::new(Mutex::new(HashMap::new())),
             base_dir,
-            base_url,
+            base_url: Arc::new(RwLock::new(base_url)),
             identity_path,
         }
+    }
+
+    pub async fn server_url(&self) -> Option<Url> {
+        self.base_url.read().await.clone()
+    }
+
+    pub async fn set_server_url(&self, url: Url) {
+        *self.base_url.write().await = Some(url);
     }
 
     pub async fn contact_fetch_lock(&self, contact_id: &[u8]) -> Arc<Mutex<()>> {

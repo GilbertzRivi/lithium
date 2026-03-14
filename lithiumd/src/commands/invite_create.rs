@@ -153,7 +153,6 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            state.base_url.to_string().trim_end_matches('/').to_string(),
             peer_bytes,
             self_bytes,
         )

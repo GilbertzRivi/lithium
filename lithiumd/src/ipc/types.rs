@@ -35,6 +35,7 @@ pub enum IpcCommand {
     ContactVerifyEmoji { contact_id: String },
     LockKeystore,
     SetServerIdentity { data: String },
+    SetServerUrl { url: String },
 }
 
 #[derive(Debug, Serialize)]

@@ -88,30 +88,8 @@ pub fn prepare_socket(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn init_logging() {
-    use std::env;
-    use tracing_subscriber::{fmt, EnvFilter};
-
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
-        .unwrap();
-
-    let use_json = matches!(
-        env::var("LITHIUM_LOG_JSON").as_deref(),
-        Ok("1") | Ok("true") | Ok("yes")
-    );
-
-    let builder = fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_thread_names(true);
-
-    if use_json {
-        builder.json().init();
-    } else {
-        builder.compact().init();
-    }
+pub fn server_url_path(base_dir: &Path) -> PathBuf {
+    base_dir.join("server_url")
 }
 
 pub fn registered_marker_path(base_dir: &Path) -> PathBuf {

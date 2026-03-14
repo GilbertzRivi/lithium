@@ -20,22 +20,14 @@ const AAD_MESSAGE: &[u8] = b"lithiumd/message/v1";
 const AAD_PREKEY: &[u8] = b"lithiumd/prekey/v1";
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct ContactRow {
-    pub contact_id: Vec<u8>,
-    pub server: String,
     pub peer_state: SecretBytes,
     pub self_state: SecretBytes,
-    pub created_at: chrono::DateTime<Utc>,
-    pub updated_at: chrono::DateTime<Utc>,
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub struct MessageRow {
     pub id: i64,
-    pub contact_id: Vec<u8>,
-    pub mailbox: Vec<u8>,
     pub direction: i32,
     pub content: SecretBytes,
     pub created_at: chrono::DateTime<Utc>,
@@ -46,7 +38,6 @@ pub trait DaemonDbExt<P: MkProvider + Send + Sync + 'static> {
     async fn upsert_contact(
         &self,
         contact_id: Vec<u8>,
-        server: String,
         peer_state: SecretBytes,
         self_state: SecretBytes,
     ) -> Result<()>;
@@ -83,7 +74,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
     async fn upsert_contact(
         &self,
         contact_id: Vec<u8>,
-        server: String,
         peer_state: SecretBytes,
         self_state: SecretBytes,
     ) -> Result<()> {
@@ -103,7 +93,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             .map_err(LithiumError::io)?
         {
             let mut am: contacts::ActiveModel = row.into();
-            am.server = Set(server);
             am.peer_state_enc = Set(peer_enc.expose_as_slice().to_vec());
             am.self_state_enc = Set(self_enc.expose_as_slice().to_vec());
             am.updated_at = Set(now);
@@ -114,7 +103,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         let am = contacts::ActiveModel {
             id: Default::default(),
             contact_id: Set(contact_id),
-            server: Set(server),
             peer_state_enc: Set(peer_enc.expose_as_slice().to_vec()),
             self_state_enc: Set(self_enc.expose_as_slice().to_vec()),
             created_at: Set(now),
@@ -149,12 +137,8 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             .await?;
 
         Ok(Some(ContactRow {
-            contact_id: row.contact_id,
-            server: row.server,
             peer_state: peer,
             self_state,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
         }))
     }
 
@@ -212,8 +196,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
 
             out.push(MessageRow {
                 id: r.id,
-                contact_id: r.contact_id,
-                mailbox: r.mailbox,
                 direction: r.direction,
                 content: pt,
                 created_at: r.created_at,

@@ -132,7 +132,6 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         if dm
             .upsert_contact(
                 contact_id.clone(),
-                row.server.clone(),
                 new_peer_bytes,
                 new_self_bytes,
             )
@@ -386,7 +385,6 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
     if dm
         .upsert_contact(
             contact_id.clone(),
-            row.server.clone(),
             new_peer_bytes,
             new_self_bytes,
         )

@@ -9,6 +9,7 @@ use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse};
 mod ping;
 mod set_credentials;
 mod set_server_identity;
+mod set_server_url;
 mod unlock_keystore;
 mod register;
 mod remote_delete;
@@ -82,6 +83,9 @@ pub async fn dispatch(
         IpcCommand::LockKeystore => lock_keystore::handle(id, state).await,
         IpcCommand::SetServerIdentity { data } => {
             set_server_identity::handle(id, data, state).await
+        }
+        IpcCommand::SetServerUrl { url } => {
+            set_server_url::handle(id, url, state).await
         }
     }
 }

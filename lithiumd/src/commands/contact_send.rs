@@ -254,7 +254,6 @@ pub async fn handle(
     if dm
         .upsert_contact(
             contact_id.clone(),
-            row.server.clone(),
             new_peer_bytes,
             new_self_bytes,
         )

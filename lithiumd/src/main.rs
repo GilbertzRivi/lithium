@@ -3,7 +3,7 @@ use std::sync::Arc;
 use reqwest::Url;
 use tokio::sync::{oneshot, Mutex};
 
-use lithium_core::error::{LithiumError, Result};
+use lithium_core::error::Result;
 
 mod password_provider;
 mod protocol_manager;
@@ -20,9 +20,6 @@ use util::IpcEndpoint;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv().ok();
-    util::init_logging();
-
     let base_dir = util::default_data_dir();
     let ipc_endpoint = util::default_ipc_endpoint();
     let ipc_policy = util::load_ipc_policy()?;
@@ -30,11 +27,10 @@ async fn main() -> Result<()> {
     util::prepare_private_dir(&base_dir)?;
     util::prepare_ipc_endpoint(&ipc_endpoint)?;
 
-    let base_url = match std::env::var("LITHIUM_SERVER_URL") {
-        Ok(s) => Url::parse(&s).map_err(|_| LithiumError::env_invalid("LITHIUM_SERVER_URL"))?,
-        Err(_) => Url::parse("http://127.0.0.1:4108")
-            .map_err(|_| LithiumError::env_invalid("LITHIUM_SERVER_URL"))?,
-    };
+    let server_url_path = util::server_url_path(&base_dir);
+    let base_url = std::fs::read_to_string(&server_url_path)
+        .ok()
+        .and_then(|s| Url::parse(s.trim()).ok());
 
     // Server identity is read lazily on first connection — only the path is resolved here.
     let identity_path = match std::env::var_os("LITHIUMD_SERVER_IDENTITY") {

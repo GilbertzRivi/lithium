@@ -9,7 +9,7 @@ use lithium_core::{
 };
 
 use crate::{
-    ipc::types::{internal_err, protocol_err, IpcResponse},
+    ipc::types::{err_resp, internal_err, protocol_err, IpcResponse},
     password_provider::PasswordFileMkProvider,
     protocol_manager::ProtocolManager,
     state::DaemonState,
@@ -25,10 +25,14 @@ pub async fn handle(
         Err(_) => return internal_err(id),
     };
 
+    let Some(base_url) = state.server_url().await else {
+        return err_resp(id, "server_url_not_set");
+    };
+
     let http = Client::new();
 
     let proto = ProtocolManager::<PasswordFileMkProvider>::new(
-        state.base_url.clone(),
+        base_url,
         http,
         eph,
         None,
