@@ -3,6 +3,37 @@ use eframe::egui;
 use super::{zero_str, Command, LithiumApp};
 
 impl LithiumApp {
+    pub(super) fn draw_set_server_url(&mut self, ui: &mut egui::Ui) {
+        let w = (380.0_f32).min(ui.available_width() - 40.0);
+
+        ui.add_space(32.0);
+        ui.vertical_centered(|ui| {
+            ui.set_max_width(w);
+            ui.heading("Server URL");
+            ui.add_space(8.0);
+            ui.label("Enter the URL of your Lithium server.");
+            ui.add_space(16.0);
+
+            let response = ui.add_sized(
+                [w, 22.0],
+                egui::TextEdit::singleline(&mut self.server_url_input)
+                    .hint_text("https://your-server.example.com"),
+            );
+
+            let can_save = !self.busy && !self.server_url_input.trim().is_empty();
+            let pressed_enter =
+                response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+
+            ui.add_space(8.0);
+            if ui.add_enabled(can_save, egui::Button::new("Save")).clicked()
+                || (can_save && pressed_enter)
+            {
+                let url = self.server_url_input.trim().to_string();
+                self.send(Command::SetServerUrl { url });
+            }
+        });
+    }
+
     pub(super) fn draw_set_server_identity(&mut self, ui: &mut egui::Ui) {
         let w = (380.0_f32).min(ui.available_width() - 40.0);
 

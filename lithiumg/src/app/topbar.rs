@@ -30,6 +30,15 @@ impl LithiumApp {
 
             ui.separator();
 
+            ui.menu_button("Server", |ui| {
+                if ui.button("Change server URL...").clicked() {
+                    self.screen = super::Screen::SetServerUrl;
+                    ui.close();
+                }
+            });
+
+            ui.separator();
+
             ui.menu_button("Account", |ui| {
                 if ui
                     .add_enabled(has_ipc_auth && !self.busy, egui::Button::new("Delete account"))

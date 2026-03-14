@@ -42,6 +42,7 @@ pub enum Command {
     AcceptInvite { code: String, label: String, contact_id: Option<String> },
     ForgetContact { contact_id: String },
     LoadVerifyEmoji { contact_id: String },
+    SetServerUrl { url: String },
     SetServerIdentity { data: Vec<u8> },
     WipeLocal,
     LockKeystore,
@@ -72,6 +73,7 @@ pub enum WorkerEvent {
         contact_id: String,
         result: Result<VerifyEmojiResult, String>,
     },
+    SetServerUrl(Result<(), String>),
     SetServerIdentity(Result<(), String>),
     WipeLocal(Result<(), String>),
     LockKeystore(Result<(), String>),
@@ -81,6 +83,7 @@ pub enum WorkerEvent {
 enum Screen {
     Connecting,
     DaemonOffline,
+    SetServerUrl,
     SetServerIdentity,
     SetDataPassword,
     UnlockDataPassword,
@@ -100,6 +103,7 @@ pub struct LithiumApp {
     status_is_error: bool,
     last_ping: Option<PingResult>,
 
+    server_url_input: String,
     server_identity_path: Option<PathBuf>,
 
     data_password: String,
@@ -150,6 +154,7 @@ impl LithiumApp {
             status: "Connecting to daemon...".into(),
             status_is_error: false,
             last_ping: None,
+            server_url_input: String::new(),
             server_identity_path: None,
             data_password: String::new(),
             data_password_confirm: String::new(),
@@ -294,6 +299,7 @@ impl eframe::App for LithiumApp {
                     });
                 });
             }
+            Screen::SetServerUrl => self.draw_set_server_url(ui),
             Screen::DaemonOffline => {
                 ui.vertical_centered(|ui| {
                     ui.add_space(40.0);

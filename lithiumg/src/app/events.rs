@@ -7,6 +7,12 @@ impl LithiumApp {
         let s = &ping.status;
         self.last_ping = Some(ping.clone());
 
+        if !s.has_server_url {
+            self.screen = Screen::SetServerUrl;
+            self.set_status("Enter the server URL to continue.");
+            return;
+        }
+
         if !s.has_server_identity {
             self.screen = Screen::SetServerIdentity;
             self.set_status("Upload the server.identity file to connect to your Lithium server.");
@@ -40,6 +46,7 @@ impl LithiumApp {
             match self.screen {
                 Screen::Connecting => "Connecting...".to_string(),
                 Screen::DaemonOffline => "Daemon offline or not responding.".to_string(),
+                Screen::SetServerUrl => "Enter the server URL to continue.".to_string(),
                 Screen::SetServerIdentity => {
                     "Upload the server.identity file to connect to your Lithium server.".to_string()
                 }
@@ -135,22 +142,8 @@ impl LithiumApp {
                     self.delete_account_modal_open = false;
                     self.remote_delete_modal_open = false;
                     self.show_register_capability_modal = false;
-
-                    self.register_capability.clear();
-                    self.remote_delete_capability_input.clear();
-
-                    self.contacts.clear();
-                    self.selected_contact_id = None;
-                    self.messages.clear();
-                    self.message_text.clear();
-                    self.generated_invite_code.clear();
-                    self.pending_select_contact_id = None;
-                    self.pending_verify_contact_id = None;
-                    self.shown_verify_for_contact_ids.clear();
-                    self.clear_verify_modal();
-
-                    self.set_status("Account deleted.");
-                    self.send(Command::Ping);
+                    self.set_status("Account deleted — wiping local data...");
+                    self.send(Command::WipeLocal);
                 }
                 Err(e) => {
                     self.confirm_delete_account = false;
@@ -331,6 +324,14 @@ impl LithiumApp {
                 Err(e) => self.set_error(format!("Lock failed: {}", errors::translate(&e))),
             },
 
+            WorkerEvent::SetServerUrl(res) => match res {
+                Ok(()) => {
+                    self.set_status("Server URL saved.");
+                    self.send(Command::Ping);
+                }
+                Err(e) => self.set_error(format!("Failed to save server URL: {}", errors::translate(&e))),
+            },
+
             WorkerEvent::SetServerIdentity(res) => match res {
                 Ok(()) => {
                     self.set_status("Server identity saved.");
@@ -481,6 +482,10 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
         Command::ForgetContact { contact_id } => {
             let res = ipc::contact_forget(&contact_id).await;
             WorkerEvent::ForgetContact { contact_id, result: res }
+        }
+
+        Command::SetServerUrl { url } => {
+            WorkerEvent::SetServerUrl(ipc::set_server_url(&url).await)
         }
 
         Command::SetServerIdentity { data } => {

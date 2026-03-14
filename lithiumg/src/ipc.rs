@@ -64,6 +64,8 @@ pub fn has_auth_token() -> bool {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct PingStatus {
     #[serde(default)]
+    pub has_server_url: bool,
+    #[serde(default)]
     pub has_keystore_on_disk: bool,
     #[serde(default)]
     pub has_server_identity: bool,
@@ -251,6 +253,16 @@ async fn connect_named_pipe(
         "daemon_connect_failed:{}",
         last_err.unwrap_or_else(|| "unknown".into())
     ))
+}
+
+pub async fn set_server_url(url: &str) -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "set_server_url",
+        "id": 20,
+        "url": url
+    }))
+    .await?;
+    Ok(())
 }
 
 pub async fn set_server_identity(data: &[u8]) -> Result<(), String> {

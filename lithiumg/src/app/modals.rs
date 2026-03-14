@@ -216,14 +216,13 @@ impl LithiumApp {
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.label(
-                    "This deletes the currently logged-in account from the server and resets \
-                     the local profile to an unregistered state.",
+                    "This deletes the account from the server and wipes all local data.",
                 );
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
-                        "Use this when you are logged in and want to fully remove your account. \
-                         Without a device, use 'Emergency account removal' instead.",
+                        "Local keys, messages and contacts are erased. Without a device, \
+                         use 'Emergency account removal' instead.",
                     )
                     .weak()
                     .small(),
