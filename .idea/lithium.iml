@@ -27,6 +27,8 @@
       <excludeFolder url="file://$MODULE_DIR$/docker/pgdata" />
       <excludeFolder url="file://$MODULE_DIR$/docker/secrets" />
       <excludeFolder url="file://$MODULE_DIR$/lithiums/target" />
+      <excludeFolder url="file://$MODULE_DIR$/installer/windows/bin" />
+      <excludeFolder url="file://$MODULE_DIR$/installer/windows/build" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
