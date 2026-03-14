@@ -4,6 +4,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(unix)]
+use std::path::PathBuf;
+
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
