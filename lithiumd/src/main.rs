@@ -10,6 +10,7 @@ mod protocol_manager;
 
 mod util;
 mod state;
+mod identity;
 mod ipc;
 mod commands;
 mod db;
@@ -35,13 +36,18 @@ async fn main() -> Result<()> {
             .map_err(|_| LithiumError::env_invalid("LITHIUM_SERVER_URL"))?,
     };
 
-    let bootstrap = protocol_manager::load_server_bootstrap_from_env()?;
+    // Server identity is read lazily on first connection — only the path is resolved here.
+    let identity_path = match std::env::var_os("LITHIUMD_SERVER_IDENTITY") {
+        Some(v) => std::path::PathBuf::from(v),
+        None => base_dir.join("server.identity"),
+    };
+
     let needs_register = util::load_needs_register(&base_dir);
 
     let state = Arc::new(DaemonState::new(
         base_dir,
         base_url,
-        bootstrap,
+        identity_path,
         needs_register,
     ));
 

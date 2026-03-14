@@ -1,11 +1,11 @@
 use std::{
     collections::HashSet,
+    path::PathBuf,
+    process::Child,
     sync::mpsc::{Receiver, Sender},
 };
 
-/// Zero then clear a String to reduce the time sensitive data lives in memory.
 pub(super) fn zero_str(s: &mut String) {
-    // SAFETY: we immediately clear length to 0, so the zeroed bytes are never read as UTF-8.
     unsafe { s.as_mut_vec().fill(0) };
     s.clear();
 }
@@ -42,6 +42,7 @@ pub enum Command {
     AcceptInvite { code: String, label: String, contact_id: Option<String> },
     ForgetContact { contact_id: String },
     LoadVerifyEmoji { contact_id: String },
+    SetServerIdentity { data: Vec<u8> },
     WipeLocal,
     LockKeystore,
 }
@@ -71,6 +72,7 @@ pub enum WorkerEvent {
         contact_id: String,
         result: Result<VerifyEmojiResult, String>,
     },
+    SetServerIdentity(Result<(), String>),
     WipeLocal(Result<(), String>),
     LockKeystore(Result<(), String>),
 }
@@ -79,6 +81,7 @@ pub enum WorkerEvent {
 enum Screen {
     Connecting,
     DaemonOffline,
+    SetServerIdentity,
     SetDataPassword,
     UnlockDataPassword,
     Credentials,
@@ -96,6 +99,8 @@ pub struct LithiumApp {
     status: String,
     status_is_error: bool,
     last_ping: Option<PingResult>,
+
+    server_identity_path: Option<PathBuf>,
 
     data_password: String,
     data_password_confirm: String,
@@ -131,10 +136,12 @@ pub struct LithiumApp {
 
     delete_account_modal_open: bool,
     confirm_delete_account: bool,
+
+    daemon: Option<Child>,
 }
 
 impl LithiumApp {
-    pub fn new(tx: Sender<Command>, rx: Receiver<WorkerEvent>) -> Self {
+    pub fn new(tx: Sender<Command>, rx: Receiver<WorkerEvent>, daemon: Option<Child>) -> Self {
         let mut app = Self {
             tx,
             rx,
@@ -143,6 +150,7 @@ impl LithiumApp {
             status: "Connecting to daemon...".into(),
             status_is_error: false,
             last_ping: None,
+            server_identity_path: None,
             data_password: String::new(),
             data_password_confirm: String::new(),
             username: String::new(),
@@ -169,6 +177,7 @@ impl LithiumApp {
             confirm_remote_delete: false,
             delete_account_modal_open: false,
             confirm_delete_account: false,
+            daemon,
         };
         app.send(Command::Ping);
         app
@@ -297,6 +306,7 @@ impl eframe::App for LithiumApp {
                     }
                 });
             }
+            Screen::SetServerIdentity => self.draw_set_server_identity(ui),
             Screen::SetDataPassword => self.draw_set_data_password(ui),
             Screen::UnlockDataPassword => self.draw_unlock_data_password(ui),
             Screen::Credentials => self.draw_credentials(ui),
@@ -309,5 +319,12 @@ impl eframe::App for LithiumApp {
         self.draw_register_capability_window(ctx);
         self.draw_remote_delete_window(ctx);
         self.draw_delete_account_window(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(mut child) = self.daemon.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }

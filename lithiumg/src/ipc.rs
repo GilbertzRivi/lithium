@@ -1,7 +1,6 @@
 use std::{
     env,
     sync::{Mutex, OnceLock},
-    time::Duration,
 };
 
 #[cfg(unix)]
@@ -13,6 +12,9 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 
 #[cfg(unix)]
 use tokio::net::UnixStream;
+
+#[cfg(windows)]
+use std::time::Duration;
 
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ClientOptions;
@@ -35,8 +37,6 @@ struct UnlockKeystoreResult {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct RegisterResult {
-    #[serde(default)]
-    pub registered: bool,
     #[serde(default)]
     pub capability: String,
 }
@@ -64,25 +64,9 @@ pub fn has_auth_token() -> bool {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct PingStatus {
     #[serde(default)]
-    pub has_proto: bool,
-    #[serde(default)]
-    pub has_keys: bool,
-    #[serde(default)]
-    pub has_credentials: bool,
-    #[serde(default)]
-    pub has_data_password: bool,
-    #[serde(default)]
-    pub needs_register: bool,
-    #[serde(default)]
-    pub has_dek: bool,
-    #[serde(default)]
-    pub has_local_db: bool,
-    #[serde(default)]
     pub has_keystore_on_disk: bool,
     #[serde(default)]
-    pub is_registered_on_disk: bool,
-    #[serde(default)]
-    pub has_local_db_on_disk: bool,
+    pub has_server_identity: bool,
     #[serde(default)]
     pub first_run: bool,
 }
@@ -90,13 +74,9 @@ pub struct PingStatus {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct PingResult {
     #[serde(default)]
-    pub pong: bool,
-    #[serde(default)]
     pub status: PingStatus,
     #[serde(default)]
     pub ui_state: String,
-    #[serde(default)]
-    pub actions_needed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -107,8 +87,6 @@ pub struct ContactInfo {
     pub label: String,
     #[serde(default)]
     pub peer_set: bool,
-    #[serde(default)]
-    pub peer_cid: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -120,31 +98,16 @@ pub struct ContactsResult {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct MessageItem {
     #[serde(default)]
-    pub id: i64,
-    #[serde(default)]
     pub direction: String,
-    #[serde(default)]
-    pub kind: String,
     pub text: Option<String>,
     #[serde(default)]
-    pub ui: Value,
-    #[serde(default)]
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct PagingInfo {
-    #[serde(default)]
-    pub has_more: bool,
-    pub next_before_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct MessagesResult {
     #[serde(default)]
     pub messages: Vec<MessageItem>,
-    #[serde(default)]
-    pub paging: PagingInfo,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -159,8 +122,6 @@ pub struct CreateInviteResult {
 pub struct AcceptInviteResult {
     #[serde(default)]
     pub contact_id: String,
-    #[serde(default)]
-    pub my_code: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -173,9 +134,6 @@ pub struct VerifyEmojiResult {
 pub struct ContactFetchMessageResult {
     #[serde(default)]
     pub ok: bool,
-
-    #[serde(default)]
-    pub err: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -256,7 +214,6 @@ where
 
 #[cfg(unix)]
 fn default_socket_path() -> PathBuf {
-    dotenvy::dotenv().ok();
     if let Ok(v) = env::var("LITHIUMD_SOCKET_PATH") {
         return PathBuf::from(v);
     }
@@ -265,7 +222,8 @@ fn default_socket_path() -> PathBuf {
         return PathBuf::from(xdg).join("lithiumd.sock");
     }
 
-    env::temp_dir().join("lithiumd.sock")
+    // No safe fallback — connect will fail and the GUI will show DaemonOffline.
+    PathBuf::from("/dev/null/lithiumd.sock")
 }
 
 #[cfg(windows)]
@@ -293,6 +251,16 @@ async fn connect_named_pipe(
         "daemon_connect_failed:{}",
         last_err.unwrap_or_else(|| "unknown".into())
     ))
+}
+
+pub async fn set_server_identity(data: &[u8]) -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "set_server_identity",
+        "id": 19,
+        "data": hex::encode(data)
+    }))
+    .await?;
+    Ok(())
 }
 
 pub async fn ping() -> Result<PingResult, String> {

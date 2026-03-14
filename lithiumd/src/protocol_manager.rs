@@ -1,4 +1,4 @@
-use std::{env, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
@@ -26,28 +26,6 @@ const ST_JWT: &str = "proto/server/jwt";
 const ST_DEK_ENC: &str = "proto/server/dek_enc";
 
 const DEK_TTL: Duration = Duration::from_secs(3600);
-
-pub fn load_server_bootstrap_from_env() -> Result<ServerBootstrap> {
-    Ok(ServerBootstrap {
-        shake_pub_x: env_hex_byte32("SERVER_X25519")?,
-        shake_pub_k: SecretBytes::from_vec(env_hex("SERVER_KYBER")?),
-        server_sig_ed: env_hex_byte32("SERVER_ED25519")?,
-        server_sig_dili: SecretBytes::from_vec(env_hex("SERVER_DILITHIUM")?),
-    })
-}
-
-fn env_hex(name: &'static str) -> Result<Vec<u8>> {
-    let s = env::var(name).map_err(|_| LithiumError::env_missing(name))?;
-    hex::decode(s.trim()).map_err(LithiumError::invalid_hex)
-}
-
-fn env_hex_byte32(name: &'static str) -> Result<Byte32> {
-    let b = env_hex(name)?;
-    if b.len() != 32 {
-        return Err(LithiumError::invalid_len(32, b.len()));
-    }
-    Byte32::from_slice(&b)
-}
 
 fn obj_mut(v: &mut Value) -> Result<&mut Map<String, Value>> {
     v.as_object_mut().ok_or_else(LithiumError::json_not_object)
@@ -149,7 +127,10 @@ pub struct ProtocolManager<P: MkProvider> {
     http: Client,
     store: EphemeralStoreManager,
     keys: Option<Arc<Mutex<KeyManager<P>>>>,
-    bootstrap: ServerBootstrap,
+
+    /// Path to the server.identity file; bootstrap is loaded lazily on first connect.
+    identity_path: PathBuf,
+    bootstrap_cache: Mutex<Option<ServerBootstrap>>,
 
     session_ttl: Duration,
     jwt_ttl: Duration,
@@ -164,19 +145,34 @@ impl<P: MkProvider> ProtocolManager<P> {
         http: Client,
         store: EphemeralStoreManager,
         keys: Option<Arc<Mutex<KeyManager<P>>>>,
-        bootstrap: ServerBootstrap,
+        identity_path: PathBuf,
     ) -> Self {
         Self {
             base,
             http,
             store,
             keys,
-            bootstrap,
+            identity_path,
+            bootstrap_cache: Mutex::new(None),
             session_ttl: Duration::from_secs(120),
             jwt_ttl: Duration::from_secs(120),
             lock: Mutex::new(()),
             creds: Mutex::new(None),
         }
+    }
+
+    pub async fn invalidate_bootstrap_cache(&self) {
+        self.bootstrap_cache.lock().await.take();
+    }
+
+    async fn load_bootstrap(&self) -> Result<ServerBootstrap> {
+        let mut guard = self.bootstrap_cache.lock().await;
+        if let Some(b) = guard.clone() {
+            return Ok(b);
+        }
+        let b = crate::identity::load(&self.identity_path)?;
+        *guard = Some(b.clone());
+        Ok(b)
     }
 
     pub async fn set_credentials(&self, handler: SecretString, password: SecretString) {
@@ -396,6 +392,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         mut body: Value,
         mut app_headers: Value,
     ) -> Result<ProtocolResponse> {
+        let bootstrap = self.load_bootstrap().await?;
         obj_mut(&mut body)?;
         obj_mut(&mut app_headers)?;
 
@@ -455,8 +452,8 @@ impl<P: MkProvider> ProtocolManager<P> {
 
         let (peer_x, peer_k, ses_x, ses_k) = if matches!(ep, Endpoint::Shake) {
             (
-                self.bootstrap.shake_pub_x.clone(),
-                self.bootstrap.shake_pub_k.clone(),
+                bootstrap.shake_pub_x.clone(),
+                bootstrap.shake_pub_k.clone(),
                 None,
                 None,
             )
@@ -579,9 +576,9 @@ impl<P: MkProvider> ProtocolManager<P> {
         let sig_dili =
             hex::decode(get_header_str(&rh, "sig-dili")?).map_err(LithiumError::invalid_hex)?;
 
-        let ok1 = sign::verify_signature(&dec_body, &sig_ed, &self.bootstrap.server_sig_ed);
+        let ok1 = sign::verify_signature(&dec_body, &sig_ed, &bootstrap.server_sig_ed);
         let ok2 =
-            sign::verify_signature_dili(&dec_body, &sig_dili, &self.bootstrap.server_sig_dili);
+            sign::verify_signature_dili(&dec_body, &sig_dili, &bootstrap.server_sig_dili);
         if !(ok1 && ok2) {
             return Err(LithiumError::invalid_credentials("server_signature_invalid"));
         }

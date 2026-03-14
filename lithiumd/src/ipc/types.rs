@@ -34,6 +34,7 @@ pub enum IpcCommand {
     MessagesList { contact_id: String, limit: Option<u64>, before_id: Option<i64> },
     ContactVerifyEmoji { contact_id: String },
     LockKeystore,
+    SetServerIdentity { data: String },
 }
 
 #[derive(Debug, Serialize)]

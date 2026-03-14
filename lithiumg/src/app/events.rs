@@ -7,6 +7,12 @@ impl LithiumApp {
         let s = &ping.status;
         self.last_ping = Some(ping.clone());
 
+        if !s.has_server_identity {
+            self.screen = Screen::SetServerIdentity;
+            self.set_status("Upload the server.identity file to connect to your Lithium server.");
+            return;
+        }
+
         let has_ipc_auth = ipc::has_auth_token();
 
         self.screen = if ping.ui_state != "keystore_locked" && !has_ipc_auth {
@@ -34,6 +40,9 @@ impl LithiumApp {
             match self.screen {
                 Screen::Connecting => "Connecting...".to_string(),
                 Screen::DaemonOffline => "Daemon offline or not responding.".to_string(),
+                Screen::SetServerIdentity => {
+                    "Upload the server.identity file to connect to your Lithium server.".to_string()
+                }
                 Screen::SetDataPassword => {
                     if s.first_run {
                         "First run — set a data password to protect your local keys.".to_string()
@@ -322,6 +331,17 @@ impl LithiumApp {
                 Err(e) => self.set_error(format!("Lock failed: {}", errors::translate(&e))),
             },
 
+            WorkerEvent::SetServerIdentity(res) => match res {
+                Ok(()) => {
+                    self.set_status("Server identity saved.");
+                    self.send(Command::Ping);
+                }
+                Err(e) => self.set_error(format!(
+                    "Failed to save server identity: {}",
+                    errors::translate(&e)
+                )),
+            },
+
             WorkerEvent::WipeLocal(res) => match res {
                 Ok(()) => {
                     self.screen = Screen::Connecting;
@@ -461,6 +481,10 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
         Command::ForgetContact { contact_id } => {
             let res = ipc::contact_forget(&contact_id).await;
             WorkerEvent::ForgetContact { contact_id, result: res }
+        }
+
+        Command::SetServerIdentity { data } => {
+            WorkerEvent::SetServerIdentity(ipc::set_server_identity(&data).await)
         }
 
         Command::WipeLocal => WorkerEvent::WipeLocal(ipc::wipe_local().await),

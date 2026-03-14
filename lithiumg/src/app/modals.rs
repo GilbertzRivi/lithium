@@ -82,13 +82,21 @@ impl LithiumApp {
                 );
 
                 ui.add_space(8.0);
-                draw_invite_box(
-                    ui,
-                    "register_capability_scroll",
-                    &mut self.register_capability,
-                    "",
-                    false,
-                );
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::both()
+                        .id_salt("register_capability_scroll")
+                        .max_height(96.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let mut preview = self.register_capability.clone();
+                            ui.add(
+                                egui::TextEdit::multiline(&mut preview)
+                                    .desired_rows(3)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                });
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {

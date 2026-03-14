@@ -32,7 +32,7 @@ pub async fn handle(
         http,
         eph,
         None,
-        state.bootstrap.clone(),
+        state.identity_path.clone(),
     );
 
     match proto.remote_delete(&capability).await {

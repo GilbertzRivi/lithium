@@ -35,6 +35,9 @@ pub fn default_data_dir() -> PathBuf {
 
     #[cfg(not(windows))]
     {
+        if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+            return PathBuf::from(xdg).join("lithiumd");
+        }
         if let Some(home) = std::env::var_os("HOME") {
             return PathBuf::from(home).join(".local").join("share").join("lithiumd");
         }
@@ -60,12 +63,8 @@ pub fn default_ipc_endpoint() -> IpcEndpoint {
             return IpcEndpoint::Unix(PathBuf::from(rt).join("lithiumd.sock"));
         }
 
-        let mut sock_name = String::from("lithiumd.sock");
-        if let Some(user) = std::env::var_os("USER") {
-            sock_name = format!("lithiumd-{}.sock", user.to_string_lossy());
-        }
-
-        IpcEndpoint::Unix(std::env::temp_dir().join(sock_name))
+        // No safe location available — require explicit override via LITHIUMD_SOCKET_PATH.
+        panic!("XDG_RUNTIME_DIR is not set; set LITHIUMD_SOCKET_PATH to a private directory")
     }
 }
 

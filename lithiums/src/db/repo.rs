@@ -14,7 +14,7 @@ use lithium_core::{
     db::manager::DataManager,
     error::{LithiumError, Result},
     keys::MkProvider,
-    passwords::passwords::{hash_password_phc, verify_password_phc},
+    passwords::passwords::hash_password_phc,
     secrets::{Byte12, Byte32, SecretString},
     utils::store::EphemeralStoreManager,
 };
@@ -177,7 +177,6 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         dek: &[u8],
     ) -> AppResult<Option<SecretString>>;
 
-    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<UserRecord>>;
     async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>>;
     async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<UserRecord>>;
 
@@ -280,26 +279,6 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
                 }
             }
         }
-    }
-
-    async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<UserRecord>> {
-        let uid = uuid5_from_handler(self, handler).await?;
-        let id_enc = id_enc_from_uuid(self, &uid).await?;
-
-        let Some(row) = users::Entity::find_by_id(id_enc.expose_as_slice().to_vec())
-            .one(self.db())
-            .await
-            .map_err(LithiumError::io)?
-        else {
-            return Ok(None);
-        };
-
-        let user = decrypt_user_row(self, row).await?;
-
-        let pw = SecretString::new(password.to_owned());
-        let ok = verify_password_phc(user.password_hash.expose(), &pw)?;
-
-        Ok(if ok { Some(user) } else { None })
     }
 
     async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>> {

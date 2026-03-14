@@ -71,14 +71,12 @@ pub async fn handle(
         .base_dir
         .join("keystore")
         .join("user")
-        .join("default")
         .join("mk.enc");
     let mk_provider = PasswordFileMkProvider::new(mk_path, dp);
 
     let km = match KeyManager::start(
         &state.base_dir.join("keystore"),
         KeyStoreKind::User,
-        "default",
         mk_provider,
     ) {
         Err(_) => return crypto_err(id),
@@ -122,7 +120,7 @@ pub async fn handle(
         http,
         eph,
         Some(keys),
-        state.bootstrap.clone(),
+        state.identity_path.clone(),
     ));
 
     let creds_opt = state.account_creds.lock().await.clone();

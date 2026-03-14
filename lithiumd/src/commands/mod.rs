@@ -8,6 +8,7 @@ use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse};
 
 mod ping;
 mod set_credentials;
+mod set_server_identity;
 mod unlock_keystore;
 mod register;
 mod remote_delete;
@@ -79,5 +80,8 @@ pub async fn dispatch(
             contact_verify_emoji::handle(id, contact_id, state).await
         }
         IpcCommand::LockKeystore => lock_keystore::handle(id, state).await,
+        IpcCommand::SetServerIdentity { data } => {
+            set_server_identity::handle(id, data, state).await
+        }
     }
 }

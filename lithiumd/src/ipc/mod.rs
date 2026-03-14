@@ -48,6 +48,7 @@ fn cmd_requires_auth(cmd: &IpcCommand) -> bool {
         IpcCommand::Ping
             | IpcCommand::UnlockKeystore { .. }
             | IpcCommand::RemoteDelete { .. }
+            | IpcCommand::SetServerIdentity { .. }
     )
 }
 

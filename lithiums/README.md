@@ -43,13 +43,17 @@ src/
 
 Cała konfiguracja przez zmienne środowiskowe (obsługa `.env` przez `dotenvy`):
 
-| Zmienna                  | Wymagana | Domyślnie      | Opis                                                  |
-|--------------------------|----------|----------------|-------------------------------------------------------|
-| `DATABASE_URL`           | tak      | —              | URL połączenia PostgreSQL                             |
-| `LITHIUM_KEYS_DIR`       | tak      | —              | Katalog plików kluczy serwera                         |
-| `LITHIUM_BIND`           | nie      | `0.0.0.0:4108` | Adres TCP nasłuchiwania                               |
-| `LITHIUM_SERVER_NAME`    | nie      | `default`      | Nazwa serwera używana przy nazewnictwie plików kluczy |
-| `LITHIUM_MK_ROTATE_SECS` | nie      | `3600`         | Interwał rotacji MK w sekundach                       |
+| Zmienna                  | Wymagana | Domyślnie           | Opis                                             |
+|--------------------------|----------|---------------------|--------------------------------------------------|
+| `DB_HOST`                | tak      | —                   | Host PostgreSQL                                  |
+| `DB_PORT`                | nie      | `5432`              | Port PostgreSQL                                  |
+| `DB_USER`                | tak      | —                   | Użytkownik bazy danych                           |
+| `DB_PASSWORD_FILE`       | tak      | —                   | Ścieżka do pliku z hasłem (Docker secret)        |
+| `DB_NAME`                | tak      | —                   | Nazwa bazy danych                                |
+| `LITHIUM_KEYS_DIR`       | nie      | `/var/lib/lithiums` | Katalog plików kluczy i server.identity          |
+| `LITHIUM_BIND`           | nie      | `127.0.0.1`         | Adres nasłuchiwania                              |
+| `LITHIUM_PORT`           | nie      | `4108`              | Port nasłuchiwania                               |
+| `LITHIUM_MK_ROTATE_SECS` | nie     | `3600`              | Interwał rotacji MK w sekundach                  |
 
 ## Sekwencja startu
 

@@ -8,7 +8,7 @@ use lithium_core::keys::KeyManager;
 use lithium_core::secrets::{Byte32, SecretString};
 
 use crate::password_provider::PasswordFileMkProvider;
-use crate::protocol_manager::{ProtocolManager, ServerBootstrap};
+use crate::protocol_manager::ProtocolManager;
 
 pub struct MkRotator {
     pub stop_tx: watch::Sender<bool>,
@@ -44,14 +44,14 @@ pub struct DaemonState {
 
     pub base_dir: PathBuf,
     pub base_url: Url,
-    pub bootstrap: ServerBootstrap,
+    pub identity_path: PathBuf,
 }
 
 impl DaemonState {
     pub fn new(
         base_dir: PathBuf,
         base_url: Url,
-        bootstrap: ServerBootstrap,
+        identity_path: PathBuf,
         needs_register: bool,
     ) -> Self {
         Self {
@@ -67,7 +67,7 @@ impl DaemonState {
             contact_fetch_locks: Arc::new(Mutex::new(HashMap::new())),
             base_dir,
             base_url,
-            bootstrap,
+            identity_path,
         }
     }
 

@@ -479,8 +479,8 @@ fn recover_pending_rotation_if_any<P: MkProvider>(
 }
 
 impl<P: MkProvider> KeyManager<P> {
-    pub fn start(base_dir: &Path, kind: KeyStoreKind, name: &str, mk_provider: P) -> Result<Self> {
-        let root_dir = base_dir.join(kind.dir_name()).join(name);
+    pub fn start(base_dir: &Path, kind: KeyStoreKind, mk_provider: P) -> Result<Self> {
+        let root_dir = base_dir.join(kind.dir_name());
         let pub_dir = root_dir.join(PUB_DIR);
         let priv_dir = root_dir.join(PRIV_DIR);
         let secrets_dir = root_dir.join(SECRETS_DIR);
@@ -536,11 +536,10 @@ impl<P: MkProvider> KeyManager<P> {
     pub fn start_plain(
         base_dir: &Path,
         kind: KeyStoreKind,
-        name: &str,
     ) -> Result<KeyManager<PlainFileMkProvider>> {
-        let mk_path = base_dir.join(kind.dir_name()).join(name).join("mk");
+        let mk_path = base_dir.join(kind.dir_name()).join("mk");
         let provider = PlainFileMkProvider::new(mk_path);
-        KeyManager::start(base_dir, kind, name, provider)
+        KeyManager::start(base_dir, kind, provider)
     }
 
     pub fn public_keys(&self) -> &PublicKeys {

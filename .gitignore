@@ -10,3 +10,4 @@ lithium_server_old
 Cargo.lock
 .idea
 .idea/*
+docker

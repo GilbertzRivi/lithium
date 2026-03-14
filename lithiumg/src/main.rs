@@ -2,10 +2,27 @@ mod app;
 mod errors;
 mod ipc;
 
-use std::{fs, sync::mpsc, thread};
+use std::{fs, path::PathBuf, process, sync::mpsc, thread};
 
 use app::{Command, LithiumApp, WorkerEvent};
 use eframe::egui;
+
+fn find_daemon_binary() -> PathBuf {
+    #[cfg(windows)]
+    let name = "lithiumd.exe";
+    #[cfg(not(windows))]
+    let name = "lithiumd";
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(name)
+}
 
 fn try_install_emoji_font(ctx: &egui::Context) {
     let candidates = [
@@ -56,6 +73,8 @@ fn main() -> eframe::Result<()> {
         }
     });
 
+    let daemon = process::Command::new(find_daemon_binary()).spawn().ok();
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Lithium")
@@ -69,7 +88,7 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(move |cc| {
             try_install_emoji_font(&cc.egui_ctx);
-            Ok(Box::new(LithiumApp::new(cmd_tx, evt_rx)))
+            Ok(Box::new(LithiumApp::new(cmd_tx, evt_rx, daemon)))
         }),
     )
 }

@@ -7,8 +7,8 @@ use tracing::error;
 use lithium_core::keys::{KeyManager, PlainFileMkProvider};
 
 pub struct MkRotatorHandle {
-    pub stop_tx: watch::Sender<bool>,
-    pub handle: JoinHandle<()>,
+    _stop_tx: watch::Sender<bool>,
+    _handle: JoinHandle<()>,
 }
 
 pub fn spawn_mk_rotator(
@@ -35,5 +35,5 @@ pub fn spawn_mk_rotator(
         }
     });
 
-    MkRotatorHandle { stop_tx, handle }
+    MkRotatorHandle { _stop_tx: stop_tx, _handle: handle }
 }

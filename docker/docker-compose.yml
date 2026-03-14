@@ -1,70 +1,53 @@
 services:
-  lithiumd-1:
-    image: rust:1-bookworm
+  postgres:
+    image: postgres:17
     restart: unless-stopped
-    user: "0:1000"
-    working_dir: /work
-    volumes:
-      - ..:/src:ro
-      - ./socks:/socks
-      - ./data/lithiumd-1:/data
-      - target-1:/work/target
-    env_file:
-      - .env
     environment:
-      LITHIUMD_SOCKET_PATH: /socks/lithium-1.sock
-      LITHIUMD_IPC_ALLOWED_UID: "1000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    command:
-      - /bin/bash
-      - -lc
-      - |
-        set -euo pipefail
+      POSTGRES_USER: lithium
+      POSTGRES_DB: lithium
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lithium -d lithium"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
-        mkdir -p /socks /data /work/target
-        chgrp 1000 /socks
-        chmod 2770 /socks
-        rm -f /socks/lithium-1.sock
-
-        exec /usr/local/cargo/bin/cargo run \
-          --manifest-path /src/lithiumd/Cargo.toml \
-          --bin lithiumd \
-          --release
-
-  lithiumd-2:
-    image: rust:1-bookworm
+  app:
+    image: rust:latest
+    working_dir: /app
     restart: unless-stopped
-    user: "0:1000"
-    working_dir: /work
-    volumes:
-      - ..:/src:ro
-      - ./socks:/socks
-      - ./data/lithiumd-2:/data
-      - target-2:/work/target
-    env_file:
-      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4108:4108"
     environment:
-      LITHIUMD_SOCKET_PATH: /socks/lithium-2.sock
-      LITHIUMD_IPC_ALLOWED_UID: "1000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: lithium
+      DB_NAME: lithium
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      LITHIUM_BIND: 0.0.0.0
+    secrets:
+      - db_password
+    volumes:
+      - ../lithium_core:/lithium_core
+      - ../lithiums:/app
+      - lithium_keys:/var/lib/lithiums
+      - cargo_target:/app/target
     command:
-      - /bin/bash
-      - -lc
-      - |
-        set -euo pipefail
+      - /usr/local/cargo/bin/cargo
+      - run
+      - --release
 
-        mkdir -p /socks /data /work/target
-        chgrp 1000 /socks
-        chmod 2770 /socks
-        rm -f /socks/lithium-2.sock
-
-        exec /usr/local/cargo/bin/cargo run \
-          --manifest-path /src/lithiumd/Cargo.toml \
-          --bin lithiumd \
-          --release
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
 
 volumes:
-  target-1:
-  target-2:
+  lithium_keys:
+  cargo_target:

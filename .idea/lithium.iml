@@ -24,6 +24,9 @@
       <excludeFolder url="file://$MODULE_DIR$/docker/data" />
       <excludeFolder url="file://$MODULE_DIR$/lithiumd/share" />
       <excludeFolder url="file://$MODULE_DIR$/.claude" />
+      <excludeFolder url="file://$MODULE_DIR$/docker/pgdata" />
+      <excludeFolder url="file://$MODULE_DIR$/docker/secrets" />
+      <excludeFolder url="file://$MODULE_DIR$/lithiums/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
