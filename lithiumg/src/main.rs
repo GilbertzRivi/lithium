@@ -64,15 +64,6 @@ fn main() -> eframe::Result<()> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>();
     let (evt_tx, evt_rx) = mpsc::channel::<WorkerEvent>();
 
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-
-        while let Ok(cmd) = cmd_rx.recv() {
-            let evt = rt.block_on(app::handle_command(cmd));
-            let _ = evt_tx.send(evt);
-        }
-    });
-
     let daemon = process::Command::new(find_daemon_binary()).spawn().ok();
 
     let native_options = eframe::NativeOptions {
@@ -88,6 +79,15 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(move |cc| {
             try_install_emoji_font(&cc.egui_ctx);
+            let ctx = cc.egui_ctx.clone();
+            thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                while let Ok(cmd) = cmd_rx.recv() {
+                    let evt = rt.block_on(app::handle_command(cmd));
+                    let _ = evt_tx.send(evt);
+                    ctx.request_repaint();
+                }
+            });
             Ok(Box::new(LithiumApp::new(cmd_tx, evt_rx, daemon)))
         }),
     )
