@@ -23,6 +23,7 @@
       <excludeFolder url="file://$MODULE_DIR$/lithiums/data" />
       <excludeFolder url="file://$MODULE_DIR$/docker/data" />
       <excludeFolder url="file://$MODULE_DIR$/lithiumd/share" />
+      <excludeFolder url="file://$MODULE_DIR$/.claude" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

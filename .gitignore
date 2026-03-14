@@ -6,3 +6,7 @@ lithium_server_old
 **/book
 .env
 **/*.env
+.claude
+Cargo.lock
+.idea
+.idea/*

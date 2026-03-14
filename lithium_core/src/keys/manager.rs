@@ -122,11 +122,16 @@ struct RewrapTarget {
 
 #[inline]
 fn sync_dir(path: &Path) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
+    #[cfg(unix)]
+    {
+        if !path.exists() {
+            return Ok(());
+        }
+        let dir = fs::File::open(path).map_err(LithiumError::io)?;
+        dir.sync_all().map_err(LithiumError::io)?;
     }
-    let dir = fs::File::open(path).map_err(LithiumError::io)?;
-    dir.sync_all().map_err(LithiumError::io)
+    let _ = path;
+    Ok(())
 }
 
 #[inline]

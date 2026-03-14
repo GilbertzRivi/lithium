@@ -901,7 +901,7 @@ impl LithiumApp {
             }
 
             egui::ScrollArea::both()
-                .id_source(id)
+                .id_salt(id)
                 .max_height(96.0)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -1232,7 +1232,7 @@ impl LithiumApp {
                 if ui
                     .add_sized(
                         [ui.available_width(), 22.0],
-                        egui::SelectableLabel::new(is_selected, label),
+                        egui::Button::selectable(is_selected, label),
                     )
                     .clicked()
                 {
