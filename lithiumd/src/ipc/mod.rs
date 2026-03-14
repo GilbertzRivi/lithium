@@ -59,7 +59,8 @@ fn cmd_is_unlock(cmd: &IpcCommand) -> bool {
 
 async fn authorize_request(
     state: &Arc<DaemonState>,
-    _peer: IpcPeerMeta,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+    peer: IpcPeerMeta,
     req: &IpcRequest,
 ) -> Option<IpcResponse> {
     if !cmd_requires_auth(&req.cmd) {
@@ -101,7 +102,11 @@ async fn authorize_request(
 }
 
 
-async fn issue_ipc_session(state: &Arc<DaemonState>, _peer: IpcPeerMeta) -> Result<String> {
+async fn issue_ipc_session(
+    state: &Arc<DaemonState>,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+    peer: IpcPeerMeta,
+) -> Result<String> {
     let token = keys::random_32()?.to_hex().expose().to_string();
     let mut auth = state.ipc_auth.lock().await;
     auth.session_token = Some(token.clone());

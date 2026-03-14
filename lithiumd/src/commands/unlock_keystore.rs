@@ -118,7 +118,8 @@ pub async fn handle(
         return err_resp(id, "server_url_not_set");
     };
 
-    let http = Client::new();
+    let http = Client::builder().http1_only().build().expect("http client");
+
     let proto = Arc::new(ProtocolManager::new(
         base_url,
         http,
