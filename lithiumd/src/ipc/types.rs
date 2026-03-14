@@ -33,6 +33,7 @@ pub enum IpcCommand {
     ContactForget { contact_id: String },
     MessagesList { contact_id: String, limit: Option<u64>, before_id: Option<i64> },
     ContactVerifyEmoji { contact_id: String },
+    LockKeystore,
 }
 
 #[derive(Debug, Serialize)]

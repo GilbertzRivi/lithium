@@ -26,6 +26,7 @@ mod messages_list;
 mod e2e;
 mod contact_verify_emoji;
 mod delete_account;
+mod lock_keystore;
 
 use crate::state::DaemonState;
 
@@ -77,5 +78,6 @@ pub async fn dispatch(
         IpcCommand::ContactVerifyEmoji { contact_id } => {
             contact_verify_emoji::handle(id, contact_id, state).await
         }
+        IpcCommand::LockKeystore => lock_keystore::handle(id, state).await,
     }
 }

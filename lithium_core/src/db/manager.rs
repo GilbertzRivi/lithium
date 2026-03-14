@@ -43,4 +43,9 @@ impl<P: MkProvider + Send + Sync + 'static> DataManager<P> {
         let dek = self.load_db_dek().await?;
         aead::decrypt(blob, &dek, aad)
     }
+
+    /// Gracefully close the underlying database connection, releasing any file locks.
+    pub async fn close_by_ref(&self) {
+        let _ = self.db.close_by_ref().await;
+    }
 }

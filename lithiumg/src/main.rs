@@ -1,4 +1,5 @@
 mod app;
+mod errors;
 mod ipc;
 
 use std::{fs, sync::mpsc, thread};
@@ -55,10 +56,16 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("Lithium")
+            .with_inner_size([900.0, 600.0])
+            .with_min_inner_size([480.0, 360.0]),
+        ..Default::default()
+    };
 
     eframe::run_native(
-        "lithiumg",
+        "Lithium",
         native_options,
         Box::new(move |cc| {
             try_install_emoji_font(&cc.egui_ctx);

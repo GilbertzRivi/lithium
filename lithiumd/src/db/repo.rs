@@ -61,16 +61,6 @@ pub trait DaemonDbExt<P: MkProvider + Send + Sync + 'static> {
         content: SecretBytes,
     ) -> Result<i64>;
 
-    async fn save_outbound_contact_and_message(
-        &self,
-        contact_id: Vec<u8>,
-        server: String,
-        peer_state: SecretBytes,
-        self_state: SecretBytes,
-        mailbox: Vec<u8>,
-        content: SecretBytes,
-    ) -> Result<i64>;
-
     async fn list_messages_page(
         &self,
         contact_id: &[u8],
@@ -192,83 +182,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
 
         let inserted = am.insert(self.db()).await.map_err(LithiumError::io)?;
         Ok(inserted.id)
-    }
-
-    async fn save_outbound_contact_and_message(
-        &self,
-        contact_id: Vec<u8>,
-        server: String,
-        peer_state: SecretBytes,
-        self_state: SecretBytes,
-        mailbox: Vec<u8>,
-        content: SecretBytes,
-    ) -> Result<i64> {
-        let now = Utc::now();
-
-        let peer_enc = self
-            .encrypt_db_blob(&peer_state, &SecretBytes::from_slice(AAD_CONTACT_PEER))
-            .await?;
-        let self_enc = self
-            .encrypt_db_blob(&self_state, &SecretBytes::from_slice(AAD_CONTACT_SELF))
-            .await?;
-        let msg_enc = self
-            .encrypt_db_blob(&content, &SecretBytes::from_slice(AAD_MESSAGE))
-            .await?;
-
-        let inserted_id = self
-            .db()
-            .transaction(|txn| {
-                let contact_id = contact_id.clone();
-                let server = server.clone();
-                let mailbox = mailbox.clone();
-                let peer_enc = peer_enc.expose_as_slice().to_vec();
-                let self_enc = self_enc.expose_as_slice().to_vec();
-                let msg_enc = msg_enc.expose_as_slice().to_vec();
-                let now = now;
-
-                Box::pin(async move {
-                    if let Some(row) = contacts::Entity::find()
-                        .filter(contacts::Column::ContactId.eq(contact_id.clone()))
-                        .one(txn)
-                        .await?
-                    {
-                        let mut am: contacts::ActiveModel = row.into();
-                        am.server = Set(server.clone());
-                        am.peer_state_enc = Set(peer_enc.clone());
-                        am.self_state_enc = Set(self_enc.clone());
-                        am.updated_at = Set(now);
-                        am.update(txn).await?;
-                    } else {
-                        let am = contacts::ActiveModel {
-                            id: Default::default(),
-                            contact_id: Set(contact_id.clone()),
-                            server: Set(server.clone()),
-                            peer_state_enc: Set(peer_enc.clone()),
-                            self_state_enc: Set(self_enc.clone()),
-                            created_at: Set(now),
-                            updated_at: Set(now),
-                        };
-
-                        am.insert(txn).await?;
-                    }
-
-                    let am = messages::ActiveModel {
-                        id: Default::default(),
-                        contact_id: Set(contact_id),
-                        mailbox: Set(mailbox),
-                        direction: Set(1),
-                        content_enc: Set(msg_enc),
-                        created_at: Set(now),
-                    };
-
-                    let inserted = am.insert(txn).await?;
-                    Ok::<i64, sea_orm::DbErr>(inserted.id)
-                })
-            })
-            .await
-            .map_err(LithiumError::io)?;
-
-        Ok(inserted_id)
     }
 
     async fn list_messages_page(

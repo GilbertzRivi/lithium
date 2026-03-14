@@ -89,7 +89,9 @@ impl DaemonState {
         *self.data_pass.lock().await = None;
         *self.account_creds.lock().await = None;
         *self.proto.lock().await = None;
-        *self.local_db.lock().await = None;
+        if let Some(dm) = self.local_db.lock().await.take() {
+            dm.close_by_ref().await;
+        }
         *self.keys.lock().await = None;
 
         let mut ipc = self.ipc_auth.lock().await;
@@ -110,8 +112,4 @@ impl DaemonState {
         *self.needs_register.lock().await = false;
     }
 
-    pub async fn reset_for_reregister(&self) {
-        self.lock_keystore().await;
-        *self.needs_register.lock().await = true;
-    }
 }

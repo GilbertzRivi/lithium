@@ -559,7 +559,7 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
             self_v["e2e_tx"] = json!({ "step": 0u64 });
         }
 
-        let had_e2e_rx = self_v.get("e2e_rx").is_some();
+        let _had_e2e_rx = self_v.get("e2e_rx").is_some();
 
         if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
             self_v["bootstrap"] = json!({

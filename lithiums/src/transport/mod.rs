@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error};
+use tracing::error;
 use zeroize::Zeroize;
 
 use lithium_core::crypto::{keys, kyberbox, sign};

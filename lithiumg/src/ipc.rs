@@ -485,3 +485,13 @@ pub async fn wipe_local() -> Result<(), String> {
     set_auth_token(None);
     Ok(())
 }
+
+pub async fn lock_keystore() -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "lock_keystore",
+        "id": 17
+    }))
+        .await?;
+    set_auth_token(None);
+    Ok(())
+}

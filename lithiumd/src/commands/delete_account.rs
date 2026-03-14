@@ -3,7 +3,7 @@ use std::{fs, io, sync::Arc};
 use serde_json::json;
 
 use crate::{
-    ipc::types::{err_resp, protocol_err, IpcResponse},
+    ipc::types::{err_resp, IpcResponse, protocol_err},
     state::DaemonState,
     util,
 };
@@ -43,10 +43,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
     IpcResponse {
         id,
         ok: true,
-        result: Some(json!({
-            "deleted": true,
-            "local_cleanup": true
-        })),
+        result: Some(json!({"deleted": true})),
         error: None,
     }
 }

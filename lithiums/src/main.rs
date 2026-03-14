@@ -1,7 +1,6 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-use poem::{listener::TcpListener, EndpointExt, Server};
-use poem::middleware::Tracing;
+use poem::{listener::TcpListener, Server};
 use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
@@ -53,7 +52,7 @@ async fn main() -> error::AppResult<()> {
         db: dbm,
     });
 
-    let app = api_routes(state).with(Tracing);
+    let app = api_routes(state);
 
     Server::new(TcpListener::bind(bind))
         .run(app)
