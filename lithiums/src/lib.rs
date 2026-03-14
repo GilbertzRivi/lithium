@@ -46,6 +46,20 @@ pub fn api_routes(state: state::SharedState) -> impl Endpoint {
             )),
         )
         .at(
+            "/user/revoke",
+            post(api::user::revoke).with(CryptoMiddleware::new(
+                state.clone(),
+                CryptoCfg::session("revoke").auth(AuthMode::KeysInHeaders),
+            )),
+        )
+        .at(
+            "/user/delete",
+            post(api::user::delete).with(CryptoMiddleware::new(
+                state.clone(),
+                CryptoCfg::session("delete").auth(AuthMode::JwtUser),
+            )),
+        )
+        .at(
             "/msg/send",
             post(api::messages::send).with(CryptoMiddleware::new(
                 state.clone(),
@@ -56,8 +70,7 @@ pub fn api_routes(state: state::SharedState) -> impl Endpoint {
             "/msg/fetch",
             post(api::messages::fetch).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("msg_fetch")
-                    .auth(AuthMode::KeysInHeaders),
+                CryptoCfg::session("msg_fetch").auth(AuthMode::KeysInHeaders),
             )),
         )
         .with(GuardMiddleware::new(state))

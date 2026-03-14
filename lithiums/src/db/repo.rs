@@ -6,6 +6,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
     TransactionTrait,
 };
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use lithium_core::{
@@ -174,11 +175,18 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
-    ) -> AppResult<bool>;
+    ) -> AppResult<Option<SecretString>>;
 
     async fn try_login(&self, handler: &str, password: &str) -> AppResult<Option<UserRecord>>;
     async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>>;
     async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<UserRecord>>;
+
+    async fn delete_user_by_remote_delete_capability(
+        &self,
+        remote_delete_capability_hex: &str,
+    ) -> AppResult<bool>;
+
+    async fn delete_user_by_id(&self, id: &[u8]) -> AppResult<bool>;
 
     async fn add_message(
         &self,
@@ -203,7 +211,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
-    ) -> AppResult<bool> {
+    ) -> AppResult<Option<SecretString>> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
@@ -213,7 +221,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
             .map_err(LithiumError::io)?
             .is_some()
         {
-            return Ok(false);
+            return Ok(None);
         }
 
         let pw = SecretString::new(password.to_owned());
@@ -247,20 +255,26 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
             )
             .await?;
 
+        let remote_delete_capability_raw: Byte32 = keys::random_32()?;
+        let remote_delete_capability = remote_delete_capability_raw.to_hex();
+        let delete_token_hash =
+            Sha256::digest(remote_delete_capability_raw.as_slice()).to_vec();
+
         let am = users::ActiveModel {
             id: Set(id_enc.expose_as_slice().to_vec()),
             password_hash: Set(password_hash_enc.expose_as_slice().to_vec()),
             ed_key: Set(ed_key_enc.expose_as_slice().to_vec()),
             dili_key: Set(dili_key_enc.expose_as_slice().to_vec()),
             dek: Set(dek_enc.expose_as_slice().to_vec()),
+            delete_token_hash: Set(delete_token_hash),
         };
 
         match am.insert(self.db()).await {
-            Ok(_) => Ok(true),
+            Ok(_) => Ok(Some(remote_delete_capability)),
             Err(e) => {
                 let s = e.to_string();
                 if s.contains("duplicate key") || s.contains("unique") {
-                    Ok(false)
+                    Ok(None)
                 } else {
                     Err(AppError::from(LithiumError::io(e)))
                 }
@@ -313,6 +327,47 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         };
 
         Ok(Some(decrypt_user_row(self, row).await?))
+    }
+
+    async fn delete_user_by_remote_delete_capability(
+        &self,
+        remote_delete_capability_hex: &str,
+    ) -> AppResult<bool> {
+        let capability = match SecretBytes::from_hex(remote_delete_capability_hex) {
+            Ok(v) => v,
+            Err(_) => return Ok(false),
+        };
+
+        if capability.len() != 32 {
+            return Ok(false);
+        }
+
+        let delete_token_hash = Sha256::digest(capability.expose_as_slice()).to_vec();
+
+        let Some(row) = users::Entity::find()
+            .filter(users::Column::DeleteTokenHash.eq(delete_token_hash))
+            .one(self.db())
+            .await
+            .map_err(LithiumError::io)?
+        else {
+            return Ok(false);
+        };
+
+        users::Entity::delete_by_id(row.id)
+            .exec(self.db())
+            .await
+            .map_err(LithiumError::io)?;
+
+        Ok(true)
+    }
+
+    async fn delete_user_by_id(&self, id: &[u8]) -> AppResult<bool> {
+        let res = users::Entity::delete_by_id(id.to_vec())
+            .exec(self.db())
+            .await
+            .map_err(LithiumError::io)?;
+
+        Ok(res.rows_affected > 0)
     }
 
     async fn add_message(

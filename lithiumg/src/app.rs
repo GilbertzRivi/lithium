@@ -7,7 +7,7 @@ use eframe::egui;
 
 use crate::ipc::{
     self, AcceptInviteResult, ContactInfo, CreateInviteResult, MessageItem, MessagesResult,
-    PingResult, VerifyEmojiResult,
+    PingResult, RegisterResult, VerifyEmojiResult,
 };
 
 #[derive(Debug, Clone)]
@@ -16,6 +16,8 @@ pub enum Command {
     UnlockKeystore { data_password: String },
     SetCredentials { handler: String, password: String },
     Register,
+    RemoteDelete { capability: String },
+    DeleteAccount,
     UnlockStorage,
     LoadContacts,
     LoadMessages { contact_id: String },
@@ -33,7 +35,9 @@ pub enum WorkerEvent {
     Ping(Result<PingResult, String>),
     UnlockKeystore(Result<(), String>),
     SetCredentials(Result<(), String>),
-    Register(Result<(), String>),
+    Register(Result<RegisterResult, String>),
+    RemoteDelete(Result<(), String>),
+    DeleteAccount(Result<(), String>),
     UnlockStorage(Result<(), String>),
     Contacts(Result<Vec<ContactInfo>, String>),
     Messages {
@@ -100,6 +104,16 @@ pub struct LithiumApp {
     verify_modal_contact_id: Option<String>,
     verify_modal_emojis: Vec<String>,
     shown_verify_for_contact_ids: HashSet<String>,
+
+    register_capability: String,
+    show_register_capability_modal: bool,
+
+    remote_delete_modal_open: bool,
+    remote_delete_capability_input: String,
+    confirm_remote_delete: bool,
+
+    delete_account_modal_open: bool,
+    confirm_delete_account: bool,
 }
 
 impl LithiumApp {
@@ -130,6 +144,13 @@ impl LithiumApp {
             shown_verify_for_contact_ids: HashSet::new(),
             account_password_confirm: String::new(),
             confirm_wipe_local: false,
+            register_capability: String::new(),
+            show_register_capability_modal: false,
+            remote_delete_modal_open: false,
+            remote_delete_capability_input: String::new(),
+            confirm_remote_delete: false,
+            delete_account_modal_open: false,
+            confirm_delete_account: false,
         };
 
         app.send(Command::Ping);
@@ -139,31 +160,6 @@ impl LithiumApp {
     fn send(&mut self, cmd: Command) {
         self.busy = true;
         let _ = self.tx.send(cmd);
-    }
-
-    fn draw_verify_card(&mut self, ui: &mut egui::Ui) {
-        let emoji_line = self.verify_modal_emojis.join("   ");
-
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.label("Verify this contact over your trusted out-of-band channel.");
-                ui.add_space(8.0);
-
-                ui.label(
-                    egui::RichText::new(emoji_line)
-                        .size(30.0)
-                        .strong(),
-                );
-
-                ui.add_space(8.0);
-                ui.label("If they do not match, remove the contact and start again.");
-
-                ui.add_space(8.0);
-                if ui.button("Hide").clicked() {
-                    self.clear_verify_modal();
-                }
-            });
-        });
     }
 
     fn selected_contact(&self) -> Option<&ContactInfo> {
@@ -186,6 +182,41 @@ impl LithiumApp {
         self.verify_modal_open = false;
         self.verify_modal_contact_id = None;
         self.verify_modal_emojis.clear();
+    }
+
+    fn open_remote_delete_modal(&mut self) {
+        self.remote_delete_modal_open = true;
+        self.confirm_remote_delete = false;
+
+        if self.remote_delete_capability_input.trim().is_empty() && !self.register_capability.is_empty() {
+            self.remote_delete_capability_input = self.register_capability.clone();
+        }
+    }
+
+    fn open_delete_account_modal(&mut self) {
+        self.delete_account_modal_open = true;
+        self.confirm_delete_account = false;
+    }
+
+    fn draw_verify_card(&mut self, ui: &mut egui::Ui) {
+        let emoji_line = self.verify_modal_emojis.join("   ");
+
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.label("Verify this contact over your trusted out-of-band channel.");
+                ui.add_space(8.0);
+
+                ui.label(egui::RichText::new(emoji_line).size(30.0).strong());
+
+                ui.add_space(8.0);
+                ui.label("If they do not match, remove the contact and start again.");
+
+                ui.add_space(8.0);
+                if ui.button("Hide").clicked() {
+                    self.clear_verify_modal();
+                }
+            });
+        });
     }
 
     fn handle_ping(&mut self, ping: PingResult) {
@@ -299,12 +330,74 @@ impl LithiumApp {
             },
 
             WorkerEvent::Register(res) => match res {
-                Ok(()) => {
+                Ok(v) => {
+                    let _ = v.registered;
                     self.confirm_wipe_local = false;
-                    self.set_status("Registered.");
+                    self.register_capability = v.capability;
+                    self.show_register_capability_modal = !self.register_capability.is_empty();
+
+                    if self.register_capability.is_empty() {
+                        self.set_status("Registered.");
+                    } else {
+                        self.set_status("Registered. Save the remote delete capability now.");
+                    }
+
                     self.send(Command::Ping);
                 }
                 Err(e) => self.set_status(format!("Register failed: {e}")),
+            },
+
+            WorkerEvent::RemoteDelete(res) => match res {
+                Ok(()) => {
+                    self.confirm_remote_delete = false;
+                    self.remote_delete_modal_open = false;
+                    self.set_status(
+                        "Remote delete request sent. This path is blind and the server always returns 204, so the GUI cannot verify whether the capability was correct.",
+                    );
+                }
+                Err(e) => {
+                    self.confirm_remote_delete = false;
+                    self.set_status(format!("Remote delete request failed: {e}"));
+                }
+            },
+
+            WorkerEvent::DeleteAccount(res) => match res {
+                Ok(()) => {
+                    self.confirm_delete_account = false;
+                    self.delete_account_modal_open = false;
+                    self.remote_delete_modal_open = false;
+                    self.show_register_capability_modal = false;
+
+                    self.register_capability.clear();
+                    self.remote_delete_capability_input.clear();
+
+                    self.contacts.clear();
+                    self.selected_contact_id = None;
+                    self.messages.clear();
+                    self.message_text.clear();
+                    self.generated_invite_code.clear();
+                    self.pending_select_contact_id = None;
+                    self.pending_verify_contact_id = None;
+                    self.shown_verify_for_contact_ids.clear();
+                    self.clear_verify_modal();
+
+                    self.set_status("Account deleted. Refreshing daemon state.");
+                    self.send(Command::Ping);
+                }
+                Err(e) => {
+                    self.confirm_delete_account = false;
+                    if e == "account_deleted_but_local_storage_wipe_failed" {
+                        self.set_status(
+                            "Account was deleted remotely, but local storage wipe failed. Some local files may still remain on disk.",
+                        );
+                    } else if e == "account_deleted_but_registered_flag_remove_failed" {
+                        self.set_status(
+                            "Account was deleted remotely, but removing the local registration marker failed. Local state may be inconsistent until you wipe it manually.",
+                        );
+                    } else {
+                        self.set_status(format!("Delete account failed: {e}"));
+                    }
+                }
             },
 
             WorkerEvent::UnlockStorage(res) => match res {
@@ -325,12 +418,11 @@ impl LithiumApp {
                         return;
                     }
 
-                    let should_reask_credentials =
-                        e_lower.contains("invalid_credentials")
-                            || e_lower.contains("bad_credentials")
-                            || e_lower.contains("http_400")
-                            || e_lower.contains("http_401")
-                            || e_lower.contains("protocol_error");
+                    let should_reask_credentials = e_lower.contains("invalid_credentials")
+                        || e_lower.contains("bad_credentials")
+                        || e_lower.contains("http_400")
+                        || e_lower.contains("http_401")
+                        || e_lower.contains("protocol_error");
 
                     if should_reask_credentials {
                         self.screen = Screen::Credentials;
@@ -509,6 +601,16 @@ impl LithiumApp {
                     self.shown_verify_for_contact_ids.clear();
                     self.clear_verify_modal();
 
+                    self.register_capability.clear();
+                    self.show_register_capability_modal = false;
+
+                    self.remote_delete_modal_open = false;
+                    self.remote_delete_capability_input.clear();
+                    self.confirm_remote_delete = false;
+
+                    self.delete_account_modal_open = false;
+                    self.confirm_delete_account = false;
+
                     self.set_status("Local data wiped.");
                     self.send(Command::Ping);
                 }
@@ -521,7 +623,9 @@ impl LithiumApp {
     }
 
     fn draw_top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        let has_ipc_auth = ipc::has_auth_token();
+
+        ui.horizontal_wrapped(|ui| {
             ui.label(&self.status_line);
 
             if self.busy {
@@ -534,6 +638,38 @@ impl LithiumApp {
             if ui.button("Retry / Refresh").clicked() && !self.busy {
                 self.confirm_wipe_local = false;
                 self.send(Command::Ping);
+            }
+
+            ui.separator();
+
+            if ui
+                .add_enabled(!self.busy, egui::Button::new("Remote account delete"))
+                .clicked()
+            {
+                self.open_remote_delete_modal();
+            }
+
+            if !self.register_capability.is_empty() {
+                ui.separator();
+
+                if ui
+                    .add_enabled(!self.busy, egui::Button::new("Show remote delete capability"))
+                    .clicked()
+                {
+                    self.show_register_capability_modal = true;
+                }
+            }
+
+            ui.separator();
+
+            if ui
+                .add_enabled(
+                    !self.busy && has_ipc_auth,
+                    egui::Button::new("Delete logged-in account"),
+                )
+                .clicked()
+            {
+                self.open_delete_account_modal();
             }
 
             ui.separator();
@@ -683,6 +819,18 @@ impl LithiumApp {
             "This is expected on first run and after destructive local reset flows such as wiping local data.",
         );
 
+        ui.add_space(8.0);
+        ui.colored_label(
+            egui::Color32::from_rgb(255, 120, 120),
+            "After successful registration the GUI will show a remote delete capability.",
+        );
+        ui.label(
+            "Save that capability immediately. It is the secret for remote account deletion and may be your only way to request account deletion if you lose the device.",
+        );
+        ui.label(
+            "Anyone who gets that capability can request deletion. Treat it like an extremely sensitive secret.",
+        );
+
         if ui
             .add_enabled(!self.busy, egui::Button::new("Register"))
             .clicked()
@@ -776,6 +924,211 @@ impl LithiumApp {
                     }
                 });
         });
+    }
+
+    fn draw_register_capability_window(&mut self, ctx: &egui::Context) {
+        if !self.show_register_capability_modal || self.register_capability.is_empty() {
+            return;
+        }
+
+        let mut open = self.show_register_capability_modal;
+
+        egui::Window::new("Remote delete capability")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(640.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.heading("Save this right now");
+                ui.add_space(6.0);
+
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 120, 120),
+                    "This is the remote delete capability.",
+                );
+                ui.label(
+                    "If you lose all devices, this capability may be your only way to request remote account deletion.",
+                );
+                ui.label(
+                    "Anyone who has this capability can request deletion. Treat it like an extremely sensitive secret.",
+                );
+                ui.label(
+                    "The GUI keeps it only in current app memory. Do not assume you can recover it later from the app.",
+                );
+
+                ui.add_space(8.0);
+                Self::draw_invite_box(
+                    ui,
+                    "register_capability_scroll",
+                    &mut self.register_capability,
+                    "",
+                    false,
+                );
+
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Copy capability").clicked() {
+                        ui.ctx().copy_text(self.register_capability.clone());
+                        self.set_status("Remote delete capability copied to clipboard.");
+                    }
+
+                    if ui.button("Open remote delete panel").clicked() {
+                        self.remote_delete_capability_input = self.register_capability.clone();
+                        self.remote_delete_modal_open = true;
+                    }
+
+                    if ui.button("I saved it").clicked() {
+                        self.show_register_capability_modal = false;
+                    }
+                });
+            });
+
+        self.show_register_capability_modal = open && !self.register_capability.is_empty();
+    }
+
+    fn draw_remote_delete_window(&mut self, ctx: &egui::Context) {
+        if !self.remote_delete_modal_open {
+            return;
+        }
+
+        let mut open = self.remote_delete_modal_open;
+
+        egui::Window::new("Remote account delete")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(680.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.heading("Remote account delete");
+                ui.add_space(6.0);
+
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 120, 120),
+                    "This removes the account for which the capability string was issued.",
+                );
+                ui.label(
+                    "Enter the remote delete capability returned at registration time.",
+                );
+                ui.label(
+                    "The server always answers this endpoint with HTTP 204, even for an invalid capability. The GUI cannot verify whether the capability was correct.",
+                );
+                ui.label(
+                    "This does not wipe local daemon data automatically. Use 'Wipe local' separately if the local machine should also be cleared.",
+                );
+
+                if !self.register_capability.is_empty() {
+                    ui.add_space(6.0);
+                    if ui.button("Use capability from this session").clicked() {
+                        self.remote_delete_capability_input = self.register_capability.clone();
+                    }
+                }
+
+                ui.add_space(8.0);
+                Self::draw_invite_box(
+                    ui,
+                    "remote_delete_capability_input_scroll",
+                    &mut self.remote_delete_capability_input,
+                    "Paste remote delete capability",
+                    true,
+                );
+
+                let can_submit = !self.busy && !self.remote_delete_capability_input.trim().is_empty();
+
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    let label = if self.confirm_remote_delete {
+                        "Confirm remote account delete"
+                    } else {
+                        "Request remote account delete"
+                    };
+
+                    if ui
+                        .add_enabled(can_submit, egui::Button::new(label))
+                        .clicked()
+                    {
+                        if self.confirm_remote_delete {
+                            let capability = self.remote_delete_capability_input.trim().to_string();
+                            self.confirm_remote_delete = false;
+                            self.send(Command::RemoteDelete { capability });
+                        } else {
+                            self.confirm_remote_delete = true;
+                            self.set_status(
+                                "Click again to confirm remote account delete request.",
+                            );
+                        }
+                    }
+
+                    if self.confirm_remote_delete && ui.button("Cancel").clicked() {
+                        self.confirm_remote_delete = false;
+                        self.set_status("Remote delete cancelled.");
+                    }
+                });
+            });
+
+        self.remote_delete_modal_open = open;
+    }
+
+    fn draw_delete_account_window(&mut self, ctx: &egui::Context) {
+        if !self.delete_account_modal_open {
+            return;
+        }
+
+        let mut open = self.delete_account_modal_open;
+
+        egui::Window::new("Delete logged-in account")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(620.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.heading("Delete logged-in account");
+                ui.add_space(6.0);
+
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 120, 120),
+                    "This uses the authenticated delete flow for the currently unlocked account.",
+                );
+                ui.label(
+                    "This is not the blind recovery flow and it does not use the remote delete capability.",
+                );
+                ui.label(
+                    "Use this when the current device is available and the daemon session is already unlocked.",
+                );
+                ui.label(
+                    "After success, lithiumd resets this local profile back to an unregistered state.",
+                );
+
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    let label = if self.confirm_delete_account {
+                        "Confirm delete logged-in account"
+                    } else {
+                        "Delete logged-in account"
+                    };
+
+                    if ui
+                        .add_enabled(!self.busy, egui::Button::new(label))
+                        .clicked()
+                    {
+                        if self.confirm_delete_account {
+                            self.confirm_delete_account = false;
+                            self.send(Command::DeleteAccount);
+                        } else {
+                            self.confirm_delete_account = true;
+                            self.set_status(
+                                "Click again to confirm deletion of the logged-in account.",
+                            );
+                        }
+                    }
+
+                    if self.confirm_delete_account && ui.button("Cancel").clicked() {
+                        self.confirm_delete_account = false;
+                        self.set_status("Delete logged-in account cancelled.");
+                    }
+                });
+            });
+
+        self.delete_account_modal_open = open;
     }
 
     fn draw_contacts_panel(&mut self, ui: &mut egui::Ui, compact: bool) {
@@ -1033,6 +1386,10 @@ impl eframe::App for LithiumApp {
             Screen::UnlockStorage => self.draw_unlock_storage(ui),
             Screen::Ready => self.draw_ready(ctx, ui),
         });
+
+        self.draw_register_capability_window(ctx);
+        self.draw_remote_delete_window(ctx);
+        self.draw_delete_account_window(ctx);
     }
 }
 
@@ -1085,6 +1442,12 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
         }
 
         Command::Register => WorkerEvent::Register(ipc::register().await),
+
+        Command::RemoteDelete { capability } => {
+            WorkerEvent::RemoteDelete(ipc::remote_delete(&capability).await)
+        }
+
+        Command::DeleteAccount => WorkerEvent::DeleteAccount(ipc::delete_account().await),
 
         Command::UnlockStorage => WorkerEvent::UnlockStorage(ipc::unlock_storage().await),
 

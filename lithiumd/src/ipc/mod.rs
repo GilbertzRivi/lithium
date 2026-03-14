@@ -43,7 +43,12 @@ fn timeout_err(what: &'static str) -> LithiumError {
 }
 
 fn cmd_requires_auth(cmd: &IpcCommand) -> bool {
-    !matches!(cmd, IpcCommand::Ping | IpcCommand::UnlockKeystore { .. })
+    !matches!(
+        cmd,
+        IpcCommand::Ping
+            | IpcCommand::UnlockKeystore { .. }
+            | IpcCommand::RemoteDelete { .. }
+    )
 }
 
 fn cmd_is_unlock(cmd: &IpcCommand) -> bool {

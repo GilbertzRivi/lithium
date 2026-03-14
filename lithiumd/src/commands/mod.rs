@@ -10,6 +10,7 @@ mod ping;
 mod set_credentials;
 mod unlock_keystore;
 mod register;
+mod remote_delete;
 mod unlock_storage;
 mod shutdown;
 mod wipe_local;
@@ -24,6 +25,7 @@ mod contact_forget;
 mod messages_list;
 mod e2e;
 mod contact_verify_emoji;
+mod delete_account;
 
 use crate::state::DaemonState;
 
@@ -44,6 +46,10 @@ pub async fn dispatch(
             unlock_keystore::handle(id, data_password, state, pol).await
         }
         IpcCommand::Register => register::handle(id, state, pol).await,
+        IpcCommand::RemoteDelete { capability } => {
+            remote_delete::handle(id, capability, state).await
+        }
+        IpcCommand::DeleteAccount => delete_account::handle(id, state).await,
         IpcCommand::UnlockStorage => unlock_storage::handle(id, state).await,
         IpcCommand::Shutdown => shutdown::handle(id, state, shutdown_tx).await,
         IpcCommand::WipeLocal => wipe_local::handle(id, state).await,

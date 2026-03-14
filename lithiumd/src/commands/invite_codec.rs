@@ -246,3 +246,199 @@ pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
 
     Ok((cid.as_slice().to_vec(), sj))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lithium_core::{crypto::keys, secrets::SecretString};
+
+    fn hex32() -> SecretString {
+        keys::random_32().unwrap().to_hex()
+    }
+
+    fn kyber_pk_hex() -> SecretString {
+        let (_, pk) = keys::random_kyber_mlkem1024_keypair().unwrap();
+        pk.to_hex()
+    }
+
+    fn dili_pk_hex() -> SecretString {
+        let (_, pk) = keys::random_dilithium_mldsa87_keypair().unwrap();
+        pk.to_hex()
+    }
+
+    fn make_invite() -> InvitePublic {
+        InvitePublic {
+            cid_hex: hex32(),
+            x_pub_hex: hex32(),
+            k_pub_hex: kyber_pk_hex(),
+            ed_pub_hex: hex32(),
+            dili_pub_hex: dili_pk_hex(),
+            mbox_in_pub_hex: hex32(),
+            mbox_out_cur_pub_hex: hex32(),
+            mbox_out_next_pub_hex: hex32(),
+        }
+    }
+
+    // ── encode / decode roundtrip ─────────────────────────────────────────
+
+    #[test]
+    fn invite_encode_decode_roundtrip() {
+        let orig = make_invite();
+        let code = encode_invite_code(&orig).unwrap();
+        let decoded = decode_invite_code(&code).unwrap();
+
+        assert_eq!(decoded.cid_hex.expose(), orig.cid_hex.expose());
+        assert_eq!(decoded.x_pub_hex.expose(), orig.x_pub_hex.expose());
+        assert_eq!(decoded.k_pub_hex.expose(), orig.k_pub_hex.expose());
+        assert_eq!(decoded.ed_pub_hex.expose(), orig.ed_pub_hex.expose());
+        assert_eq!(decoded.dili_pub_hex.expose(), orig.dili_pub_hex.expose());
+        assert_eq!(decoded.mbox_in_pub_hex.expose(), orig.mbox_in_pub_hex.expose());
+        assert_eq!(decoded.mbox_out_cur_pub_hex.expose(), orig.mbox_out_cur_pub_hex.expose());
+        assert_eq!(decoded.mbox_out_next_pub_hex.expose(), orig.mbox_out_next_pub_hex.expose());
+    }
+
+    #[test]
+    fn invite_code_starts_with_lci1_prefix() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        assert!(code.expose().starts_with("lci1:"), "code must start with lci1:");
+    }
+
+    #[test]
+    fn invite_decode_without_prefix_accepted() {
+        let invite = make_invite();
+        let code = encode_invite_code(&invite).unwrap();
+        // strip lci1:
+        let hex_only = code.expose().strip_prefix("lci1:").unwrap().to_owned();
+        let code_no_prefix = SecretString::new(hex_only);
+        let decoded = decode_invite_code(&code_no_prefix).unwrap();
+        assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());
+    }
+
+    #[test]
+    fn invite_decode_with_whitespace_trimmed() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        let padded = SecretString::new(format!("  {}  ", code.expose()));
+        assert!(decode_invite_code(&padded).is_ok());
+    }
+
+    // ── error cases ───────────────────────────────────────────────────────
+
+    #[test]
+    fn invite_decode_empty_fails() {
+        let err = decode_invite_code(&SecretString::new(String::new()));
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn invite_decode_truncated_fails() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        // Take only first 40 chars of the hex part
+        let short = &code.expose()["lci1:".len()..][..40];
+        let s = SecretString::new(format!("lci1:{}", short));
+        assert!(decode_invite_code(&s).is_err());
+    }
+
+    #[test]
+    fn invite_decode_wrong_magic_fails() {
+        let invite = make_invite();
+        let code = encode_invite_code(&invite).unwrap();
+        let hex_part = code.expose().strip_prefix("lci1:").unwrap();
+        let mut bytes = hex::decode(hex_part).unwrap();
+        // Corrupt the magic bytes
+        bytes[0] = 0xFF;
+        let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
+        assert!(decode_invite_code(&bad).is_err());
+    }
+
+    #[test]
+    fn invite_decode_wrong_version_fails() {
+        let invite = make_invite();
+        let code = encode_invite_code(&invite).unwrap();
+        let hex_part = code.expose().strip_prefix("lci1:").unwrap();
+        let mut bytes = hex::decode(hex_part).unwrap();
+        // Byte 4 is the version
+        bytes[4] = bytes[4].wrapping_add(1);
+        let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
+        assert!(decode_invite_code(&bad).is_err());
+    }
+
+    #[test]
+    fn invite_decode_trailing_bytes_fails() {
+        let invite = make_invite();
+        let code = encode_invite_code(&invite).unwrap();
+        let hex_part = code.expose().strip_prefix("lci1:").unwrap();
+        let mut bytes = hex::decode(hex_part).unwrap();
+        // Add an extra byte
+        bytes.push(0xAA);
+        let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
+        assert!(decode_invite_code(&bad).is_err());
+    }
+
+    // ── gen_self_state ────────────────────────────────────────────────────
+
+    #[test]
+    fn gen_self_state_returns_32_byte_cid() {
+        let (cid, _sj) = gen_self_state().unwrap();
+        assert_eq!(cid.len(), 32);
+    }
+
+    #[test]
+    fn gen_self_state_has_all_required_fields() {
+        let (_cid, sj) = gen_self_state().unwrap();
+        for field in &[
+            "cid", "x_priv", "x_pub", "k_priv", "k_pub",
+            "ed_priv", "ed_pub", "dili_priv", "dili_pub",
+            "mbox_in_priv", "mbox_in_pub",
+            "mbox_out_cur_priv", "mbox_out_cur_pub",
+            "mbox_out_next_priv", "mbox_out_next_pub",
+        ] {
+            sj.get_string(field).unwrap_or_else(|_| panic!("missing field: {field}"));
+        }
+    }
+
+    #[test]
+    fn gen_self_state_unique_cids() {
+        let (cid1, _) = gen_self_state().unwrap();
+        let (cid2, _) = gen_self_state().unwrap();
+        assert_ne!(cid1, cid2);
+    }
+
+    #[test]
+    fn gen_self_state_can_encode_as_invite() {
+        let (_cid, sj) = gen_self_state().unwrap();
+        let invite = InvitePublic {
+            cid_hex:              sj.get_string("cid").unwrap(),
+            x_pub_hex:            sj.get_string("x_pub").unwrap(),
+            k_pub_hex:            sj.get_string("k_pub").unwrap(),
+            ed_pub_hex:           sj.get_string("ed_pub").unwrap(),
+            dili_pub_hex:         sj.get_string("dili_pub").unwrap(),
+            mbox_in_pub_hex:      sj.get_string("mbox_in_pub").unwrap(),
+            mbox_out_cur_pub_hex: sj.get_string("mbox_out_cur_pub").unwrap(),
+            mbox_out_next_pub_hex: sj.get_string("mbox_out_next_pub").unwrap(),
+        };
+        let code = encode_invite_code(&invite).unwrap();
+        let decoded = decode_invite_code(&code).unwrap();
+        assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());
+    }
+
+    // ── decode_contact_id_hex ─────────────────────────────────────────────
+
+    #[test]
+    fn decode_contact_id_hex_valid() {
+        let hex = SecretString::new("aa".repeat(32));
+        let id = decode_contact_id_hex(&hex).unwrap();
+        assert_eq!(id, vec![0xAAu8; 32]);
+    }
+
+    #[test]
+    fn decode_contact_id_hex_wrong_length_fails() {
+        let hex = SecretString::new("deadbeef".to_owned()); // 4 bytes, not 32
+        assert!(decode_contact_id_hex(&hex).is_err());
+    }
+
+    #[test]
+    fn decode_contact_id_hex_invalid_chars_fails() {
+        let hex = SecretString::new("zz".repeat(32));
+        assert!(decode_contact_id_hex(&hex).is_err());
+    }
+}

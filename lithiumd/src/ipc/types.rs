@@ -20,6 +20,8 @@ pub enum IpcCommand {
     UnlockKeystore { data_password: SecretString },
     SetCredentials { handler: SecretString, password: SecretString },
     Register,
+    RemoteDelete { capability: SecretString },
+    DeleteAccount,
     UnlockStorage,
     Shutdown,
     WipeLocal,

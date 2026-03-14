@@ -1,7 +1,8 @@
 use std::{
     env,
     path::PathBuf,
-    sync::{Mutex, OnceLock}
+    sync::{Mutex, OnceLock},
+    time::Duration,
 };
 
 use serde::Deserialize;
@@ -28,6 +29,14 @@ struct UnlockKeystoreResult {
     pub unlocked: bool,
     #[serde(default)]
     pub ipc_auth_token: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RegisterResult {
+    #[serde(default)]
+    pub registered: bool,
+    #[serde(default)]
+    pub capability: String,
 }
 
 static IPC_AUTH_TOKEN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
@@ -156,6 +165,21 @@ pub struct AcceptInviteResult {
 pub struct VerifyEmojiResult {
     #[serde(default)]
     pub emojis: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ContactFetchMessageResult {
+    #[serde(default)]
+    pub ok: bool,
+
+    #[serde(default)]
+    pub err: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ContactFetchResult {
+    #[serde(default)]
+    pub messages: Vec<ContactFetchMessageResult>,
 }
 
 async fn send_request(mut req: Value) -> Result<Value, String> {
@@ -311,10 +335,30 @@ pub async fn set_credentials(handler: &str, password: &str) -> Result<(), String
     Ok(())
 }
 
-pub async fn register() -> Result<(), String> {
-    let _ = send_request(json!({
+pub async fn register() -> Result<RegisterResult, String> {
+    let v = send_request(json!({
         "cmd": "register",
         "id": 4
+    }))
+        .await?;
+
+    serde_json::from_value(v).map_err(|e| format!("bad_register_payload:{e}"))
+}
+
+pub async fn remote_delete(capability: &str) -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "remote_delete",
+        "id": 15,
+        "capability": capability
+    }))
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_account() -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "delete_account",
+        "id": 16
     }))
         .await?;
     Ok(())
@@ -341,7 +385,11 @@ pub async fn contacts_list() -> Result<Vec<ContactInfo>, String> {
     Ok(parsed.contacts)
 }
 
-pub async fn messages_list(contact_id: &str, limit: u64, before_id: Option<i64>) -> Result<MessagesResult, String> {
+pub async fn messages_list(
+    contact_id: &str,
+    limit: u64,
+    before_id: Option<i64>,
+) -> Result<MessagesResult, String> {
     let v = send_request(json!({
         "cmd": "messages_list",
         "id": 7,
@@ -388,7 +436,11 @@ pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResul
     serde_json::from_value(v).map_err(|e| format!("bad_create_invite_payload:{e}"))
 }
 
-pub async fn accept_invite(code: &str, label: &str, contact_id: Option<&str>) -> Result<AcceptInviteResult, String> {
+pub async fn accept_invite(
+    code: &str,
+    label: &str,
+    contact_id: Option<&str>,
+) -> Result<AcceptInviteResult, String> {
     let v = send_request(json!({
         "cmd": "accept_invite",
         "id": 11,
@@ -430,19 +482,4 @@ pub async fn wipe_local() -> Result<(), String> {
         .await?;
     set_auth_token(None);
     Ok(())
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ContactFetchMessageResult {
-    #[serde(default)]
-    pub ok: bool,
-
-    #[serde(default)]
-    pub err: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ContactFetchResult {
-    #[serde(default)]
-    pub messages: Vec<ContactFetchMessageResult>,
 }

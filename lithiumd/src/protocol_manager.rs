@@ -1,21 +1,18 @@
 use std::{env, sync::Arc, time::Duration};
 
 use rand::rand_core::UnwrapErr;
-use hex;
-use rand::RngExt;
 use rand::rngs::SysRng;
+use rand::RngExt;
 use reqwest::{header::HeaderMap, Client, Url};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::Mutex;
-
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use lithium_core::{
     crypto::{keys, kyberbox, sign},
     error::{LithiumError, Result},
-    keys::KeyManager,
-    keys::MkProvider,
+    keys::{KeyManager, MkProvider},
     secrets::{Byte32, SecretString},
     secrets::bytes::SecretBytes,
     utils::store::EphemeralStoreManager,
@@ -70,6 +67,8 @@ pub enum Endpoint {
     Shake,
     Register,
     Login,
+    RemoteDelete,
+    Delete,
     MsgSend,
     MsgFetch,
 }
@@ -80,6 +79,8 @@ impl Endpoint {
             Endpoint::Shake => "/shake",
             Endpoint::Register => "/user/register",
             Endpoint::Login => "/user/login",
+            Endpoint::RemoteDelete => "/user/revoke",
+            Endpoint::Delete => "/user/delete",
             Endpoint::MsgSend => "/msg/send",
             Endpoint::MsgFetch => "/msg/fetch",
         }
@@ -90,6 +91,8 @@ impl Endpoint {
             Endpoint::Shake => "shake",
             Endpoint::Register => "register",
             Endpoint::Login => "login",
+            Endpoint::RemoteDelete => "revoke",
+            Endpoint::Delete => "delete",
             Endpoint::MsgSend => "msg_send",
             Endpoint::MsgFetch => "msg_fetch",
         }
@@ -109,8 +112,11 @@ impl Endpoint {
 
     pub fn requires_jwt(&self) -> bool {
         match self {
-            Endpoint::Shake | Endpoint::Register | Endpoint::Login => false,
-            Endpoint::MsgSend => true,
+            Endpoint::Shake
+            | Endpoint::Register
+            | Endpoint::Login
+            | Endpoint::RemoteDelete => false,
+            Endpoint::Delete | Endpoint::MsgSend => true,
             Endpoint::MsgFetch => false,
         }
     }
@@ -120,7 +126,7 @@ impl Endpoint {
     }
 
     pub fn sign_with_ephemeral_keys(&self) -> bool {
-        matches!(self, Endpoint::Shake | Endpoint::MsgFetch)
+        matches!(self, Endpoint::Shake | Endpoint::RemoteDelete | Endpoint::MsgFetch)
     }
 }
 
@@ -142,7 +148,7 @@ pub struct ProtocolManager<P: MkProvider> {
     base: Url,
     http: Client,
     store: EphemeralStoreManager,
-    keys: Arc<Mutex<KeyManager<P>>>,
+    keys: Option<Arc<Mutex<KeyManager<P>>>>,
     bootstrap: ServerBootstrap,
 
     session_ttl: Duration,
@@ -157,7 +163,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         base: Url,
         http: Client,
         store: EphemeralStoreManager,
-        keys: Arc<Mutex<KeyManager<P>>>,
+        keys: Option<Arc<Mutex<KeyManager<P>>>>,
         bootstrap: ServerBootstrap,
     ) -> Self {
         Self {
@@ -177,7 +183,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         *self.creds.lock().await = Some((handler, password));
     }
 
-    pub async fn register(&self, dek_enc_hex: &str) -> Result<()> {
+    pub async fn register(&self, dek_enc_hex: &str) -> Result<SecretString> {
         let creds = self.creds.lock().await.clone();
         let Some((handler, password)) = creds else {
             return Err(LithiumError::invalid_credentials("handler/password missing"));
@@ -190,10 +196,23 @@ impl<P: MkProvider> ProtocolManager<P> {
         handler: SecretString,
         password: SecretString,
         dek_enc_hex: &str,
-    ) -> Result<()> {
+    ) -> Result<SecretString> {
         let _g = self.lock.lock().await;
         self.ensure_shake().await?;
         self.do_register(handler, password, dek_enc_hex).await
+    }
+
+    pub async fn remote_delete(&self, capability: &SecretString) -> Result<()> {
+        let _g = self.lock.lock().await;
+        self.ensure_shake().await?;
+        self.do_remote_delete(capability).await
+    }
+
+    pub async fn delete(&self) -> Result<()> {
+        let _ = self.send(Endpoint::Delete, json!({}), json!({})).await?;
+        let _ = self.clear_session_and_peer().await;
+        let _ = self.store.del(ST_DEK_ENC).await;
+        Ok(())
     }
 
     pub async fn get_dek(&self) -> Result<SecretString> {
@@ -216,7 +235,12 @@ impl<P: MkProvider> ProtocolManager<P> {
             .ok_or_else(|| LithiumError::state_missing(ST_DEK_ENC))
     }
 
-    pub async fn send(&self, ep: Endpoint, body: Value, app_headers: Value) -> Result<ProtocolResponse> {
+    pub async fn send(
+        &self,
+        ep: Endpoint,
+        body: Value,
+        app_headers: Value,
+    ) -> Result<ProtocolResponse> {
         let _g = self.lock.lock().await;
 
         if ep.requires_session() {
@@ -234,7 +258,8 @@ impl<P: MkProvider> ProtocolManager<P> {
                 .await?
                 .ok_or_else(|| LithiumError::state_missing(ST_JWT))?;
 
-            obj_mut(&mut body_try)?.insert("token".into(), Value::String(tok.expose().to_owned()));
+            obj_mut(&mut body_try)?
+                .insert("token".into(), Value::String(tok.expose().to_owned()));
         }
 
         self.send_once(&ep, body_try, app_headers_try).await
@@ -329,7 +354,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         handler: SecretString,
         password: SecretString,
         dek_enc_hex: &str,
-    ) -> Result<()> {
+    ) -> Result<SecretString> {
         let body = json!({
             "handler": handler.expose(),
             "password": password.expose(),
@@ -344,7 +369,24 @@ impl<P: MkProvider> ProtocolManager<P> {
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("msg"))?;
 
+        let capability = resp
+            .body
+            .get("capability")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| LithiumError::json_missing_field("capability"))?;
+
         self.store_string(ST_DEK_ENC, dek_enc_hex, DEK_TTL).await?;
+        Ok(SecretString::new(capability.to_owned()))
+    }
+
+    async fn do_remote_delete(&self, capability: &SecretString) -> Result<()> {
+        let body = json!({
+            "capability": capability.expose(),
+        });
+
+        let _ = self
+            .send_once(&Endpoint::RemoteDelete, body, json!({}))
+            .await?;
         Ok(())
     }
 
@@ -363,15 +405,31 @@ impl<P: MkProvider> ProtocolManager<P> {
 
         if ep.sign_with_ephemeral_keys() {
             let (ed_pub, sig_ed, dili_pub, sig_dili) = Self::sign_dual_ephemeral(&body_bytes)?;
-            obj_mut(&mut app_headers)?.insert("key-ed".into(), Value::String(ed_pub.to_hex().expose().to_string()));
-            obj_mut(&mut app_headers)?.insert("key-dili".into(), Value::String(dili_pub.to_hex().expose().to_string()));
-            obj_mut(&mut app_headers)?.insert("sig-ed".into(), Value::String(sig_ed.to_hex().expose().to_string()));
-            obj_mut(&mut app_headers)?.insert("sig-dili".into(), Value::String(sig_dili.to_hex().expose().to_string()));
+            obj_mut(&mut app_headers)?.insert(
+                "key-ed".into(),
+                Value::String(ed_pub.to_hex().expose().to_string()),
+            );
+            obj_mut(&mut app_headers)?.insert(
+                "key-dili".into(),
+                Value::String(dili_pub.to_hex().expose().to_string()),
+            );
+            obj_mut(&mut app_headers)?.insert(
+                "sig-ed".into(),
+                Value::String(sig_ed.to_hex().expose().to_string()),
+            );
+            obj_mut(&mut app_headers)?.insert(
+                "sig-dili".into(),
+                Value::String(sig_dili.to_hex().expose().to_string()),
+            );
         } else {
             let (sig_ed, sig_dili) = self.sign_dual(&body_bytes).await?;
 
             if ep.include_identity_keys_in_app_headers() {
-                let km = self.keys.lock().await;
+                let Some(keys) = self.keys.as_ref() else {
+                    return Err(LithiumError::invalid_credentials("keystore_locked"));
+                };
+
+                let km = keys.lock().await;
                 obj_mut(&mut app_headers)?.insert(
                     "key-ed".into(),
                     Value::String(km.public_keys().ed25519.to_hex().expose().to_string()),
@@ -383,8 +441,14 @@ impl<P: MkProvider> ProtocolManager<P> {
                 drop(km);
             }
 
-            obj_mut(&mut app_headers)?.insert("sig-ed".into(), Value::String(sig_ed.to_hex().expose().to_string()));
-            obj_mut(&mut app_headers)?.insert("sig-dili".into(), Value::String(sig_dili.to_hex().expose().to_string()));
+            obj_mut(&mut app_headers)?.insert(
+                "sig-ed".into(),
+                Value::String(sig_ed.to_hex().expose().to_string()),
+            );
+            obj_mut(&mut app_headers)?.insert(
+                "sig-dili".into(),
+                Value::String(sig_dili.to_hex().expose().to_string()),
+            );
         }
 
         let headers_bytes = serde_json::to_vec(&app_headers).map_err(LithiumError::json_parse)?;
@@ -438,11 +502,13 @@ impl<P: MkProvider> ProtocolManager<P> {
             let sk = ses_k.ok_or_else(|| LithiumError::state_missing(ST_SES_K))?;
             h.insert(
                 "ses-x",
-                reqwest::header::HeaderValue::from_str(sx.expose()).map_err(|_| LithiumError::internal())?,
+                reqwest::header::HeaderValue::from_str(sx.expose())
+                    .map_err(|_| LithiumError::internal())?,
             );
             h.insert(
                 "ses-k",
-                reqwest::header::HeaderValue::from_str(sk.expose()).map_err(|_| LithiumError::internal())?,
+                reqwest::header::HeaderValue::from_str(sk.expose())
+                    .map_err(|_| LithiumError::internal())?,
             );
             h.insert(
                 reqwest::header::CONTENT_TYPE,
@@ -458,19 +524,37 @@ impl<P: MkProvider> ProtocolManager<P> {
             .body(wire.enc_body.expose_as_slice().to_vec())
             .send()
             .await
-            .map_err(|e| if e.is_timeout() { LithiumError::timeout(e) } else { LithiumError::transport(e) })?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    LithiumError::timeout(e)
+                } else {
+                    LithiumError::transport(e)
+                }
+            })?;
 
-        if !resp.status().is_success() {
-            return Err(map_http_status(resp.status().as_u16()));
+        let status = resp.status();
+
+        if matches!(ep, Endpoint::RemoteDelete) && status.as_u16() == 204 {
+            return Ok(ProtocolResponse {
+                body: json!({}),
+                headers: json!({}),
+            });
+        }
+
+        if !status.is_success() {
+            return Err(map_http_status(status.as_u16()));
         }
 
         let rh = resp.headers().clone();
         let resp_body_bytes = resp.bytes().await.map_err(LithiumError::io)?.to_vec();
 
         let resp_peer_x = Byte32::from_hex(get_header_str(&rh, "key-x")?.as_str())?;
-        let resp_peer_k = hex::decode(get_header_str(&rh, "key-k")?).map_err(LithiumError::invalid_hex)?;
-        let resp_seed = hex::decode(get_header_str(&rh, "seed")?).map_err(LithiumError::invalid_hex)?;
-        let resp_data = hex::decode(get_header_str(&rh, "data")?).map_err(LithiumError::invalid_hex)?;
+        let resp_peer_k =
+            hex::decode(get_header_str(&rh, "key-k")?).map_err(LithiumError::invalid_hex)?;
+        let resp_seed =
+            hex::decode(get_header_str(&rh, "seed")?).map_err(LithiumError::invalid_hex)?;
+        let resp_data =
+            hex::decode(get_header_str(&rh, "data")?).map_err(LithiumError::invalid_hex)?;
 
         let (dec_body_secret, dec_headers_secret) = kyberbox::decrypt(
             &ep.ctx_resp(),
@@ -490,22 +574,26 @@ impl<P: MkProvider> ProtocolManager<P> {
         unpad_block(&mut dec_body)?;
         unpad_block(&mut dec_headers)?;
 
-        let sig_ed = hex::decode(get_header_str(&rh, "sig-ed")?).map_err(LithiumError::invalid_hex)?;
-        let sig_dili = hex::decode(get_header_str(&rh, "sig-dili")?).map_err(LithiumError::invalid_hex)?;
+        let sig_ed =
+            hex::decode(get_header_str(&rh, "sig-ed")?).map_err(LithiumError::invalid_hex)?;
+        let sig_dili =
+            hex::decode(get_header_str(&rh, "sig-dili")?).map_err(LithiumError::invalid_hex)?;
 
-        // Intentionally evaluate both signature schemes before checking the result.
-        // Do not rewrite this into a single short-circuit expression.
         let ok1 = sign::verify_signature(&dec_body, &sig_ed, &self.bootstrap.server_sig_ed);
-        let ok2 = sign::verify_signature_dili(&dec_body, &sig_dili, &self.bootstrap.server_sig_dili);
+        let ok2 =
+            sign::verify_signature_dili(&dec_body, &sig_dili, &self.bootstrap.server_sig_dili);
         if !(ok1 && ok2) {
             return Err(LithiumError::invalid_credentials("server_signature_invalid"));
         }
 
         let body_val: Value = serde_json::from_slice(&dec_body).map_err(LithiumError::json_parse)?;
-        let headers_val: Value = serde_json::from_slice(&dec_headers).map_err(LithiumError::json_parse)?;
+        let headers_val: Value =
+            serde_json::from_slice(&dec_headers).map_err(LithiumError::json_parse)?;
 
-        self.store_bytes(ST_SERVER_PEER_X, resp_peer_x.as_slice(), self.session_ttl).await?;
-        self.store_bytes(ST_SERVER_PEER_K, resp_peer_k.as_slice(), self.session_ttl).await?;
+        self.store_bytes(ST_SERVER_PEER_X, resp_peer_x.as_slice(), self.session_ttl)
+            .await?;
+        self.store_bytes(ST_SERVER_PEER_K, resp_peer_k.as_slice(), self.session_ttl)
+            .await?;
 
         if let Some(sx) = headers_val.get("ses-x").and_then(|v| v.as_str()) {
             self.store_string(ST_SES_X, sx, self.session_ttl).await?;
@@ -521,17 +609,26 @@ impl<P: MkProvider> ProtocolManager<P> {
             self.store_string(ST_DEK_ENC, dek, DEK_TTL).await?;
         }
 
-        Ok(ProtocolResponse { body: body_val, headers: headers_val })
+        Ok(ProtocolResponse {
+            body: body_val,
+            headers: headers_val,
+        })
     }
 
     async fn sign_dual(&self, msg: &[u8]) -> Result<(SecretBytes, SecretBytes)> {
-        let km = self.keys.lock().await;
+        let Some(keys) = self.keys.as_ref() else {
+            return Err(LithiumError::invalid_credentials("keystore_locked"));
+        };
+
+        let km = keys.lock().await;
         let sig_ed = km.with_ed_sk(|sk| sign::sign_message(msg, sk))?;
         let sig_dili = km.with_dilithium_sk(|sk| sign::sign_message_dili(msg, sk))?;
         Ok((sig_ed, sig_dili))
     }
 
-    fn sign_dual_ephemeral(msg: &[u8]) -> Result<(Byte32, SecretBytes, SecretBytes, SecretBytes)> {
+    fn sign_dual_ephemeral(
+        msg: &[u8],
+    ) -> Result<(Byte32, SecretBytes, SecretBytes, SecretBytes)> {
         let (ed_priv, ed_pub) = keys::random_ed25519_keypair()?;
         let (dili_priv, dili_pub) = keys::random_dilithium_mldsa87_keypair()?;
 
@@ -551,7 +648,9 @@ impl<P: MkProvider> ProtocolManager<P> {
     }
 
     async fn store_string(&self, key: &str, value: &str, ttl: Duration) -> Result<()> {
-        self.store.set(key, &SecretBytes::from_slice(value.as_bytes()), ttl).await
+        self.store
+            .set(key, &SecretBytes::from_slice(value.as_bytes()), ttl)
+            .await
     }
 
     async fn store_bytes(&self, key: &str, value: &[u8], ttl: Duration) -> Result<()> {
@@ -613,7 +712,9 @@ fn hv_hex(bytes: &[u8]) -> Result<reqwest::header::HeaderValue> {
 
 fn get_header_str(h: &HeaderMap, name: &'static str) -> Result<String> {
     let v = h.get(name).ok_or_else(|| LithiumError::missing_header(name))?;
-    let s = v.to_str().map_err(|e| LithiumError::invalid_utf8_header(name, e))?;
+    let s = v
+        .to_str()
+        .map_err(|e| LithiumError::invalid_utf8_header(name, e))?;
     Ok(s.to_string())
 }
 

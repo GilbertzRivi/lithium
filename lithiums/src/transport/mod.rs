@@ -70,7 +70,7 @@ const REGISTER_LOCK_SECS: u64 = 60 * 60;
 const REGISTER_FAIL_THRESHOLD: u32 = 3;
 
 #[inline]
-fn normalize_login_handler(handler: &str) -> String {
+pub(crate) fn normalize_login_handler(handler: &str) -> String {
     handler.trim().to_lowercase()
 }
 
@@ -575,17 +575,22 @@ pub async fn build_crypto_context(
 
         AuthMode::LoginByHandler => {
             let handler = body_json.get_string("handler")?;
+            let handler_norm = normalize_login_handler(handler.expose());
 
-            login_rate_limit_check(&state, handler.expose()).await?;
+            login_rate_limit_check(&state, &handler_norm).await?;
 
-            let u = state
-                .db
-                .get_user(handler.expose())
-                .await?
-                .ok_or_else(|| AppError::unauthorized("invalid_credentials"))?;
+            let u = match state.db.get_user(handler.expose()).await? {
+                Some(u) => u,
+                None => {
+                    login_rate_limit_fail(&state, &handler_norm).await?;
+                    return Err(AppError::unauthorized("invalid_credentials"));
+                }
+            };
 
-            verify_signature(&headers_json, &body_json, &u.ed_key, &u.dili_key)
-                .map_err(|_| AppError::unauthorized("invalid_credentials"))?;
+            if verify_signature(&headers_json, &body_json, &u.ed_key, &u.dili_key).is_err() {
+                login_rate_limit_fail(&state, &handler_norm).await?;
+                return Err(AppError::unauthorized("invalid_credentials"));
+            }
 
             user = Some(u);
         }

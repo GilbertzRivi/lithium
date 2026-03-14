@@ -1,4 +1,5 @@
-use poem::{handler, Response};
+use poem::{handler, Body, Response};
+use poem::http::StatusCode;
 use serde_json::json;
 
 use lithium_core::passwords::passwords::verify_password_phc;
@@ -43,7 +44,7 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
     let _dek_blob = SecretBytes::from_hex(dek_hex.expose())
         .map_err(|_| AppError::bad_request("invalid_dek"))?;
 
-    let created = state
+    let capability = match state
         .db
         .create_user(
             handler.expose(),
@@ -52,17 +53,22 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
             dili_key.expose_as_slice(),
             dek_hex.expose().as_bytes(),
         )
-        .await?;
-
-    if created {
-        register_rate_limit_success(&state, handler.expose()).await?;
-    } else {
-        register_rate_limit_fail(&state, handler.expose()).await?;
-    }
+        .await?
+    {
+        Some(capability) => {
+            register_rate_limit_success(&state, handler.expose()).await?;
+            capability
+        }
+        None => {
+            register_rate_limit_fail(&state, handler.expose()).await?;
+            return Err(AppError::bad_request("user_exists"));
+        }
+    };
 
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
-        "msg": "Ok"
+        "msg": "Ok",
+        "capability": capability.expose(),
     }))
         .await
 }
@@ -83,16 +89,18 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
         (ctx.state.clone(), handler, password, user)
     };
 
-    login_rate_limit_check(&state, handler.expose()).await?;
+    let handler_norm = crate::transport::normalize_login_handler(handler.expose());
+
+    login_rate_limit_check(&state, handler_norm.as_str()).await?;
 
     let ok = verify_password_phc(user.password_hash.expose(), &password)?;
 
     if !ok {
-        login_rate_limit_fail(&state, handler.expose()).await?;
+        login_rate_limit_fail(&state, handler_norm.as_str()).await?;
         return Err(AppError::unauthorized("invalid_credentials"));
     }
 
-    login_rate_limit_success(&state, handler.expose()).await?;
+    login_rate_limit_success(&state, handler_norm.as_str()).await?;
 
     let dek = user.dek.clone();
 
@@ -106,5 +114,43 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
             "dek": dek.expose(),
         }),
     )
+        .await
+}
+
+#[handler]
+pub async fn revoke(req: CryptoReq) -> Result<Response, AppError> {
+    let (state, capability) = {
+        let mut ctx = req.lock().await;
+        let capability = ctx.body.take_string("capability")?;
+        (ctx.state.clone(), capability)
+    };
+
+    let _ = state
+        .db
+        .delete_user_by_remote_delete_capability(capability.expose())
+        .await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(Body::empty()))
+}
+
+#[handler]
+pub async fn delete(req: CryptoReq) -> Result<Response, AppError> {
+    let (state, user_id) = {
+        let ctx = req.lock().await;
+        let user = ctx
+            .user
+            .clone()
+            .ok_or(AppError::unauthorized("unauthorized"))?;
+        (ctx.state.clone(), user.id)
+    };
+
+    let _ = state.db.delete_user_by_id(&user_id).await?;
+
+    let mut ctx = req.lock().await;
+    ctx.reply_ok(json!({
+        "msg": "Ok"
+    }))
         .await
 }

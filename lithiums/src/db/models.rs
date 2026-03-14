@@ -15,6 +15,8 @@ pub mod users {
         pub dili_key: Vec<u8>,
 
         pub dek: Vec<u8>,
+
+        pub delete_token_hash: Vec<u8>,
     }
 
     #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

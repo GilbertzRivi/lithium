@@ -52,9 +52,10 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 Err(_) => return crypto_err(id),
             };
 
-            if proto.register(&dek_blob_hex.expose()).await.is_err() {
-                return protocol_err(id);
-            }
+            let capability = match proto.register(&dek_blob_hex.expose()).await {
+                Ok(v) => v,
+                Err(_) => return protocol_err(id),
+            };
 
             let arr = match Byte32::from_slice(dek_b32.as_slice()) {
                 Ok(v) => v,
@@ -76,7 +77,8 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 id,
                 ok: true,
                 result: Some(json!({
-                    "registered": true
+                    "registered": true,
+                    "capability": capability.expose()
                 })),
                 error: None,
             }

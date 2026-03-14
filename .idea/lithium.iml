@@ -16,6 +16,7 @@
       <sourceFolder url="file://$MODULE_DIR$/lithiumd/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lithiumg/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lithiums/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lithium_core/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/crates/lithiumd/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/diagrams/.venv" />

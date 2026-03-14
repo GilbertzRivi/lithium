@@ -121,7 +121,7 @@ pub async fn handle(
         state.base_url.clone(),
         http,
         eph,
-        keys,
+        Some(keys),
         state.bootstrap.clone(),
     ));
 

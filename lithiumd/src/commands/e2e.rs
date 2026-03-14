@@ -1147,3 +1147,772 @@ pub fn decrypt_for_prekey(
     let (rx_x_priv, rx_k_priv) = prekey_blob_to_privs(prekey_blob)?;
     peer_v.with_exposed_mut(|peer_v| decrypt_with_privs(peer_v, w, &rx_x_priv, &rx_k_priv))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::invite_codec::gen_self_state;
+
+    fn wire_fixture() -> WireV1 {
+        WireV1 {
+            to_id: [0xBBu8; 32],
+            from_x_pub: [0xCCu8; 32],
+            seed: vec![0x11u8; 64],
+            enc_headers: vec![0x22u8; 128],
+            enc_body: vec![0x33u8; 256],
+        }
+    }
+
+    // ── pack_wire / unpack_wire ───────────────────────────────────────────
+
+    #[test]
+    fn wire_pack_unpack_roundtrip() {
+        let orig = wire_fixture();
+        let packed = pack_wire(&orig);
+        let decoded = unpack_wire(&packed).unwrap();
+
+        assert_eq!(decoded.to_id, orig.to_id);
+        assert_eq!(decoded.from_x_pub, orig.from_x_pub);
+        assert_eq!(decoded.seed, orig.seed);
+        assert_eq!(decoded.enc_headers, orig.enc_headers);
+        assert_eq!(decoded.enc_body, orig.enc_body);
+    }
+
+    #[test]
+    fn wire_packed_starts_with_magic_and_version() {
+        let packed = pack_wire(&wire_fixture());
+        assert_eq!(&packed[..3], b"LM1");
+        assert_eq!(packed[3], 1u8);
+    }
+
+    #[test]
+    fn wire_unpack_wrong_magic_fails() {
+        let mut packed = pack_wire(&wire_fixture());
+        packed[0] = 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_wrong_version_fails() {
+        let mut packed = pack_wire(&wire_fixture());
+        packed[3] = 99;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_truncated_fails() {
+        let packed = pack_wire(&wire_fixture());
+        assert!(unpack_wire(&packed[..10]).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_empty_fields_roundtrip() {
+        let empty = WireV1 {
+            to_id: [0u8; 32],
+            from_x_pub: [0u8; 32],
+            seed: vec![],
+            enc_headers: vec![],
+            enc_body: vec![],
+        };
+        let packed = pack_wire(&empty);
+        let decoded = unpack_wire(&packed).unwrap();
+        assert!(decoded.seed.is_empty());
+        assert!(decoded.enc_headers.is_empty());
+        assert!(decoded.enc_body.is_empty());
+    }
+
+    // ── gen_local_prekey_material + prekey_blob_to_privs ─────────────────
+
+    #[test]
+    fn prekey_material_generated_successfully() {
+        let (id_hex, blob, pub_item) = gen_local_prekey_material().unwrap();
+        assert_eq!(id_hex.len(), 64, "id hex must be 64 chars (32 bytes)");
+        assert!(!blob.expose_as_slice().is_empty());
+        assert_eq!(pub_item.get("id").and_then(|v| v.as_str()), Some(id_hex.as_str()));
+    }
+
+    #[test]
+    fn prekey_material_unique_each_time() {
+        let (id1, _, _) = gen_local_prekey_material().unwrap();
+        let (id2, _, _) = gen_local_prekey_material().unwrap();
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn prekey_blob_to_privs_roundtrip() {
+        let (_id, blob, _pub_item) = gen_local_prekey_material().unwrap();
+        let (x_priv, k_priv) = prekey_blob_to_privs(&blob).unwrap();
+        assert_eq!(x_priv.as_slice().len(), 32);
+        assert!(!k_priv.expose_as_slice().is_empty());
+    }
+
+    #[test]
+    fn prekey_blob_to_privs_garbage_fails() {
+        let bad = SecretBytes::from_slice(b"not json");
+        assert!(prekey_blob_to_privs(&bad).is_err());
+    }
+
+    // ── ensure_self_keyring ───────────────────────────────────────────────
+
+    #[test]
+    fn ensure_self_keyring_initializes_e2e_fields() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+
+        sj.with_exposed(|v| {
+            assert!(v.get("e2e_tx").is_some(), "e2e_tx must be initialized");
+            assert!(v.get("e2e_rx").is_some(), "e2e_rx must be initialized");
+            assert!(v.get("bootstrap").is_some(), "bootstrap must be initialized");
+            assert!(v["e2e_rx"]["active"].is_string());
+            assert_eq!(v["e2e_rx"]["ack_seq"].as_u64(), Some(0));
+            assert_eq!(v["e2e_rx"]["next_seq"].as_u64(), Some(1));
+            assert_eq!(v["e2e_rx"]["window"].as_u64(), Some(DEFAULT_WINDOW));
+        });
+    }
+
+    #[test]
+    fn ensure_self_keyring_idempotent() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+        let ack_before = sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64());
+        ensure_self_keyring(&mut sj).unwrap();
+        let ack_after = sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64());
+        assert_eq!(ack_before, ack_after);
+    }
+
+    // ── bootstrap retire / advertise helpers ─────────────────────────────
+
+    #[test]
+    fn mark_bootstrap_retire_ready_sets_flag() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+
+        mark_bootstrap_retire_ready(&mut sj);
+
+        let flag = sj.with_exposed(|v| {
+            v.get("bootstrap")
+                .and_then(|b| b.get("retire_ok"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        });
+        assert!(flag, "retire_ok must be true after mark");
+    }
+
+    // ── prekeys_should_advertise / mark_advertised ────────────────────────
+
+    #[test]
+    fn prekeys_should_advertise_initially_true() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+        assert!(prekeys_should_advertise(&sj));
+    }
+
+    #[test]
+    fn prekeys_mark_advertised_clears_flag() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+        prekeys_mark_advertised(&mut sj);
+        assert!(!prekeys_should_advertise(&sj));
+    }
+
+    // ── local_public_prekeys ──────────────────────────────────────────────
+
+    #[test]
+    fn local_public_prekeys_empty_initially() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        ensure_self_keyring(&mut sj).unwrap();
+        assert!(local_public_prekeys(&sj).is_empty());
+    }
+
+    // ── peer helpers ──────────────────────────────────────────────────────
+
+    #[test]
+    fn peer_need_recover_false_by_default() {
+        let pv = SecretJson::from(json!({}));
+        assert!(!peer_need_recover(&pv));
+    }
+
+    #[test]
+    fn peer_set_and_get_need_recover() {
+        let mut pv = SecretJson::from(json!({}));
+        peer_set_need_recover(&mut pv, true);
+        assert!(peer_need_recover(&pv));
+        peer_set_need_recover(&mut pv, false);
+        assert!(!peer_need_recover(&pv));
+    }
+
+    #[test]
+    fn peer_pick_and_remove_remote_prekey() {
+        let mut pv = SecretJson::from(json!({
+            "prekeys_remote": [
+                {"id": "aabb", "x_pub": "pppp", "k_pub": "kkkk"},
+                {"id": "ccdd", "x_pub": "qqqq", "k_pub": "llll"}
+            ]
+        }));
+
+        let picked = peer_pick_remote_prekey(&pv).unwrap();
+        assert_eq!(picked.0, "aabb");
+
+        peer_remove_remote_prekey(&mut pv, "aabb");
+        let after = peer_pick_remote_prekey(&pv).unwrap();
+        assert_eq!(after.0, "ccdd", "first prekey must be removed");
+    }
+
+    #[test]
+    fn peer_pick_remote_prekey_empty_returns_none() {
+        let pv = SecretJson::from(json!({ "prekeys_remote": [] }));
+        assert!(peer_pick_remote_prekey(&pv).is_none());
+    }
+
+    // ── full bootstrap encrypt / decrypt roundtrip ────────────────────────
+    //
+    // Alice creates her state via gen_self_state().
+    // Bob creates his state via gen_self_state().
+    // Alice encrypts a bootstrap message for Bob's bootstrap public keys.
+    // Bob decrypts it using his x_priv / k_priv.
+
+    fn build_peer_v_from_state(state_sj: &SecretJson, cid_bytes: &[u8]) -> SecretJson {
+        let cid_hex = hex::encode(cid_bytes);
+        state_sj.with_exposed(|v| {
+            SecretJson::from(json!({
+                "peer": {
+                    "cid":       cid_hex,
+                    "x_pub":     v.get("x_pub").unwrap(),
+                    "k_pub":     v.get("k_pub").unwrap(),
+                    "ed_pub":    v.get("ed_pub").unwrap(),
+                    "dili_pub":  v.get("dili_pub").unwrap(),
+                    "mbox_in_pub":       v.get("mbox_in_pub").unwrap_or(v.get("x_pub").unwrap()),
+                    "mbox_out_cur_pub":  v.get("mbox_out_cur_pub").unwrap_or(v.get("x_pub").unwrap()),
+                    "mbox_out_next_pub": v.get("mbox_out_next_pub").unwrap_or(v.get("x_pub").unwrap()),
+                }
+            }))
+        })
+    }
+
+    #[test]
+    fn e2e_bootstrap_roundtrip() {
+        let (alice_cid, mut alice_self_sj) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_self_sj) = gen_self_state().unwrap();
+
+        // Alice's view of Bob (for encrypting to his bootstrap keys)
+        let mut bob_peer_v = build_peer_v_from_state(&bob_self_sj, &bob_cid);
+
+        // Bob's view of Alice (for verifying Alice's signatures)
+        let mut alice_peer_v = build_peer_v_from_state(&alice_self_sj, &alice_cid);
+
+        let plaintext = b"bootstrap message";
+        let (wire, meta) = encrypt_for_peer(
+            &mut alice_self_sj,
+            &mut bob_peer_v,
+            plaintext,
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(
+            meta.get("mode").and_then(|v| v.as_str()),
+            Some("bootstrap"),
+            "first message must use bootstrap mode"
+        );
+
+        let (decrypted, _ui) = decrypt_for_us(&mut bob_self_sj, &mut alice_peer_v, &wire).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn e2e_decrypt_with_wrong_state_fails() {
+        let (alice_cid, mut alice_self_sj) = gen_self_state().unwrap();
+        let (_bob_cid, bob_self_sj) = gen_self_state().unwrap();
+        let (_wrong_cid, mut wrong_self_sj) = gen_self_state().unwrap();
+
+        let mut bob_peer_v = {
+            let (cid, _sj) = gen_self_state().unwrap();
+            build_peer_v_from_state(&bob_self_sj, &cid)
+        };
+
+        let mut alice_peer_v = build_peer_v_from_state(&alice_self_sj, &alice_cid);
+
+        let (wire, _) = encrypt_for_peer(
+            &mut alice_self_sj,
+            &mut bob_peer_v,
+            b"data",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+
+        // Wrong receiver — should fail (to_id unknown)
+        let result = decrypt_for_us(&mut wrong_self_sj, &mut alice_peer_v, &wire);
+        assert!(result.is_err(), "decryption with wrong state must fail");
+    }
+
+    #[test]
+    fn e2e_pack_unpack_after_encrypt() {
+        let (_alice_cid, mut alice_self_sj) = gen_self_state().unwrap();
+        let (bob_cid, bob_self_sj) = gen_self_state().unwrap();
+        let mut bob_peer_v = build_peer_v_from_state(&bob_self_sj, &bob_cid);
+
+        let (wire, _) = encrypt_for_peer(
+            &mut alice_self_sj,
+            &mut bob_peer_v,
+            b"payload",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+
+        let packed = pack_wire(&wire);
+        let decoded = unpack_wire(&packed).unwrap();
+        assert_eq!(decoded.to_id, wire.to_id);
+        assert_eq!(decoded.from_x_pub, wire.from_x_pub);
+        assert_eq!(decoded.seed.len(), wire.seed.len());
+        assert_eq!(decoded.enc_headers.len(), wire.enc_headers.len());
+        assert_eq!(decoded.enc_body.len(), wire.enc_body.len());
+    }
+
+    #[test]
+    fn e2e_prekey_roundtrip() {
+        // Bob generates a prekey. Alice encrypts directly for that prekey.
+        // Bob decrypts with decrypt_for_prekey.
+        let (alice_cid, mut alice_self_sj) = gen_self_state().unwrap();
+        let (_prekey_id, prekey_blob, pub_item) = gen_local_prekey_material().unwrap();
+        let pk_x_pub = pub_item.get("x_pub").unwrap().as_str().unwrap().to_owned();
+        let pk_k_pub = pub_item.get("k_pub").unwrap().as_str().unwrap().to_owned();
+        let pk_id    = pub_item.get("id").unwrap().as_str().unwrap().to_owned();
+
+        // peer_v: Alice's view of Bob — has prekeys_remote list
+        let (bob_cid, bob_self_sj) = gen_self_state().unwrap();
+        let mut bob_peer_v = SecretJson::from(json!({
+            "peer": {
+                "cid": hex::encode(&bob_cid),
+                "x_pub": bob_self_sj.with_exposed(|v| v["x_pub"].as_str().unwrap().to_owned()),
+                "k_pub": bob_self_sj.with_exposed(|v| v["k_pub"].as_str().unwrap().to_owned()),
+                "ed_pub": bob_self_sj.with_exposed(|v| v["ed_pub"].as_str().unwrap().to_owned()),
+                "dili_pub": bob_self_sj.with_exposed(|v| v["dili_pub"].as_str().unwrap().to_owned()),
+                "mbox_in_pub": bob_self_sj.with_exposed(|v| v["mbox_in_pub"].as_str().unwrap().to_owned()),
+                "mbox_out_cur_pub": bob_self_sj.with_exposed(|v| v["mbox_out_cur_pub"].as_str().unwrap().to_owned()),
+                "mbox_out_next_pub": bob_self_sj.with_exposed(|v| v["mbox_out_next_pub"].as_str().unwrap().to_owned()),
+            },
+            "prekeys_remote": [{
+                "id": pk_id,
+                "x_pub": pk_x_pub,
+                "k_pub": pk_k_pub
+            }]
+        }));
+
+        let (wire, meta) = encrypt_for_peer(
+            &mut alice_self_sj,
+            &mut bob_peer_v,
+            b"prekey message",
+            "text",
+            &[],
+            true, // use_recovery = true
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(
+            meta.get("mode").and_then(|v| v.as_str()),
+            Some("prekey_recover")
+        );
+
+        // Use Alice's actual sj for signature verification (correct ed_pub, dili_pub)
+        let mut alice_peer_v_correct = build_peer_v_from_state(&alice_self_sj, &alice_cid);
+
+        let (decrypted, _ui) = decrypt_for_prekey(&mut alice_peer_v_correct, &wire, &prekey_blob).unwrap();
+        assert_eq!(decrypted, b"prekey message");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WireV1 format — sadystyczne mutacje
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Wire layout: [LM1:3][VER:1][to_id:32][from_x_pub:32][seed_len:u16][seed]
+    //              [hdr_len:u32][enc_headers][body_len:u32][enc_body]
+
+    fn make_real_wire() -> (WireV1, SecretJson, SecretJson, Vec<u8>) {
+        let (alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, bob_sj) = gen_self_state().unwrap();
+        let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let (wire, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv, b"mutation-test", "text", &[], false, 0,
+        ).unwrap();
+        let _ = alice_cid;
+        let packed = pack_wire(&wire);
+        (wire, alice_sj, bob_sj, packed)
+    }
+
+    // ── unpack failures ────────────────────────────────────────────────────
+
+    #[test]
+    fn wire_unpack_corrupt_magic_byte_1_fails() {
+        let (_, _, _, mut packed) = make_real_wire();
+        packed[1] ^= 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_corrupt_magic_byte_2_fails() {
+        let (_, _, _, mut packed) = make_real_wire();
+        packed[2] ^= 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_version_0_fails() {
+        let (_, _, _, mut packed) = make_real_wire();
+        packed[3] = 0;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_version_2_fails() {
+        let (_, _, _, mut packed) = make_real_wire();
+        packed[3] = 2;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_truncate_at_3_bytes_fails() {
+        let (_, _, _, packed) = make_real_wire();
+        assert!(unpack_wire(&packed[..3]).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_truncate_at_36_bytes_fails() {
+        // after to_id, before from_x_pub completes
+        let (_, _, _, packed) = make_real_wire();
+        assert!(unpack_wire(&packed[..36]).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_truncate_after_header_no_seed_fails() {
+        // 3+1+32+32 = 68 bytes: header complete but no seed_len
+        let (_, _, _, packed) = make_real_wire();
+        assert!(unpack_wire(&packed[..68]).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_seed_len_claims_more_than_available_fails() {
+        let (_, _, _, mut packed) = make_real_wire();
+        // offset 68-69 = seed_len u16; set to 0xFFFF
+        packed[68] = 0xFF;
+        packed[69] = 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_hdr_len_claims_more_than_available_fails() {
+        let (wire, _, _, mut packed) = make_real_wire();
+        // hdr_len starts at byte 70 + seed.len()
+        let hdr_len_offset = 70 + wire.seed.len();
+        packed[hdr_len_offset] = 0xFF;
+        packed[hdr_len_offset + 1] = 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_body_len_claims_more_than_available_fails() {
+        let (wire, _, _, mut packed) = make_real_wire();
+        let body_len_offset = 70 + wire.seed.len() + 4 + wire.enc_headers.len();
+        packed[body_len_offset] = 0xFF;
+        packed[body_len_offset + 1] = 0xFF;
+        assert!(unpack_wire(&packed).is_err());
+    }
+
+    #[test]
+    fn wire_unpack_trailing_bytes_succeed() {
+        // unpack_wire does not reject trailing bytes — this is intentional (stream protocol)
+        let (_, _, _, mut packed) = make_real_wire();
+        packed.extend_from_slice(&[0xFF; 128]);
+        assert!(unpack_wire(&packed).is_ok());
+    }
+
+    // ── parse ok, decrypt fails ────────────────────────────────────────────
+
+    #[test]
+    fn wire_corrupt_to_id_causes_to_id_unknown() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        wire.to_id[0] ^= 0xFF; // corrupted receiver identity
+
+        let mut fake_peer_v = SecretJson::from(json!({}));
+        let result = decrypt_for_us(&mut bob_sj, &mut fake_peer_v, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_corrupt_from_x_pub_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        wire.from_x_pub[0] ^= 0xFF; // wrong sender ephemeral key → bad ECDH
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_corrupt_seed_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        if !wire.seed.is_empty() {
+            wire.seed[0] ^= 0xFF;
+        }
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_corrupt_seed_last_byte_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        if !wire.seed.is_empty() {
+            let last = wire.seed.len() - 1;
+            wire.seed[last] ^= 0x01;
+        }
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_corrupt_enc_headers_tag_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        if !wire.enc_headers.is_empty() {
+            let last = wire.enc_headers.len() - 1;
+            wire.enc_headers[last] ^= 0x01;
+        }
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_corrupt_enc_body_tag_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        if !wire.enc_body.is_empty() {
+            let last = wire.enc_body.len() - 1;
+            wire.enc_body[last] ^= 0x01;
+        }
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_swap_enc_body_and_enc_headers_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        std::mem::swap(&mut wire.enc_body, &mut wire.enc_headers);
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn wire_empty_enc_body_decryption_fails() {
+        let (mut wire, _, mut bob_sj, _) = make_real_wire();
+        let (alice_cid, alice_sj) = gen_self_state().unwrap();
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        wire.enc_body.clear();
+        let result = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire);
+        assert!(result.is_err());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // State evolution — wielokrokowe scenariusze
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn e2e_step_counter_increments_each_message() {
+        let (_alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, bob_sj) = gen_self_state().unwrap();
+        let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
+
+        let (_, m1) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"msg1", "text", &[], false, 0).unwrap();
+        let (_, m2) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"msg2", "text", &[], false, 0).unwrap();
+        let (_, m3) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"msg3", "text", &[], false, 0).unwrap();
+
+        assert_eq!(m1["step"].as_u64(), Some(1));
+        assert_eq!(m2["step"].as_u64(), Some(2));
+        assert_eq!(m3["step"].as_u64(), Some(3));
+    }
+
+    #[test]
+    fn e2e_two_bootstrap_messages_both_decrypt() {
+        // Alice sends two messages before receiving any reply — both must decrypt on Bob's side.
+        let (alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
+        let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let mut alice_pv = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        let (wire1, m1) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"first", "text", &[], false, 0).unwrap();
+        let (wire2, m2) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"second", "text", &[], false, 0).unwrap();
+
+        assert_eq!(m1["mode"].as_str(), Some("bootstrap"));
+        assert_eq!(m2["mode"].as_str(), Some("bootstrap"));
+
+        let (pt1, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire1).unwrap();
+        let (pt2, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire2).unwrap();
+
+        assert_eq!(pt1, b"first");
+        assert_eq!(pt2, b"second");
+    }
+
+    #[test]
+    fn e2e_ratchet_mode_after_bootstrap_reply() {
+        // After Bob decrypts Alice's bootstrap, he gets alice.e2e_peer → next send is ratchet.
+        let (alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
+        let mut bob_pv_for_alice = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let mut alice_pv_for_bob = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        // Alice → Bob bootstrap
+        let (wire_a, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv_for_alice, b"bootstrap", "text", &[], false, 0,
+        ).unwrap();
+
+        // Bob decrypts → sets alice_pv_for_bob["e2e_peer"] = Alice's reply keys
+        decrypt_for_us(&mut bob_sj, &mut alice_pv_for_bob, &wire_a).unwrap();
+
+        // alice_pv_for_bob now has e2e_peer; Bob's next encrypt to Alice uses ratchet mode
+        let (wire_b, meta_b) = encrypt_for_peer(
+            &mut bob_sj, &mut alice_pv_for_bob, b"ratchet-reply", "text", &[], false, 0,
+        ).unwrap();
+        assert_eq!(meta_b["mode"].as_str(), Some("ratchet"),
+            "after receiving bootstrap, next send must be ratchet");
+
+        // Alice decrypts Bob's ratchet reply
+        let mut bob_pv_for_alice2 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        // alice must have bob's reply key — it's in wire_b.to_id which matches alice's e2e_rx
+        let (pt, _) = decrypt_for_us(&mut alice_sj, &mut bob_pv_for_alice2, &wire_b).unwrap();
+        assert_eq!(pt, b"ratchet-reply");
+    }
+
+    #[test]
+    fn e2e_ack_seq_advances_after_ratchet_decrypt() {
+        let (alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
+        let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let mut alice_pv_for_bob = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        // Alice → Bob bootstrap
+        let (wire_a, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv, b"hello", "text", &[], false, 0,
+        ).unwrap();
+        decrypt_for_us(&mut bob_sj, &mut alice_pv_for_bob, &wire_a).unwrap();
+
+        // Bob → Alice ratchet
+        let (wire_b, _) = encrypt_for_peer(
+            &mut bob_sj, &mut alice_pv_for_bob, b"reply", "text", &[], false, 0,
+        ).unwrap();
+
+        let ack_before = alice_sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0));
+
+        let mut bob_pv2 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        decrypt_for_us(&mut alice_sj, &mut bob_pv2, &wire_b).unwrap();
+
+        let ack_after = alice_sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0));
+        assert!(ack_after > ack_before,
+            "ack_seq must advance after ratchet decrypt: {ack_before} → {ack_after}");
+    }
+
+    #[test]
+    fn e2e_gc_removes_old_reply_key() {
+        // Full multi-step: Alice→Bob bootstrap, Bob→Alice ratchet x3 with window=1,
+        // then replaying the first ratchet message should fail (key GC'd).
+        let (alice_cid, mut alice_sj) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
+
+        // Set alice's GC window to 1
+        ensure_self_keyring(&mut alice_sj).unwrap();
+        alice_sj.with_exposed_mut(|v| { v["e2e_rx"]["window"] = json!(1u64); });
+
+        let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let mut alice_pv_for_bob = build_peer_v_from_state(&alice_sj, &alice_cid);
+
+        // Step 1: Alice → Bob bootstrap (creates alice reply slot seq=1)
+        let (wire_a1, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv, b"a1", "text", &[], false, 0,
+        ).unwrap();
+        decrypt_for_us(&mut bob_sj, &mut alice_pv_for_bob, &wire_a1).unwrap();
+
+        // Step 2: Bob → Alice ratchet (to_id = alice_reply_id_1, seq will be set to 1)
+        let (wire_r1, _) = encrypt_for_peer(
+            &mut bob_sj, &mut alice_pv_for_bob, b"r1", "text", &[], false, 0,
+        ).unwrap();
+        let wire_r1_copy = wire_r1.clone();
+        let mut bob_pv2 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        decrypt_for_us(&mut alice_sj, &mut bob_pv2, &wire_r1).unwrap();
+        // ack=1, window=1, min_keep=0 → nothing GC'd yet
+
+        // Step 3: Alice → Bob (creates seq=2)
+        let mut bob_pv3 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let (wire_a2, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv3, b"a2", "text", &[], false, 0,
+        ).unwrap();
+        decrypt_for_us(&mut bob_sj, &mut alice_pv_for_bob, &wire_a2).unwrap();
+
+        // Step 4: Bob → Alice (to_id = alice_reply_id_2)
+        let (wire_r2, _) = encrypt_for_peer(
+            &mut bob_sj, &mut alice_pv_for_bob, b"r2", "text", &[], false, 0,
+        ).unwrap();
+        let mut bob_pv4 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        decrypt_for_us(&mut alice_sj, &mut bob_pv4, &wire_r2).unwrap();
+        // ack=2, window=1, min_keep=1 → seq < 1 → nothing removed yet
+
+        // Step 5: Alice → Bob (creates seq=3)
+        let mut bob_pv5 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let (wire_a3, _) = encrypt_for_peer(
+            &mut alice_sj, &mut bob_pv5, b"a3", "text", &[], false, 0,
+        ).unwrap();
+        decrypt_for_us(&mut bob_sj, &mut alice_pv_for_bob, &wire_a3).unwrap();
+
+        // Step 6: Bob → Alice (to_id = alice_reply_id_3)
+        let (wire_r3, _) = encrypt_for_peer(
+            &mut bob_sj, &mut alice_pv_for_bob, b"r3", "text", &[], false, 0,
+        ).unwrap();
+        let mut bob_pv6 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        decrypt_for_us(&mut alice_sj, &mut bob_pv6, &wire_r3).unwrap();
+        // ack=3, window=1, min_keep=2 → seq=1 key removed!
+
+        // Replay wire_r1 — alice_reply_id_1 was GC'd — must fail
+        let mut bob_pv7 = build_peer_v_from_state(&bob_sj, &bob_cid);
+        let replay_result = decrypt_for_us(&mut alice_sj, &mut bob_pv7, &wire_r1_copy);
+        assert!(replay_result.is_err(), "replayed message must fail after GC removes its key");
+    }
+
+    #[test]
+    fn e2e_decrypt_without_no_remote_prekey_fails() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        // peer_v has no prekeys_remote
+        let mut peer_v = SecretJson::from(json!({ "prekeys_remote": [] }));
+        let result = encrypt_for_peer(&mut sj, &mut peer_v, b"x", "text", &[], true, 0);
+        assert!(result.is_err(), "encrypt with use_recovery=true and no prekeys must fail");
+    }
+
+    #[test]
+    fn e2e_encrypt_without_peer_keys_fails() {
+        let (_cid, mut sj) = gen_self_state().unwrap();
+        // peer_v has no peer object, no e2e_peer, no prekeys
+        let mut peer_v = SecretJson::from(json!({}));
+        let result = encrypt_for_peer(&mut sj, &mut peer_v, b"x", "text", &[], false, 0);
+        assert!(result.is_err(), "encrypt without any peer key material must fail");
+    }
+}
