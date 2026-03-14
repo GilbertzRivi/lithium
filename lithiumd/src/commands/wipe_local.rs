@@ -8,24 +8,24 @@ use crate::{
     util,
 };
 
-pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
-    state.lock_keystore().await;
-
+/// Wipes all local data and locks the keystore.
+/// Caller must hold a valid auth session — auth is cleared as the last step.
+pub async fn wipe(state: &Arc<DaemonState>) -> Result<(), ()> {
     let dir = state.base_dir.clone();
-    match util::wipe_dir_all(&dir) {
-        Ok(()) => {
-            state.mark_needs_register().await;
+    util::wipe_dir_all(&dir).map_err(|_| ())?;
+    state.mark_needs_register().await;
+    state.lock_keystore().await;
+    Ok(())
+}
 
-            IpcResponse {
-                id,
-                ok: true,
-                result: Some(json!({
-                    "wiped": true,
-                    "best_effort": true
-                })),
-                error: None,
-            }
-        }
-        Err(_) => err_resp(id, "wipe_failed"),
+pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
+    match wipe(&state).await {
+        Ok(()) => IpcResponse {
+            id,
+            ok: true,
+            result: Some(json!({"wiped": true, "best_effort": true})),
+            error: None,
+        },
+        Err(()) => err_resp(id, "wipe_failed"),
     }
 }

@@ -67,7 +67,8 @@ pub fn translate(raw: &str) -> String {
         "storage_error" => "Local storage error.",
         "storage_init_failed" => "Failed to open local storage.",
         "account_deleted_but_local_storage_wipe_failed"
-        | "account_deleted_but_registered_flag_remove_failed" => {
+        | "account_deleted_but_registered_flag_remove_failed"
+        | "account_deleted_but_local_wipe_failed" => {
             "Account deleted on the server, but some local files could not be removed. \
              Use 'Reset local data' to clean up."
         }
