@@ -121,7 +121,6 @@ async fn main() -> error::AppResult<()> {
     let db = db::connect_from_env().await?;
     db::migrate(&db).await?;
     let dbm = Arc::new(DataManager::new(db, Arc::clone(&key_manager)));
-    dbm.init().await?;
 
     let state = Arc::new(state::AppState {
         key_manager,

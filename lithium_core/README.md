@@ -294,7 +294,7 @@ FixedBytes::as_slice() -> &[u8]
 Sekretny bufor zmiennej długości. Przechowywany w `SecretBox<Vec<u8>>`.
 
 ```rust
-SecretBytes::from_vec(v: Vec<u8>) -> Self
+SecretBytes::new(v: Vec<u8>) -> Self
 SecretBytes::from_slice(v: &[u8]) -> Self
 SecretBytes::from_hex(s: &str) -> Result<Self>
 SecretBytes::as_slice() -> &[u8]

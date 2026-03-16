@@ -108,7 +108,7 @@ impl PasswordFileMkProvider {
         out.extend_from_slice(salt.as_slice());
         out.extend_from_slice(&(blob.expose_as_slice().len() as u32).to_le_bytes());
         out.extend_from_slice(blob.expose_as_slice());
-        SecretBytes::from_vec(out)
+        SecretBytes::new(out)
     }
 
     fn decode_file(buf: &SecretBytes) -> Result<(Byte32, SecretBytes)> {

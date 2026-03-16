@@ -149,7 +149,7 @@ fn id_from_peer_pubs(peer_x_pub_hex: &str, peer_k_pub_hex: &str) -> Result<[u8; 
     inb.extend_from_slice(k.expose_as_slice());
 
     let id = kdf::derive32(
-        &SecretBytes::from_vec(inb),
+        &SecretBytes::new(inb),
         None,
         &SecretBytes::from_slice(KID_LABEL),
     )?;
@@ -441,9 +441,9 @@ fn decrypt_with_privs(
     rx_k_priv: &SecretBytes,
 ) -> Result<(Vec<u8>, Value)> {
     let from_x_pub = Byte32::from_slice(&w.from_x_pub)?;
-    let seed = SecretBytes::from_vec(w.seed.clone());
-    let data = SecretBytes::from_vec(w.enc_headers.clone());
-    let body = SecretBytes::from_vec(w.enc_body.clone());
+    let seed = SecretBytes::new(w.seed.clone());
+    let data = SecretBytes::new(w.enc_headers.clone());
+    let body = SecretBytes::new(w.enc_body.clone());
 
     let (pt_body, pt_headers) = kyberbox::decrypt(
         E2E_LABEL,
@@ -1079,7 +1079,7 @@ pub fn encrypt_for_peer(
         &target_x_pub,
         &target_k_pub,
         &SecretBytes::from_slice(plaintext),
-        &SecretBytes::from_vec(hdr_plain),
+        &SecretBytes::new(hdr_plain),
     )?;
 
     maybe_drop_bootstrap_private(self_v, peer_v);

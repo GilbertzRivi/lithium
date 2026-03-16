@@ -39,7 +39,7 @@ pub struct WirePayload {
 
 #[inline]
 fn label(ctx: &str, part: &str) -> SecretBytes {
-    SecretBytes::from_vec(format!("{ctx}/{part}/v1").into_bytes())
+    SecretBytes::new(format!("{ctx}/{part}/v1").into_bytes())
 }
 
 #[inline]
@@ -122,7 +122,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
         &SecretBytes::from_slice(plaintext),
         &aead_key,
         &nonce,
-        &SecretBytes::from_vec(aad_full),
+        &SecretBytes::new(aad_full),
     )?;
 
     if ct_bytes.len() > u16::MAX as usize {
@@ -135,7 +135,7 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     out.extend_from_slice(ct_bytes);
     out.extend_from_slice(aead_blob.expose_as_slice());
 
-    Ok(SecretBytes::from_vec(out))
+    Ok(SecretBytes::new(out))
 }
 
 fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> Result<Byte32> {
@@ -205,7 +205,7 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
     let seed_plain = aead::decrypt(
         &SecretBytes::from_slice(aead_blob),
         &aead_key,
-        &SecretBytes::from_vec(aad_full),
+        &SecretBytes::new(aad_full),
     )?;
 
     Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())

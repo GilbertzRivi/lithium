@@ -13,7 +13,7 @@ pub async fn handle(id: u64, data: String, state: Arc<DaemonState>) -> IpcRespon
         Err(_) => return err_resp(id, "server_identity_bad_hex"),
     };
 
-    if let Err(e) = crate::identity::validate(&bytes) {
+    if let Err(e) = crate::identity::parse(&bytes) {
         return err_resp(id, format!("server_identity_invalid:{e}"));
     }
 

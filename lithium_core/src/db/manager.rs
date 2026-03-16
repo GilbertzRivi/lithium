@@ -18,8 +18,6 @@ impl<P: MkProvider + Send + Sync + 'static> DataManager<P> {
 
     pub fn db(&self) -> &DatabaseConnection { &self.db }
 
-    pub async fn init(&self) -> Result<()> { Ok(()) }
-
     pub async fn load_db_dek(&self) -> Result<Byte32> {
         self.key_manager.lock().await.derive_secret32(b"lithium/db-dek/v1")
     }

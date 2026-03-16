@@ -20,11 +20,6 @@ use crate::{
     state::{DaemonState, MkRotator},
 };
 
-#[inline]
-fn secret_string_eq_ct(a: &SecretString, b: &SecretString) -> bool {
-    bool::from(a.expose().as_bytes().ct_eq(b.expose().as_bytes()))
-}
-
 pub async fn handle(
     id: u64,
     data_password: SecretString,
@@ -41,7 +36,7 @@ pub async fn handle(
     if already {
         let current = state.data_pass.lock().await.clone();
         return match current {
-            Some(cur) if secret_string_eq_ct(&cur, &dp) => IpcResponse {
+            Some(cur) if bool::from(cur.expose().as_bytes().ct_eq(dp.expose().as_bytes())) => IpcResponse {
                 id,
                 ok: true,
                 result: Some(json!({"unlocked": true})),

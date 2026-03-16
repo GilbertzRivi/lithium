@@ -57,43 +57,20 @@ fn mailbox_salt(sender_cid: &SecretBytes, receiver_cid: &SecretBytes, generation
     salt
 }
 
-fn derive_outbound_mailbox(
-    sender_priv: &Byte32,
-    receiver_pub: &Byte32,
+fn derive_mailbox(
+    our_priv: &Byte32,
+    their_pub: &Byte32,
     sender_cid: &SecretBytes,
     receiver_cid: &SecretBytes,
     generation: u64,
 ) -> Result<[u8; 32]> {
-    let sk = StaticSecret::from(*sender_priv.as_array());
-    let pk = PublicKey::from(*receiver_pub.as_array());
-    let shared = sk.diffie_hellman(&pk);
-
+    let shared = StaticSecret::from(*our_priv.as_array())
+        .diffie_hellman(&PublicKey::from(*their_pub.as_array()));
     let out = kdf::derive32(
         &SecretBytes::from_slice(shared.as_bytes()),
         Some(&mailbox_salt(sender_cid, receiver_cid, generation)),
         &SecretBytes::from_slice(LABEL_MAILBOX),
     )?;
-
-    Ok(*out.as_array())
-}
-
-fn derive_inbound_mailbox(
-    receiver_priv: &Byte32,
-    sender_pub: &Byte32,
-    sender_cid: &SecretBytes,
-    receiver_cid: &SecretBytes,
-    generation: u64,
-) -> Result<[u8; 32]> {
-    let sk = StaticSecret::from(*receiver_priv.as_array());
-    let pk = PublicKey::from(*sender_pub.as_array());
-    let shared = sk.diffie_hellman(&pk);
-
-    let out = kdf::derive32(
-        &SecretBytes::from_slice(shared.as_bytes()),
-        Some(&mailbox_salt(sender_cid, receiver_cid, generation)),
-        &SecretBytes::from_slice(LABEL_MAILBOX),
-    )?;
-
     Ok(*out.as_array())
 }
 
@@ -279,21 +256,8 @@ pub fn derive_mailboxes_for_generation_from_values(
     let peer_in_pub = Byte32::from_hex(get_str(peer, "mbox_in_pub")?.trim())?;
     let peer_sender_pub = peer_sender_pub_for_generation(peer_v, generation)?;
 
-    let out = derive_outbound_mailbox(
-        &self_out_cur_priv,
-        &peer_in_pub,
-        &self_cid,
-        &peer_cid,
-        generation,
-    )?;
-
-    let inn = derive_inbound_mailbox(
-        &self_in_priv,
-        &peer_sender_pub,
-        &peer_cid,
-        &self_cid,
-        generation,
-    )?;
+    let out = derive_mailbox(&self_out_cur_priv, &peer_in_pub, &self_cid, &peer_cid, generation)?;
+    let inn = derive_mailbox(&self_in_priv, &peer_sender_pub, &peer_cid, &self_cid, generation)?;
 
     Ok((out, inn))
 }

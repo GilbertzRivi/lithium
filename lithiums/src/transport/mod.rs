@@ -776,7 +776,7 @@ pub fn verify_signature(
         .map_err(|_| AppError::bad_request("invalid_sig_dili"))?;
 
     let raw_json = body_json
-        .raw_json()
+        .get_raw_json()
         .ok_or(AppError::bad_request("missing request body"))?;
 
     let ok_ed = sign::verify_signature(

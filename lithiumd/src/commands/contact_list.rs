@@ -28,7 +28,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
 
     for r in rows {
         let peer_pt = match dm.decrypt_db_blob(
-            &lithium_core::secrets::bytes::SecretBytes::from_vec(r.peer_state_enc.clone()),
+            &lithium_core::secrets::bytes::SecretBytes::new(r.peer_state_enc.clone()),
             &lithium_core::secrets::bytes::SecretBytes::from_slice(b"lithiumd/contact-peer/v1"),
         ).await {
             Ok(v) => v,

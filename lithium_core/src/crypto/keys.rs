@@ -7,8 +7,7 @@ use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 use rand::rngs::SysRng;
 use rand::TryRng;
 use crate::error::Result;
-use crate::secrets::bytes::{FixedBytes, SecretBytes};
-use crate::secrets::types::{MasterKey32, Nonce12, SessionId32};
+use crate::secrets::{FixedBytes, MasterKey32, Nonce12, SecretBytes, SessionId32};
 
 #[inline]
 pub fn random_fixed<const N: usize>() -> Result<FixedBytes<N>> {

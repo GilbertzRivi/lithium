@@ -1,248 +1,338 @@
 # Lithium
 
-Post-kwantowy komunikator E2E z jawnie niegodnym zaufania serwerem. Serwer nigdy nie widzi plaintextu — 
-przechowuje i przekazuje wyłącznie szyfrogramy. Utrata materiału kluczowego jest preferowana 
-nad jakimikolwiek wektorami odzyskiwania.
+**Post-kwantowy komunikator szyfrowany end-to-end, zaprojektowany dla środowisk o wysokich wymaganiach bezpieczeństwa.**
 
-## Kryptografia
+Lithium nie jest komunikatorem konsumenckim. Powstał dla organizacji i użytkowników, którzy nie mogą sobie pozwolić na to, żeby treść ich komunikacji była dostępna dla kogokolwiek poza bezpośrednimi rozmówcami — włącznie z operatorem, dostawcą infrastruktury czy sądem wydającym nakaz.
 
-Hybrydowa — klasyczna + post-kwantowa jednocześnie, dla bezpieczeństwa na wypadek złamania jednego ze schematów:
-
-| Cel                     | Schemat                         |
-|-------------------------|---------------------------------|
-| Wymiana kluczy          | X25519 + ML-KEM-1024 (Kyberbox) |
-| Szyfrowanie symetryczne | AES-256-GCM-SIV                 |
-| Podpisy                 | Ed25519 + ML-DSA-87 (dual-sign) |
-| Wyprowadzanie kluczy    | HKDF-SHA256                     |
-| Hashowanie haseł        | Argon2id                        |
-
-Każda operacja wymaga **obu** podpisów i **obu** komponentów wymiany kluczy — kompromis jednego algorytmu nie wystarcza.
+> **Priorytet projektowy:** Poufność treści jest ważniejsza od wygody. Jeśli te dwie wartości wchodzą w kolizję, Lithium wybiera poufność.
 
 ---
 
-## Architektura
+## Dla kogo jest Lithium
+
+Lithium jest przeznaczony dla środowisk, w których:
+
+- serwer, operator lub infrastruktura mogą być **monitorowane, przejęte lub prawnie zmuszone do współpracy**,
+- klasyczne komunikatory (nawet te szyfrowane) są nieakceptowalne z uwagi na **zaufanie do operatora**,
+- organizacja potrzebuje komunikatora, który **matematycznie uniemożliwia ujawnienie treści** przez dostawcę usługi,
+- istnieje realne ryzyko, że **dysk klienta zostanie przejęty** przez przeciwnika,
+- wymogi regulacyjne lub operacyjne wymagają **minimalnej retencji** danych i braku możliwości odtworzenia historii przez operatora.
+
+Przykładowe grupy odbiorców: kancelarie prawne, firmy zajmujące się negocjacjami i fuzjami, organizacje dziennikarskie i NGO działające w trudnych środowiskach, instytucje finansowe wymagające poufności komunikacji wewnętrznej.
+
+---
+
+## Kluczowe właściwości
+
+### Operator matematycznie nie może ujawnić treści
+
+Serwer Lithium jest traktowany jak wrogi relay. Przechowuje i przekazuje wyłącznie zaszyfrowane dane. Nie ma dostępu do:
+- treści wiadomości,
+- kluczy prywatnych użytkowników,
+- relacji między rozmówcami (adresy skrzynek są kryptograficznie pseudolosowe).
+
+Nawet pod przymusem prawnym operator nie jest w stanie dostarczyć plaintextu — nie dlatego, że odmawia, ale dlatego, że **go nie ma**.
+
+### Odporność post-kwantowa
+
+Wszystkie operacje kryptograficzne są hybrydowe: wykonywane jednocześnie klasycznym i post-kwantowym algorytmem. Złamanie jednego z nich nie narusza bezpieczeństwa systemu — oba muszą zostać złamane jednocześnie.
+
+| Cel                    | Algorytmy                           |
+|------------------------|-------------------------------------|
+| Wymiana kluczy         | X25519 + ML-KEM-1024 (NIST PQC)    |
+| Szyfrowanie symetryczne| AES-256-GCM-SIV                     |
+| Podpisy cyfrowe        | Ed25519 + ML-DSA-87 (NIST PQC)     |
+| Wyprowadzanie kluczy   | HKDF-SHA256                         |
+| Hashowanie haseł       | Argon2id                            |
+
+Algorytmy post-kwantowe (ML-KEM-1024, ML-DSA-87) są standardami zatwierdzonymi przez NIST w 2024 roku jako docelowe dla środowisk wymagających odporności na komputery kwantowe.
+
+### Forward secrecy — przeszłość jest bezpieczna nawet po ujawnieniu klucza
+
+- **Per wiadomość:** każda wiadomość zawiera świeże efemeryczne klucze. Ujawnienie klucza bieżącego nie pozwala odszyfrować poprzednich wiadomości.
+- **Per generację:** klucze skrzynki rotują co 32 wiadomości; stare klucze prywatne są bezpiecznie kasowane.
+- **Transport:** klucze sesji transportowej mają TTL 60–120 sekund; przejęcie sesji nie pozwala odszyfrować wcześniejszego ruchu.
+
+### Dwuczynnikowa ochrona lokalnych danych
+
+Odszyfrowanie danych przechowywanych na urządzeniu wymaga jednocześnie:
+1. hasła użytkownika (dane lokalne),
+2. komponentu z serwera (DEK pobierany przy każdym logowaniu).
+
+DEK (klucz szyfrowania danych) jest generowany losowo przez klienta podczas rejestracji — serwer go nie tworzy, nie zna i nie może odtworzyć. Klient wysyła go do serwera już zaszyfrowanego własnym hasłem i serwer przechowuje go jako nieprzejrzysty blob, zwracając go przy każdym logowaniu. Serwer jest tu wyłącznie nośnikiem — bez hasła klienta nie jest w stanie go użyć.
+
+Przejęcie dysku urządzenia bez znajomości hasła **i** dostępu do serwera nie daje żadnego plaintextu. Jest to decyzja projektowa, nie ograniczenie.
+
+### Unikalność kryptograficzna per instalacja
+
+Każda instalacja daemona generuje własne materiały kryptograficzne niezależnie — klucze asymetryczne, seed master key, klucze mailbox — przy użyciu systemowego generatora liczb losowych (CSRNG). Nie istnieje żaden wspólny sekret ani seed instalacyjny. Dwie instalacje na dwóch urządzeniach nie mają żadnej kryptograficznej relacji, nawet jeśli należą do tego samego użytkownika.
+
+### Pinowanie tożsamości serwera i ochrona przed podmianą
+
+Tożsamość serwera — zestaw czterech kluczy publicznych (X25519, ML-KEM-1024, Ed25519, ML-DSA-87) — jest przechowywana jako plik binarny `server.identity` generowany przez serwer przy pierwszym uruchomieniu. Daemon klienta wczytuje ten plik i weryfikuje pod nim każdą odpowiedź serwera.
+
+Konsekwencja: **dowolna zmiana kluczy serwera — czy to przez podmianę, czy ingerencję zewnętrzną — powoduje natychmiastowe i trwałe zerwanie komunikacji ze wszystkimi istniejącymi klientami.** Klient nie może się połączyć z serwerem, którego tożsamości nie rozpoznaje. Wznowienie wymaga świadomej decyzji po stronie użytkowników: ręcznego wgrania nowego pliku `server.identity`. Jest to celowe — podmiana kluczy serwera bez wiedzy użytkowników jest niemożliwa.
+
+### Wiadomości jednorazowe
+
+Wiadomości są usuwane z serwera atomowo przy pierwszym pobraniu. Serwer nie przechowuje historii. Historia istnieje wyłącznie w lokalnej bazie klienta, zaszyfrowanej per urządzenie.
+
+### Weryfikacja tożsamości bez udziału serwera
+
+Serwer nie jest źródłem zaufania. Tożsamość rozmówcy jest weryfikowana przez porównanie emoji fingerprint kanałem out-of-band (np. telefonicznie). Serwer nie może podrobić tożsamości żadnej ze stron.
+
+---
+
+## Architektura systemu
 
 ```
 ┌─────────────────────────────────────┐
-│  lithiumg  (GUI — eframe/egui)      │
+│  lithiumg  (GUI — Linux / Windows)  │
 │  Interfejs użytkownika              │
 └────────────────┬────────────────────┘
-                 │ JSON-lines
-                 │ Unix socket / Windows named pipe
+                 │ JSON / Unix socket / Windows named pipe
+                 │ (tylko lokalne połączenia)
 ┌────────────────▼────────────────────┐
 │  lithiumd  (daemon klienta)         │
-│  Klucze prywatne, SQLite, krypto    │
+│  Klucze prywatne · SQLite · krypto  │
+│  Jedyne miejsce z plaintextem       │
 └────────────────┬────────────────────┘
                  │ HTTPS
                  │ Kyberbox (X25519 + ML-KEM-1024)
+                 │ dual-sign (Ed25519 + ML-DSA-87)
 ┌────────────────▼────────────────────┐
 │  lithiums  (serwer relay)           │
-│  PostgreSQL, tylko szyfrogramy      │
+│  PostgreSQL · tylko szyfrogramy     │
+│  Nie widzi plaintextu               │
 └─────────────────────────────────────┘
-
-lithium_core — wspólna biblioteka krypto, kluczy i typów sekretnych
-  (używana przez lithiumd i lithiums)
 ```
 
-### Crates
+System składa się z czterech komponentów:
 
-| Crate                                    | Rola                                                                      |
-|------------------------------------------|---------------------------------------------------------------------------|
-| [`lithium_core`](lithium_core/README.md) | Wspólna biblioteka: kryptografia, zarządzanie kluczami, typy sekretne, DB |
-| [`lithiumd`](lithiumd/README.md)         | Daemon klienta: klucze prywatne, E2E, SQLite, IPC, komunikacja z serwerem |
-| [`lithiumg`](lithiumg/README.md)         | GUI: eframe/egui, komunikuje się z daemonem przez IPC                     |
-| [`lithiums`](lithiums/README.md)         | Serwer relay: Poem, PostgreSQL, przekazuje szyfrogramy                    |
+| Komponent        | Rola                                                                               |
+|------------------|------------------------------------------------------------------------------------|
+| `lithium_core`   | Biblioteka kryptograficzna — wspólna dla daemona i serwera                         |
+| `lithiumd`       | Daemon klienta — przechowuje klucze, wykonuje szyfrowanie, wystawia IPC dla GUI    |
+| `lithiumg`       | Interfejs graficzny — komunikuje się z daemonem, sam nie dotyka kluczy             |
+| `lithiums`       | Serwer relay — przyjmuje i przekazuje zaszyfrowane wiadomości, PostgreSQL          |
 
----
+### Izolacja kryptograficzna
 
-## Model zaufania
-
-- **Serwer jest traktowany jak wróg.** Widzi tylko zaszyfrowane blobs — nie ma dostępu do treści wiadomości, kluczy prywatnych ani tożsamości rozmówców.
-- **Daemon jest jedynym miejscem z kluczami prywatnymi.** GUI nie ma dostępu do materiału kluczowego.
-- **Wiadomości są jednorazowe.** Serwer usuwa je po pierwszym pobraniu i nie może ich odtwarzać.
-- **Brak odzyskiwania.** Utrata hasła do keystora = utrata dostępu. Nie istnieje reset ani backup po stronie serwera.
+Klucze prywatne i plaintext istnieją wyłącznie w `lithiumd` na urządzeniu użytkownika. GUI (`lithiumg`) komunikuje się z daemonem przez lokalny socket i nigdy nie ma dostępu do materiału kluczowego. Serwer (`lithiums`) widzi wyłącznie zaszyfrowane bloby — nie uczestniczy w żadnej operacji kryptograficznej E2E.
 
 ---
 
-## Czym Lithium jawnie NIE jest
+## Przepływ wiadomości
 
-Projekt ma świadomie wąski zakres. Poniższe właściwości są **celowo nieobecne** — nie są błędami ani brakami do uzupełnienia:
-
-- **Nie jest komunikatorem masowym.** Brak grup, kanałów, wątków, reakcji, statusów obecności, avatarów.
-- **Nie ma recovery haseł ani kluczy.** Nie ma pytań pomocniczych, maila odzyskującego, kodu SMS ani żadnego 
-  innego wektora reset. Utrata hasła do keystora = trwała utrata dostępu. To jest celowe.
-- **Nie ma backupu po stronie serwera.** Serwer nie przechowuje historii wiadomości — wiadomości są usuwane 
-  atomowo przy pierwszym pobraniu. Historia istnieje wyłącznie w lokalnym SQLite daemona.
-- **Nie ma synchronizacji wielu urządzeń.** Jedno konto = jeden daemon na jednym urządzeniu. 
-  Brak mechanizmu przenoszenia kluczy ani łączenia sesji.
-- **Nie ma powiadomień push.** Model pull — klient sam odpytuje serwer o wiadomości. Brak APNs, FCM ani żadnej infrastruktury push.
-- **Nie jest kompatybilny z Signal/Matrix/XMPP ani żadnym innym protokołem.** Własny protokół WireV1 i 
-  własny format zaproszeń — celowo bez interoperacyjności.
-- **Nie ma wersji webowej ani SaaS.** Wymaga lokalnie uruchomionego daemona. Brak hosted relay z gwarancjami dostępności.
-- **Serwer nie weryfikuje tożsamości użytkowników.** Rejestracja nie wymaga telefonu, emaila ani żadnego
-  identyfikatora zewnętrznego. Weryfikacja tożsamości leży w całości po stronie użytkowników (emoji fingerprint out-of-band).
-
----
-
-## Przepływ danych
-
-### Wysyłanie wiadomości
+### Wysyłanie
 
 ```
-lithiumg
-  → IPC: contact_send(contact_id, plaintext)
-lithiumd
-  → E2E encrypt (WireV1: X25519 + ML-KEM + AES-GCM-SIV + dual-sign)
-  → HTTP POST /msg/send  (ciało Kyberbox-zaszyfrowane)
-lithiums
-  → wrap wiadomości losowym kluczem per-message
+Użytkownik wpisuje tekst w GUI
+  → GUI wysyła IPC do daemona: contact_send(contact_id, plaintext)
+  → daemon szyfruje: WireV1 (X25519 + ML-KEM + AES-256-GCM-SIV + dual-sign)
+  → daemon wysyła zaszyfrowany blob przez HTTPS do serwera
+  → serwer owija blob dodatkowym losowym kluczem per wiadomość
   → przechowuje w PostgreSQL (TTL 24h)
 ```
 
-### Odbieranie wiadomości
+### Odbieranie
 
 ```
-lithiumg
-  → IPC: contact_fetch(contact_id)
-lithiumd
-  → oblicza adres skrzynki (ECDH z kluczami mailbox)
-  → HTTP POST /msg/fetch
-lithiums
-  → atomowo zwraca + usuwa wiadomości z DB
-lithiumd
-  → E2E decrypt (weryfikacja podpisu + deszyfrowanie)
-  → zapisuje plaintext w SQLite
-lithiumg
-  → IPC: messages_list → wyświetla historię
+Użytkownik klika Fetch w GUI
+  → GUI wysyła IPC do daemona: contact_fetch(contact_id)
+  → daemon oblicza adres skrzynki (ECDH z kluczami mailbox)
+  → daemon pobiera blobs z serwera przez HTTPS
+  → serwer atomowo zwraca + usuwa wiadomości z bazy
+  → daemon deszyfruje i weryfikuje podpisy
+  → zapisuje plaintext w lokalnym SQLite
+  → GUI wyświetla historię
 ```
 
-### Zapraszanie kontaktu
+### Dodawanie kontaktu (wymiana zaproszeń)
+
+Parowanie odbywa się przez wymianę kodów zaproszenia (`lci1:HEX`) — poza serwerem, kanałem out-of-band (email, telefon, inne). Kod zaproszenia zawiera wyłącznie klucze publiczne — żadnych danych prywatnych.
 
 ```
-Strona A: create_invite()  → kod lci1:HEX  (klucze publiczne A)
-Strona B: accept_invite(kod_A, label) → my_code (klucze publiczne B)
-Strona A: accept_invite(kod_B, contact_id=A)
+Strona A: [New invite] → kod lci1:HEX (klucze publiczne A)
+Strona B: wkleja kod A + [Add contact] → otrzymuje my_code (klucze publiczne B)
+Strona A: wkleja kod B + [Reply]
 → obie strony mają peer_set=true → można pisać
 ```
 
-Kod zaproszenia (`lci1:HEX`) zawiera wyłącznie klucze publiczne — żadnych danych prywatnych ani adresu serwera.
+Po wymianie obie strony weryfikują emoji fingerprint kanałem głosowym lub osobistym — dopiero to potwierdza, że nie doszło do ataku MITM.
 
 ---
 
-## Uruchomienie
+## Właściwości bezpieczeństwa — zestawienie
+
+| Właściwość                          | Mechanizm                                                                                               |
+|-------------------------------------|---------------------------------------------------------------------------------------------------------|
+| Odporność post-kwantowa             | ML-KEM-1024 + ML-DSA-87 równolegle z X25519 + Ed25519; oba algorytmy muszą być złamane jednocześnie   |
+| Forward secrecy per wiadomość       | Świeże efemeryczne klucze X25519 + ML-KEM w każdej wiadomości (ratchet); stare klucze kasowane po ack  |
+| Forward secrecy per generację       | Rotacja kluczy mailbox co 32 wiadomości; stare klucze prywatne nadawcy kasowane                         |
+| Forward secrecy transportu          | Klucze sesji TTL 60–120s; efemeryczne klucze X25519 + ML-KEM per żądanie (tryb Shake)                  |
+| Post-compromise security            | Rotacja kluczy mailbox i prekey recovery pozwalają odzyskać bezpieczeństwo po przejęciu stanu           |
+| Brak plaintextu na serwerze         | Treść szyfrowana przez klienta zanim dotrze do serwera; serwer dokłada drugą warstwę, ale jej nie czyta |
+| Jednorazowe wiadomości              | Atomowe usunięcie przy pierwszym pobraniu; serwer nie może ich odtworzyć                               |
+| Efemeryczne klucze wiadomości       | Klucze per wiadomość żyją wyłącznie w pamięci serwera; restart serwera niszczy klucze                  |
+| Ochrona przed enumeracją handlerów  | Próba zajęcia istniejącego loginu zwraca sukces — brak rozróżnialnej odpowiedzi                         |
+| Anti-replay                         | SHA256(body) przechowywany 600s; timestamp żądania walidowany ±60s                                     |
+| Jednorazowy JWT                     | Token zużywany przy użyciu — przejęty token nie może być odtworzony                                    |
+| Izolacja pól bazy danych            | Każde pole szyfrowane z osobną domeną AAD; błędna AAD → błąd deszyfrowania                             |
+| Padding rozmiaru                    | Ciała dopełniane do bloków 32–64 KB, nagłówki do 4–8 KB — ukrywa długość i typ operacji                |
+| Weryfikacja tożsamości              | Emoji fingerprint out-of-band — MITM przy wymianie zaproszeń wykrywalny przez użytkowników             |
+| Dwuczynnikowa ochrona lokalnych danych | Hasło + komponent serwerowy; przejęcie dysku bez hasła i serwera = brak dostępu                     |
+| Zeroizacja pamięci                  | Wszystkie typy sekretne kasują pamięć przy zwolnieniu (`zeroize`); klucze nie pozostają w pamięci      |
+| Atomowe operacje plikowe            | Zapis kluczy przez `tmp + rename + fsync`; przerwanie nie psuje stanu                                  |
+| Crash-safe rotacja kluczy           | Niedokończona rotacja wykrywana i kończona przy starcie                                                 |
+| Pinowanie tożsamości serwera        | Klient weryfikuje każdą odpowiedź pod kluczami z pliku `server.identity`; zmiana kluczy serwera zrywa połączenie ze wszystkimi klientami |
+| Awaryjne usunięcie konta            | Przy rejestracji serwer generuje jednorazowy capability (32 bajty losowe); SHA-256 w DB; wystarczy do usunięcia konta bez logowania po utracie urządzenia |
+| Unikalność per instalacja           | Wszystkie klucze i seedy generowane niezależnie z CSRNG per urządzenie; brak wspólnych sekretów instalacyjnych |
+| DEK generowany przez klienta        | Klucz szyfrowania danych tworzony losowo przez klienta; wysyłany do serwera zaszyfrowany hasłem; serwer przechowuje nieprzejrzysty blob |
+
+---
+
+## Czym Lithium celowo NIE jest
+
+Poniższe ograniczenia są **cechami projektu**, nie błędami. Wynikają wprost z modelu bezpieczeństwa.
+
+- **Nie jest komunikatorem masowym.** Brak grup, kanałów, statusów obecności, reakcji, wątków, avatarów.
+- **Nie ma odzyskiwania hasła.** Utrata hasła do keystora = trwała utrata dostępu. Nie istnieje żaden mechanizm resetu — ani mailowy, ani SMS, ani przez operatora. To jest celowe.
+- **Nie przechowuje historii po stronie serwera.** Wiadomości są usuwane przy pobraniu. Historia istnieje wyłącznie lokalnie.
+- **Nie obsługuje wielu urządzeń.** Jedno konto = jeden daemon na jednym urządzeniu. Brak synchronizacji między urządzeniami.
+- **Nie ma powiadomień push.** Model pull — klient sam odpytuje serwer. Brak APNs, FCM, ani żadnej infrastruktury push.
+- **Nie gwarantuje dostarczenia każdej wiadomości.** Serwer może odmawiać działania, gubić dane, wpływać na dostępność. Serwer nie jest zaufanym elementem — a to ma swoją cenę operacyjną.
+- **Nie działa w pełni offline.** Odszyfrowanie lokalnych danych wymaga komponentu z serwera. Jest to celowe — utrata dostępu jest preferowana nad ryzyko odczytania danych po kradzieży urządzenia.
+- **Nie ma interoperacyjności.** Własny protokół WireV1 i własny format zaproszeń — celowo bez kompatybilności z Signal, Matrix, XMPP ani innymi systemami.
+- **Nie ma wersji webowej ani SaaS.** Wymaga lokalnie uruchomionego daemona. Operator nie jest w stanie udzielić gwarancji dostępności SaaS bez jednoczesnego naruszenia modelu zaufania.
+
+---
+
+## Wdrożenie
 
 ### Wymagania
 
-- Rust (stable, edycja 2024)
-- PostgreSQL (dla `lithiums`)
-- SQLite (wbudowany, dla `lithiumd`)
+- **Rust** (stable, edycja 2024) — do budowania ze źródeł
+- **PostgreSQL** — dla serwera relay (`lithiums`)
+- **SQLite** — wbudowany, dla daemona klienta (`lithiumd`)
+- **Linux lub Windows** — klient i serwer
 
-### Build
+### Budowanie
 
 ```bash
-# Wszystkie crates
+# Wszystkie komponenty
 cargo build --release
 
-# Tylko serwer
+# Tylko serwer relay
 cargo build --release -p lithiums
 
-# Tylko daemon + GUI
+# Tylko klient (daemon + GUI)
 cargo build --release -p lithiumd -p lithiumg
 ```
 
-### Testy
+### Uruchomienie serwera relay
+
+Docelowym środowiskiem deploymentu jest Docker Compose — cała konfiguracja serwera odbywa się przez zmienne środowiskowe, hasło do bazy podawane jest przez plik (Docker secret), a katalog kluczy montowany jako wolumin.
 
 ```bash
-cargo test
-cargo test -p lithium_core
-```
-
-### Lint / Format
-
-```bash
-cargo clippy -- -D warnings
-cargo fmt
-```
-
-### Konfiguracja serwera (`lithiums`)
-
-```bash
-export DATABASE_URL=postgres://user:pass@localhost/lithium
+export DB_HOST=localhost
+export DB_USER=lithium
+export DB_PASSWORD_FILE=/run/secrets/db_password
+export DB_NAME=lithium
 export LITHIUM_KEYS_DIR=/var/lib/lithiums/keys
-export LITHIUM_BIND=0.0.0.0:4108          # opcjonalnie
-export LITHIUM_SERVER_NAME=default         # opcjonalnie
-export LITHIUM_MK_ROTATE_SECS=3600        # opcjonalnie
+export LITHIUM_BIND=0.0.0.0
+export LITHIUM_PORT=4108
+
 lithiums
 ```
 
-Przy pierwszym uruchomieniu serwer generuje klucze w `LITHIUM_KEYS_DIR`. Publiczne klucze serwera muszą zostać przekazane do konfiguracji daemona:
+Przy pierwszym uruchomieniu serwer generuje własne klucze w `LITHIUM_KEYS_DIR` i zapisuje plik `server.identity` zawierający cztery klucze publiczne (X25519, ML-KEM-1024, Ed25519, ML-DSA-87) w formacie binarnym z magic bytes. Plik ten jest jedynym artefaktem dystrybucji tożsamości serwera — należy go przekazać użytkownikom kanałem out-of-band.
+
+### Konfiguracja daemona klienta
 
 ```bash
-# Odczytaj klucze publiczne serwera i ustaw w środowisku daemona:
-export SERVER_X25519=<hex>
-export SERVER_KYBER=<hex>
-export SERVER_ED25519=<hex>
-export SERVER_DILITHIUM=<hex>
-```
-
-### Konfiguracja daemona (`lithiumd`)
-
-```bash
-export SERVER_X25519=<hex 32B>
-export SERVER_KYBER=<hex 1568B>
-export SERVER_ED25519=<hex 32B>
-export SERVER_DILITHIUM=<hex 2592B>
 export LITHIUMD_BASE_URL=https://relay.example.com
-export LITHIUMD_DATA_DIR=/home/user/.local/share/lithiumd  # opcjonalnie
+export LITHIUMD_SERVER_IDENTITY=/ścieżka/do/server.identity   # opcjonalnie; domyślnie: {data_dir}/server.identity
+
 lithiumd
 ```
 
-### GUI (`lithiumg`)
+Daemon odczytuje tożsamość serwera z pliku `server.identity` — nie z env vars. Plik musi zostać dostarczony przez administratora serwera przed pierwszym połączeniem.
+
+### Uruchomienie GUI
 
 ```bash
 # Daemon musi być uruchomiony
 lithiumg
 ```
 
-Pierwsze uruchomienie przeprowadzi przez konfigurację:
-1. Ustaw hasło do keystora (szyfruje klucze prywatne na dysku)
-2. Podaj handler (nazwa konta) i hasło do konta serwera
-3. Zarejestruj profil na serwerze
+Pierwsze uruchomienie GUI przeprowadza przez konfigurację:
+1. Wgraj plik `server.identity` (weryfikacja tożsamości serwera)
+2. Ustaw hasło do keystora (szyfruje klucze prywatne na dysku)
+3. Podaj nazwę konta i hasło do konta serwera
+4. Zarejestruj profil na serwerze — po rejestracji GUI wyświetla **capability do awaryjnego usunięcia konta** (patrz niżej); należy go zapisać
+
+### Awaryjne zdalne usunięcie konta
+
+Podczas rejestracji serwer generuje losowy 32-bajtowy token (`remote_delete_capability`) i zwraca go klientowi. W bazie danych przechowywany jest wyłącznie SHA-256 tego tokenu — serwer nie zna wartości capability w postaci jawnej.
+
+Jeśli urządzenie zostanie utracone lub skradzione, użytkownik może usunąć swoje konto z serwera bez potrzeby logowania — wystarczy capability i dostęp do pliku `server.identity`:
+
+```
+GUI → [Emergency account removal] → wklej capability → [Remove]
+```
+
+Capability nie wymaga hasła ani aktywnej sesji. Nie da się go odtworzyć — utrata capability = trwały brak możliwości usunięcia konta przez właściciela. Interwencja administracyjna nie jest alternatywą: handlery nie są przechowywane w postaci jawnej — w bazie istnieje wyłącznie UUID v5 wyprowadzony z handlera, szyfrowany deterministycznie kluczem serwera. Operator nie jest w stanie zidentyfikować ani odszukać rekordu po handlerze, nazwie użytkownika ani żadnym innym jawnym identyfikatorze.
 
 ---
 
-## Rotacja kluczy głównych (MK)
+## Rotacja kluczy głównych
 
-Oba serwer i daemon rotują master key co godzinę (domyślnie). Rotacja **rewrapuje DEK** — ponownie szyfruje
-klucz bazy pod nowym MK, bez ponownego szyfrowania danych. Zadanie `MkRotator` sprawdza warunek co 30 sekund.
-
----
-
-## Bezpieczeństwo — właściwości systemu
-
-| Właściwość                                 | Mechanizm                                                                                                                                                                                                                        |
-|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **PQC** — odporność post-kwantowa          | ML-KEM-1024 + ML-DSA-87 równolegle z X25519 + Ed25519; złamanie jednej grupy algorytmów nie wystarcza do skompromitowania systemu                                                                                                |
-| **FS E2E per wiadomość** — ratchet         | Każda wiadomość WireV1 zawiera świeże efemeryczne klucze X25519 + ML-KEM-1024 (pole `reply`); odbiorca usuwa stare klucze prywatne po potwierdzeniu (ack) — kompromis klucza bieżącego nie ujawnia treści poprzednich wiadomości |
-| **FS E2E per generację** — rotacja mailbox | Klucze skrzynki (mailbox) rotują co 32 wiadomości; stare klucze prywatne nadawcy są usuwane — dodatkowa granica FS niezależna od ratchetu                                                                                        |
-| **FS transportu** — forward secrecy sesji  | Klient generuje efemeryczne klucze X25519 + ML-KEM per żądanie (tryb Shake); klucze sesji TTL 60–120s; wygaśnięcie sesji uniemożliwia odszyfrowanie wcześniejszego ruchu                                                         |
-| **PCS** — post-compromise security         | Rotacja kluczy mailbox i mechanizm prekey recovery pozwalają odzyskać bezpieczeństwo po kompromisie stanu; atakujący traci dostęp po wymianie kolejnych kluczy                                                                   |
-| Jednorazowe wiadomości                     | Serwer usuwa wiadomości atomowo przy pierwszym pobraniu; nie może ich odtworzyć ani przekazać ponownie                                                                                                                           |
-| Anti-replay                                | SHA256(body) przechowywany 600s na serwerze (`set_if_absent`); timestamp żądania walidowany ±60s                                                                                                                                 |
-| Ochrona przed enumeracją handlerów         | Nieudana rejestracja (zajęty handler) zwraca sukces — brak rozróżnialnej odpowiedzi                                                                                                                                              |
-| Izolacja pól DB                            | Każde pole użytkownika szyfrowane z osobną domeną AAD; błędna AAD → błąd deszyfrowania                                                                                                                                           |
-| Padding rozmiaru                           | Ciała dopełniane do bloków 32–64 KB, nagłówki do 4–8 KB — ukrywa długość wiadomości i typ operacji                                                                                                                               |
-| Weryfikacja tożsamości                     | Emoji out-of-band (fingerprint ECDH kluczy kontaktu) — ochrona przed MITM przy wymianie zaproszeń                                                                                                                                |
-| Jednorazowy JWT                            | Token zużywany przy użyciu (`store.take`) — nie można użyć przechwyconego tokenu ponownie                                                                                                                                        |
-| Brak odzyskiwania po stronie serwera       | Serwer nie przechowuje ani nie zna żadnego materiału kluczowego klienta                                                                                                                                                          |
+Daemon i serwer rotują master key co godzinę (domyślnie). Rotacja jest atomowa i crash-safe — niedokończona rotacja jest automatycznie wykrywana i kończona przy starcie. Rotacja rewrapuje klucze pod nowym master key bez ponownego szyfrowania danych w bazie.
 
 ---
 
-## Dokumentacja crates
+## Podstawy kryptograficzne — biblioteki
 
-Szczegółowa dokumentacja każdego komponentu w odpowiednim katalogu:
+| Biblioteka      | Wersja  | Rola                                     |
+|-----------------|---------|------------------------------------------|
+| `aes-gcm-siv`   | 0.11.1  | AES-256-GCM-SIV (AEAD)                  |
+| `hkdf`          | 0.12    | HKDF-SHA256 (KDF)                        |
+| `pqcrypto`      | 0.18.1  | ML-KEM-1024 (Kyber), ML-DSA-87 (Dilithium) |
+| `ed25519-dalek` | 2.2.0   | Ed25519 (podpisy klasyczne)              |
+| `x25519-dalek`  | 2.0.1   | X25519 (ECDH klasyczny)                  |
+| `argon2`        | 0.5.3   | Argon2id (hasła, wrapping DEK)           |
+| `zeroize`       | 1.8.2   | Zeroizacja pamięci przy Drop             |
+| `secrecy`       | 0.10.3  | Typy sekretne (SecretBox)                |
 
-- [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami, format plików klucza
-- [`lithiumd/README.md`](lithiumd/README.md) — IPC, E2E WireV1, mailbox, zaproszenia, SQLite, PasswordFileMkProvider
+Cały `lithium_core` ma `#![forbid(unsafe_code)]`.
+
+---
+
+## Model bezpieczeństwa — podsumowanie
+
+Lithium zakłada, że:
+
+- serwer jest lub może być wrogi, monitorowany albo prawnie zmuszony do współpracy,
+- dysk klienta może zostać przejęty,
+- operator nie jest i nie może być zaufanym podmiotem dla poufności treści.
+
+W odpowiedzi na te założenia:
+
+- serwer matematycznie nie jest w stanie odszyfrować treści wiadomości,
+- operator nie uczestniczy w parowaniu użytkowników ani w weryfikacji tożsamości,
+- kompromitacja serwera nie daje dostępu do historii wiadomości,
+- kompromitacja dysku klienta bez hasła i bez serwera nie daje dostępu do danych,
+- utrata materiału kluczowego prowadzi do utraty dostępu — nigdy do możliwości odzysku przez stronę trzecią.
+
+**Lithium nie ma być wygodne. Ma być trudne do zdradzenia.**
+
+---
+
+## Dokumentacja techniczna komponentów
+
+- [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami, format plików kluczy
+- [`lithiumd/README.md`](lithiumd/README.md) — IPC, protokół E2E WireV1, mailbox, zaproszenia, SQLite, PasswordFileMkProvider
 - [`lithiumg/README.md`](lithiumg/README.md) — GUI, maszyna stanów ekranów, model wątków, protokół IPC
 - [`lithiums/README.md`](lithiums/README.md) — REST API, middleware, transport Shake/Session, schemat PostgreSQL
+- [`lithium_assumptions.md`](lithium_assumptions.md) — założenia projektowe i model zaufania (dla audytorów i integratorów)

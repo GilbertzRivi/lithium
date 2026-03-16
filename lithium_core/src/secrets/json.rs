@@ -162,8 +162,6 @@ impl SecretJson {
     pub fn take_raw_json(&mut self) -> Option<SecretString> { self.raw.take() }
     #[inline]
     pub fn get_raw_json(&self) -> Option<SecretString> { self.raw.as_ref().cloned() }
-    #[inline]
-    pub fn raw_json(&self) -> Option<SecretString> { self.get_raw_json() }
 }
 
 impl From<Value> for SecretJson {

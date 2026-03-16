@@ -119,13 +119,15 @@ pub type Byte32 = FixedBytes<32>;
 pub type Byte64 = FixedBytes<64>;
 pub type Byte2048 = FixedBytes<2048>;
 
+pub type MasterKey32 = Byte32;
+pub type Nonce12 = Byte12;
+pub type SessionId32 = Byte32;
+
 pub struct SecretBytes(SecretBox<Vec<u8>>);
 
 impl SecretBytes {
     #[inline]
     pub fn new(v: Vec<u8>) -> Self { Self(SecretBox::new(Box::new(v))) }
-    #[inline]
-    pub fn from_vec(v: Vec<u8>) -> Self { Self::new(v) }
     #[inline]
     pub fn from_slice(v: &[u8]) -> Self { Self::new(v.to_vec()) }
     #[inline]

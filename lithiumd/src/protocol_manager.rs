@@ -31,13 +31,6 @@ fn obj_mut(v: &mut Value) -> Result<&mut Map<String, Value>> {
     v.as_object_mut().ok_or_else(LithiumError::json_not_object)
 }
 
-fn map_http_status(code: u16) -> LithiumError {
-    match code {
-        401 => LithiumError::invalid_credentials("http_401"),
-        403 => LithiumError::invalid_perms("http_403"),
-        _ => LithiumError::http_status(code),
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -396,7 +389,11 @@ impl<P: MkProvider> ProtocolManager<P> {
         obj_mut(&mut body)?;
         obj_mut(&mut app_headers)?;
 
-        obj_mut(&mut body)?.insert("timestamp".into(), Value::String(now_hex_seconds()));
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            obj_mut(&mut body)?.insert("timestamp".into(), Value::String(format!("{:016x}", ts)));
+        }
 
         let body_bytes = serde_json::to_vec(&body).map_err(LithiumError::json_parse)?;
 
@@ -484,8 +481,8 @@ impl<P: MkProvider> ProtocolManager<P> {
             &req_priv_x,
             &peer_x,
             &peer_k,
-            &SecretBytes::from_vec(body_plain),
-            &SecretBytes::from_vec(headers_plain),
+            &SecretBytes::new(body_plain),
+            &SecretBytes::new(headers_plain),
         )?;
 
         let mut h = HeaderMap::new();
@@ -539,7 +536,11 @@ impl<P: MkProvider> ProtocolManager<P> {
         }
 
         if !status.is_success() {
-            return Err(map_http_status(status.as_u16()));
+            return Err(match status.as_u16() {
+                401 => LithiumError::invalid_credentials("http_401"),
+                403 => LithiumError::invalid_perms("http_403"),
+                c => LithiumError::http_status(c),
+            });
         }
 
         let rh = resp.headers().clone();
@@ -559,9 +560,9 @@ impl<P: MkProvider> ProtocolManager<P> {
             &resp_peer_x,
             &req_priv_k,
             &kyberbox::WirePayload {
-                enc_body: SecretBytes::from_vec(resp_body_bytes),
-                enc_headers: SecretBytes::from_vec(resp_data),
-                seed_enc: SecretBytes::from_vec(resp_seed),
+                enc_body: SecretBytes::new(resp_body_bytes),
+                enc_headers: SecretBytes::new(resp_data),
+                seed_enc: SecretBytes::new(resp_seed),
             },
         )?;
 
@@ -691,15 +692,6 @@ impl<P: MkProvider> ProtocolManager<P> {
         let b = Byte32::from_slice(v.expose_as_slice())?;
         Ok(Some(b))
     }
-}
-
-fn now_hex_seconds() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{:016x}", now)
 }
 
 fn hv_hex(bytes: &[u8]) -> Result<reqwest::header::HeaderValue> {

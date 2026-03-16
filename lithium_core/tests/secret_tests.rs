@@ -146,13 +146,6 @@ fn fixed_bytes_from_hex_invalid_char_rejected() {
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn secret_bytes_from_vec() {
-    let v = vec![1u8, 2, 3];
-    let sb = SecretBytes::from_vec(v.clone());
-    assert_eq!(sb.expose_as_slice(), v.as_slice());
-}
-
-#[test]
 fn secret_bytes_from_slice() {
     let data = b"hello world";
     let sb = SecretBytes::from_slice(data);

@@ -29,7 +29,7 @@ pub fn encrypt_raw(
         },
     )?;
 
-    Ok(SecretBytes::from_vec(ct))
+    Ok(SecretBytes::new(ct))
 }
 
 pub fn decrypt_raw(
@@ -57,7 +57,7 @@ pub fn decrypt_raw(
         },
     )?;
 
-    Ok(SecretBytes::from_vec(pt))
+    Ok(SecretBytes::new(pt))
 }
 
 pub fn encrypt(plaintext: &SecretBytes, key: &Byte32, nonce: &Byte12, aad: &SecretBytes) -> Result<SecretBytes> {
@@ -66,7 +66,7 @@ pub fn encrypt(plaintext: &SecretBytes, key: &Byte32, nonce: &Byte12, aad: &Secr
     out.push(AEAD_BLOB_VERSION);
     out.extend_from_slice(nonce.as_slice());
     out.extend_from_slice(ct.expose_as_slice());
-    Ok(SecretBytes::from_vec(out))
+    Ok(SecretBytes::new(out))
 }
 
 pub fn decrypt(blob: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<SecretBytes> {

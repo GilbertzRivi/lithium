@@ -73,7 +73,7 @@ fn compute_verify_emojis(
     let derived = kdf::derive32(
         &SecretBytes::from_slice(ss.as_bytes()),
         None,
-        &SecretBytes::from_vec(info),
+        &SecretBytes::new(info),
     )?;
 
     let mut out = Vec::with_capacity(6);

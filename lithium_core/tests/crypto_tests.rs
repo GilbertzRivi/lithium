@@ -757,7 +757,7 @@ fn kyberbox_corrupt_seed_byte_at(offset: usize) {
     seed_bytes[offset] ^= 0xFF;
 
     let corrupted = kyberbox::WirePayload {
-        seed_enc: SecretBytes::from_vec(seed_bytes),
+        seed_enc: SecretBytes::new(seed_bytes),
         enc_body: wire.enc_body.clone(),
         enc_headers: wire.enc_headers.clone(),
     };
@@ -853,7 +853,7 @@ fn kyberbox_corrupt_enc_body_tag_fails() {
 
     let bad = kyberbox::WirePayload {
         seed_enc: wire.seed_enc.clone(),
-        enc_body: SecretBytes::from_vec(body_bytes),
+        enc_body: SecretBytes::new(body_bytes),
         enc_headers: wire.enc_headers.clone(),
     };
     assert!(kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &bad).is_err());
@@ -871,7 +871,7 @@ fn kyberbox_corrupt_enc_body_version_fails() {
 
     let bad = kyberbox::WirePayload {
         seed_enc: wire.seed_enc.clone(),
-        enc_body: SecretBytes::from_vec(body_bytes),
+        enc_body: SecretBytes::new(body_bytes),
         enc_headers: wire.enc_headers.clone(),
     };
     assert!(kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &bad).is_err());
@@ -891,7 +891,7 @@ fn kyberbox_corrupt_enc_headers_tag_fails() {
     let bad = kyberbox::WirePayload {
         seed_enc: wire.seed_enc.clone(),
         enc_body: wire.enc_body.clone(),
-        enc_headers: SecretBytes::from_vec(hdr_bytes),
+        enc_headers: SecretBytes::new(hdr_bytes),
     };
     assert!(kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &bad).is_err());
 }

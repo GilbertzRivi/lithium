@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use lithium_core::{secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, LithiumError, CryptoErrorKind};
+use lithium_core::{secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, CryptoErrorKind};
 
 use crate::{
     commands::contact_mailbox::{
@@ -47,18 +47,6 @@ fn build_stored_message(
     let mut out = SecretBytes::new(Vec::new());
     serde_json::to_writer(out.expose_as_mut_vec(), &v)?;
     Ok(out)
-}
-
-fn is_invalid_credentials_msg(err: &LithiumError, expected: &'static str) -> bool {
-    matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == expected)
-}
-
-fn is_potentially_harmful_message(err: &LithiumError) -> bool {
-    is_invalid_credentials_msg(err, "potentially_harmful_message")
-}
-
-fn is_to_id_unknown(err: &LithiumError) -> bool {
-    is_invalid_credentials_msg(err, "to_id_unknown")
 }
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
@@ -243,7 +231,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                         }));
                     }
                     Err(err) => {
-                        if is_potentially_harmful_message(&err) {
+                        if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message") {
                             out.push(json!({
                                 "ok": false,
                                 "err": "potentially_harmful_message",
@@ -252,7 +240,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             continue;
                         }
 
-                        if !is_to_id_unknown(&err) {
+                        if !matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "to_id_unknown") {
                             out.push(json!({
                                 "ok": false,
                                 "err": "decrypt_failed",
@@ -341,7 +329,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 }));
                             }
                             Err(err) => {
-                                if is_potentially_harmful_message(&err) {
+                                if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message") {
                                     out.push(json!({
                                         "ok": false,
                                         "err": "potentially_harmful_message",

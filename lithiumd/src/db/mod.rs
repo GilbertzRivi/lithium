@@ -67,7 +67,6 @@ pub async fn init_local_data_manager<P: MkProvider + Send + Sync + 'static>(
     ensure_schema_sqlite(&db).await?;
 
     let dm = DataManager::new(db, key_manager);
-    dm.init().await?;
 
     Ok(Arc::new(dm))
 }

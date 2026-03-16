@@ -91,7 +91,7 @@ async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
     out.push(UIDENC_VER);
     out.extend_from_slice(nonce.as_slice());
     out.extend_from_slice(ct.expose_as_slice());
-    Ok(SecretBytes::from_vec(out))
+    Ok(SecretBytes::new(out))
 }
 
 fn seal_msg(plaintext: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<SecretBytes> {
@@ -102,7 +102,7 @@ fn seal_msg(plaintext: &SecretBytes, key: &Byte32, aad: &SecretBytes) -> Result<
     out.push(MSG_VER);
     out.extend_from_slice(nonce.as_slice());
     out.extend_from_slice(ct.expose_as_slice());
-    Ok(SecretBytes::from_vec(out))
+    Ok(SecretBytes::new(out))
 }
 
 fn open_msg(blob: &[u8], key: &Byte32, aad: &[u8]) -> Result<SecretBytes> {
@@ -365,7 +365,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         aad.extend_from_slice(AAD_MSG);
         aad.extend_from_slice(&mailbox);
 
-        let blob = seal_msg(&content, &msg_key, &SecretBytes::from_vec(aad))?;
+        let blob = seal_msg(&content, &msg_key, &SecretBytes::new(aad))?;
         drop(content);
 
         let am = messages::ActiveModel {

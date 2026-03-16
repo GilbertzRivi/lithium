@@ -9,24 +9,16 @@ use crate::protocol_manager::ServerBootstrap;
 
 const MAGIC: &[u8; 8] = b"LITHIUPK";
 
-/// Validate that `data` is a parseable `server.identity` blob.
-pub fn validate(data: &[u8]) -> Result<()> {
-    parse(data).map(|_| ())
-}
-
 /// Parse a `server.identity` file produced by lithiums and return the
 /// [`ServerBootstrap`] needed for the encrypted transport layer.
 ///
 /// The file is intentionally not read at daemon startup — call this function
 /// only when a server connection is first attempted.
 pub fn load(path: &Path) -> Result<ServerBootstrap> {
-    let data = std::fs::read(path).map_err(|e| {
-        LithiumError::io(e)
-    })?;
-    parse(&data)
+    parse(&std::fs::read(path).map_err(LithiumError::io)?)
 }
 
-fn parse(data: &[u8]) -> Result<ServerBootstrap> {
+pub(crate) fn parse(data: &[u8]) -> Result<ServerBootstrap> {
     if data.len() < 10 || &data[0..8] != MAGIC {
         return Err(LithiumError::invalid_credentials("server_identity_bad_magic"));
     }
@@ -81,8 +73,8 @@ fn parse(data: &[u8]) -> Result<ServerBootstrap> {
 
     Ok(ServerBootstrap {
         shake_pub_x:    Byte32::from_slice(&x25519) .map_err(|_| LithiumError::invalid_credentials("server_identity_bad_x25519"))?,
-        shake_pub_k:    SecretBytes::from_vec(mlkem),
+        shake_pub_k:    SecretBytes::new(mlkem),
         server_sig_ed:  Byte32::from_slice(&ed25519).map_err(|_| LithiumError::invalid_credentials("server_identity_bad_ed25519"))?,
-        server_sig_dili: SecretBytes::from_vec(mldsa),
+        server_sig_dili: SecretBytes::new(mldsa),
     })
 }

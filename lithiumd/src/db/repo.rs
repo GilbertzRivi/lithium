@@ -125,13 +125,13 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
 
         let peer = self
             .decrypt_db_blob(
-                &SecretBytes::from_vec(row.peer_state_enc.clone()),
+                &SecretBytes::new(row.peer_state_enc.clone()),
                 &SecretBytes::from_slice(AAD_CONTACT_PEER),
             )
             .await?;
         let self_state = self
             .decrypt_db_blob(
-                &SecretBytes::from_vec(row.self_state_enc.clone()),
+                &SecretBytes::new(row.self_state_enc.clone()),
                 &SecretBytes::from_slice(AAD_CONTACT_SELF),
             )
             .await?;
@@ -189,7 +189,7 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         for r in rows {
             let pt = self
                 .decrypt_db_blob(
-                    &SecretBytes::from_vec(r.content_enc.clone()),
+                    &SecretBytes::new(r.content_enc.clone()),
                     &SecretBytes::from_slice(AAD_MESSAGE),
                 )
                 .await?;
@@ -283,7 +283,7 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
 
         let pt = self
             .decrypt_db_blob(
-                &SecretBytes::from_vec(key_enc),
+                &SecretBytes::new(key_enc),
                 &SecretBytes::from_slice(AAD_PREKEY),
             )
             .await?;

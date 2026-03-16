@@ -8,8 +8,7 @@ use zeroize::Zeroize;
 
 use crate::crypto::{aead, keys};
 use crate::error::{CryptoErrorKind, LithiumError, Result};
-use crate::secrets::bytes::{FixedBytes, SecretBytes};
-use crate::secrets::types::{Byte12, Byte32, MasterKey32};
+use crate::secrets::{Byte12, Byte32, FixedBytes, MasterKey32, SecretBytes};
 
 pub const KEYFILE_MAGIC: &[u8; 4] = b"KEYF";
 pub const KEYFILE_VERSION: u8 = 1;
@@ -18,7 +17,7 @@ pub const DEK_LEN: u16 = 32;
 
 #[inline]
 pub fn read_keyfile_bytes(path: &Path) -> Result<SecretBytes> {
-    Ok(SecretBytes::from_vec(fs::read(path).map_err(LithiumError::io)?))
+    Ok(SecretBytes::new(fs::read(path).map_err(LithiumError::io)?))
 }
 
 pub fn write_secure(path: &Path, data: &[u8]) -> Result<()> {
@@ -60,7 +59,7 @@ pub fn write_secure(path: &Path, data: &[u8]) -> Result<()> {
 
 #[inline]
 fn aad_for(version: u8, key_type: &str) -> SecretBytes {
-    SecretBytes::from_vec(format!("keyfile:v{}|{}", version, key_type).into_bytes())
+    SecretBytes::new(format!("keyfile:v{}|{}", version, key_type).into_bytes())
 }
 
 #[inline]
@@ -414,7 +413,7 @@ pub fn rewrap_keyfile_dek_to_bytes(
     nonce_wrap_old.zeroize();
     ct_wrap_old.zeroize();
 
-    Ok(SecretBytes::from_vec(out))
+    Ok(SecretBytes::new(out))
 }
 
 pub fn rewrap_keyfile_dek(
