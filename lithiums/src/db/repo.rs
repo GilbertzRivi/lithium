@@ -47,18 +47,12 @@ pub struct UserRecord {
     pub dek: SecretString,
 }
 
-#[inline]
-fn normalize_handler(handler: &str) -> String {
-    handler.trim().to_lowercase()
-}
-
 async fn uuid5_from_handler<P: MkProvider + Send + Sync + 'static>(
     dm: &DataManager<P>,
     handler: &str,
 ) -> Result<Uuid> {
     let ns = dm.users_uuid_namespace().await?;
-    let name = normalize_handler(handler);
-    Ok(Uuid::new_v5(&ns, name.as_bytes()))
+    Ok(Uuid::new_v5(&ns, handler.trim().to_lowercase().as_bytes()))
 }
 
 // NOTE:

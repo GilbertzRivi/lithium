@@ -44,7 +44,8 @@ impl LithiumApp {
                     .add_enabled(has_ipc_auth && !self.busy, egui::Button::new("Delete account"))
                     .clicked()
                 {
-                    self.open_delete_account_modal();
+                    self.delete_account_modal_open = true;
+                    self.confirm_delete_account = false;
                     ui.close();
                 }
 

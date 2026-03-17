@@ -26,20 +26,17 @@ fn require(name: &'static str) -> Result<String> {
     env::var(name).map_err(|_| LithiumError::env_missing(name))
 }
 
-/// Read the database password from the file pointed to by `DB_PASSWORD_FILE`.
-/// The file is typically a Docker secret mounted at `/run/secrets/<name>`.
-fn read_db_password() -> Result<String> {
-    let path = require("DB_PASSWORD_FILE")?;
-    std::fs::read_to_string(&path)
-        .map(|s| s.trim_end_matches(['\n', '\r']).to_string())
-        .map_err(|e| LithiumError::io(e))
-}
-
 pub async fn connect_from_env() -> Result<DatabaseConnection> {
     let host     = require("DB_HOST")?;
     let port     = env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
     let user     = require("DB_USER")?;
-    let password = read_db_password()?;
+    let password = {
+        // Read from the file pointed to by DB_PASSWORD_FILE (typically a Docker secret).
+        let path = require("DB_PASSWORD_FILE")?;
+        std::fs::read_to_string(&path)
+            .map(|s| s.trim_end_matches(['\n', '\r']).to_string())
+            .map_err(LithiumError::io)?
+    };
     let name     = require("DB_NAME")?;
 
     let url = format!(
@@ -51,6 +48,10 @@ pub async fn connect_from_env() -> Result<DatabaseConnection> {
         name,
     );
 
+    Database::connect(url).await.map_err(LithiumError::io)
+}
+
+pub async fn connect_url(url: &str) -> Result<DatabaseConnection> {
     Database::connect(url).await.map_err(LithiumError::io)
 }
 

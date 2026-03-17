@@ -85,7 +85,7 @@ fn login_lock_key(handler: &str) -> String {
 }
 
 #[inline]
-fn parse_u32_ascii(raw: &[u8]) -> u32 {
+pub(crate) fn parse_u32_ascii(raw: &[u8]) -> u32 {
     std::str::from_utf8(raw)
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
@@ -165,18 +165,13 @@ pub async fn login_rate_limit_success(
 }
 
 #[inline]
-fn normalize_register_handler(handler: &str) -> String {
-    handler.trim().to_lowercase()
-}
-
-#[inline]
 fn register_fail_key(handler: &str) -> String {
-    format!("auth:register:fail:{}", normalize_register_handler(handler))
+    format!("auth:register:fail:{}", normalize_login_handler(handler))
 }
 
 #[inline]
 fn register_lock_key(handler: &str) -> String {
-    format!("auth:register:lock:{}", normalize_register_handler(handler))
+    format!("auth:register:lock:{}", normalize_login_handler(handler))
 }
 
 pub async fn register_rate_limit_check(
@@ -628,7 +623,10 @@ pub async fn build_crypto_context(
 
 impl CryptoContext {
     pub async fn reply_ok(&mut self, mut body: Value) -> Result<Response, AppError> {
-        let now = get_now()?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| AppError::internal("system clock error"))?
+            .as_secs();
         if body.get("timestamp").is_none() {
             body["timestamp"] = Value::String(format!("{:016x}", now));
         }
@@ -677,8 +675,8 @@ impl CryptoContext {
             .await
             .with_dilithium_sk(|sk| sign::sign_message_dili(response_body_s.expose().as_bytes(), sk))?;
 
-        let response_body_pad = pad_data(response_body_s.expose().as_bytes());
-        let response_headers_pad = pad_headers(response_headers_s.expose().as_bytes());
+        let response_body_pad = pad_block(response_body_s.expose().as_bytes(), random_block_size());
+        let response_headers_pad = pad_block(response_headers_s.expose().as_bytes(), random_block_size() / 8);
 
         let encrypted = kyberbox::encrypt(
             self.resp_label.as_str(),
@@ -831,13 +829,6 @@ pub fn validate_timestamp(
     Ok(())
 }
 
-pub fn get_now() -> Result<u64, AppError> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| AppError::internal("system clock error"))?
-        .as_secs())
-}
-
 fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
     let total_len = input.len() + 1;
     let pad_len = (block_size - (total_len % block_size)) % block_size;
@@ -851,13 +842,6 @@ fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
     out
 }
 
-pub fn pad_data(input: &[u8]) -> SecretBytes {
-    pad_block(input, random_block_size())
-}
-
-pub fn pad_headers(input: &[u8]) -> SecretBytes {
-    pad_block(input, random_block_size() / 8)
-}
 fn random_block_size() -> usize {
     let min = 32 * 1024;
     let max = 64 * 1024;

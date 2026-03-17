@@ -1,9 +1,6 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-use poem::{get, handler, post, Endpoint, EndpointExt, Route};
 use poem::{listener::TcpListener, Server};
-use poem::web::Json;
-use serde_json::json;
 use tokio::sync::Mutex;
 
 use lithium_core::{
@@ -12,84 +9,10 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-
-use middleware::crypto::CryptoMiddleware;
-use middleware::guard::GuardMiddleware;
-use transport::{AuthMode, CryptoCfg};
-
-mod api;
-mod db;
-mod error;
-mod identity;
-mod middleware;
-mod mk_rotator;
-mod state;
-mod transport;
-
-#[handler]
-async fn root() -> Json<serde_json::Value> {
-    Json(json!({
-        "message": "Welcome to Lithium, real private messenger"
-    }))
-}
-
-fn api_routes(state: state::SharedState) -> impl Endpoint {
-    Route::new()
-        .at("/", get(root))
-        .at(
-            "/shake",
-            post(api::handshake::handshake).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::shake("shake").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .at(
-            "/user/register",
-            post(api::user::register).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("register").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .at(
-            "/user/login",
-            post(api::user::login).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("login").auth(AuthMode::LoginByHandler),
-            )),
-        )
-        .at(
-            "/user/revoke",
-            post(api::user::revoke).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("revoke").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .at(
-            "/user/delete",
-            post(api::user::delete).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("delete").auth(AuthMode::JwtUser),
-            )),
-        )
-        .at(
-            "/msg/send",
-            post(api::messages::send).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("msg_send").auth(AuthMode::JwtUser),
-            )),
-        )
-        .at(
-            "/msg/fetch",
-            post(api::messages::fetch).with(CryptoMiddleware::new(
-                state.clone(),
-                CryptoCfg::session("msg_fetch").auth(AuthMode::KeysInHeaders),
-            )),
-        )
-        .with(GuardMiddleware::new(state))
-}
+use lithiums::{build_app, db, error::AppResult, identity, mk_rotator, state};
 
 #[tokio::main]
-async fn main() -> error::AppResult<()> {
+async fn main() -> AppResult<()> {
     let bind_host = env::var("LITHIUM_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
     let bind_port = env::var("LITHIUM_PORT").unwrap_or_else(|_| "4108".to_string());
     let bind: SocketAddr = format!("{bind_host}:{bind_port}")
@@ -116,19 +39,20 @@ async fn main() -> error::AppResult<()> {
     }
 
     let key_manager = Arc::new(Mutex::new(km));
-    let _mk_rotator = mk_rotator::spawn_mk_rotator(Arc::clone(&key_manager), Duration::from_secs(30));
+    let _mk_rotator =
+        mk_rotator::spawn_mk_rotator(Arc::clone(&key_manager), Duration::from_secs(30));
 
-    let db = db::connect_from_env().await?;
-    db::migrate(&db).await?;
-    let dbm = Arc::new(DataManager::new(db, Arc::clone(&key_manager)));
+    let db_conn = db::connect_from_env().await?;
+    db::migrate(&db_conn).await?;
+    let dbm = Arc::new(DataManager::new(db_conn, Arc::clone(&key_manager)));
 
-    let state = Arc::new(state::AppState {
+    let app_state = Arc::new(state::AppState {
         key_manager,
         store: EphemeralStoreManager::new()?,
         db: dbm,
     });
 
-    let app = api_routes(state);
+    let app = build_app(app_state);
 
     Server::new(TcpListener::bind(bind))
         .run(app)

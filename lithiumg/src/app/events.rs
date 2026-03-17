@@ -141,35 +141,7 @@ impl LithiumApp {
                     self.screen = Screen::Connecting;
                     self.last_ping = None;
 
-                    self.confirm_delete_account = false;
-                    self.delete_account_modal_open = false;
-                    self.remote_delete_modal_open = false;
-                    self.show_register_capability_modal = false;
-
-                    self.data_password.clear();
-                    self.data_password_confirm.clear();
-                    self.username.clear();
-                    self.account_password.clear();
-                    self.account_password_confirm.clear();
-
-                    self.contacts.clear();
-                    self.selected_contact_id = None;
-                    self.messages.clear();
-                    self.message_text.clear();
-
-                    self.invite_code_input.clear();
-                    self.invite_label_input.clear();
-                    self.generated_invite_code.clear();
-                    self.pending_select_contact_id = None;
-                    self.pending_verify_contact_id = None;
-                    self.shown_verify_for_contact_ids.clear();
-                    self.clear_verify_modal();
-
-                    self.register_capability.clear();
-                    self.remote_delete_capability_input.clear();
-                    self.confirm_remote_delete = false;
-                    self.wipe_modal_open = false;
-
+                    self.reset_all_state();
                     self.set_status("Account deleted.");
                     self.send(Command::Ping);
                 }
@@ -381,34 +353,7 @@ impl LithiumApp {
                     self.screen = Screen::Connecting;
                     self.last_ping = None;
 
-                    self.data_password.clear();
-                    self.data_password_confirm.clear();
-                    self.username.clear();
-                    self.account_password.clear();
-                    self.account_password_confirm.clear();
-
-                    self.contacts.clear();
-                    self.selected_contact_id = None;
-                    self.messages.clear();
-                    self.message_text.clear();
-
-                    self.invite_code_input.clear();
-                    self.invite_label_input.clear();
-                    self.generated_invite_code.clear();
-                    self.pending_select_contact_id = None;
-                    self.pending_verify_contact_id = None;
-                    self.shown_verify_for_contact_ids.clear();
-                    self.clear_verify_modal();
-
-                    self.register_capability.clear();
-                    self.show_register_capability_modal = false;
-                    self.remote_delete_modal_open = false;
-                    self.remote_delete_capability_input.clear();
-                    self.confirm_remote_delete = false;
-                    self.delete_account_modal_open = false;
-                    self.confirm_delete_account = false;
-                    self.wipe_modal_open = false;
-
+                    self.reset_all_state();
                     self.set_status("Local data reset.");
                     self.send(Command::Ping);
                 }

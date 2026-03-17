@@ -7,6 +7,7 @@ use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::error::AppError;
 use crate::state::SharedState;
+use crate::transport::parse_u32_ascii;
 
 #[derive(Clone)]
 pub struct CipherBody(pub SecretBytes);
@@ -16,28 +17,6 @@ const PRE_REPLAY_LOCK_BASE_SECS: u64 = 5;
 const PRE_REPLAY_LOCK_MAX_SECS: u64 = 60;
 const PRE_REPLAY_THRESHOLD: u32 = 200;
 
-fn check_body_size(body: &[u8]) -> Result<(), AppError> {
-    if body.len() > 1024 * 1024 {
-        return Err(AppError::bad_request("body_too_large"));
-    }
-    Ok(())
-}
-
-fn check_headers_size(headers: &HashMap<String, Vec<u8>>) -> Result<(), AppError> {
-    let total: usize = headers.iter().map(|(k, v)| k.len() + v.len()).sum();
-    if total > 1024 * 1024 {
-        return Err(AppError::bad_request("headers_too_large"));
-    }
-    Ok(())
-}
-
-#[inline]
-fn parse_u32_ascii(raw: &[u8]) -> u32 {
-    std::str::from_utf8(raw)
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0)
-}
 
 #[inline]
 fn normalize_guard_remote(remote: &str) -> String {
@@ -184,15 +163,18 @@ impl<E: Endpoint> Endpoint for GuardEndpoint<E> {
             headers.insert(k.as_str().to_ascii_lowercase(), v.as_bytes().to_vec());
         }
 
-        check_headers_size(&headers)
-            .map_err(|e| poem::Error::from_response(e.into_response()))?;
+        let headers_total: usize = headers.iter().map(|(k, v)| k.len() + v.len()).sum();
+        if headers_total > 1024 * 1024 {
+            return Err(poem::Error::from_response(AppError::bad_request("headers_too_large").into_response()));
+        }
 
         let bytes = req.take_body().into_bytes().await.map_err(|_| {
             poem::Error::from_response(AppError::bad_request("invalid_body").into_response())
         })?;
 
-        check_body_size(bytes.as_ref())
-            .map_err(|e| poem::Error::from_response(e.into_response()))?;
+        if bytes.len() > 1024 * 1024 {
+            return Err(poem::Error::from_response(AppError::bad_request("body_too_large").into_response()));
+        }
 
         pre_replay_rate_limit_hit(&self.state, &remote)
             .await

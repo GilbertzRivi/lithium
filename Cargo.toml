@@ -5,4 +5,5 @@ members = [
     "lithiumd",
     "lithiumg",
     "lithiums",
+    "lithium_itest",
 ]
