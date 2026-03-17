@@ -1032,3 +1032,100 @@ fn cross_kyberbox_nondeterministic_wire() {
     assert_ne!(wire1.enc_body.expose_as_slice(), wire2.enc_body.expose_as_slice(),
         "KyberBox must produce non-deterministic ciphertexts");
 }
+
+#[test]
+fn kyberbox_cross_ctx_seed_enc_transplant_fails() {
+    // seed_enc AEAD is bound to ctx via AAD ("{ctx}/seed/v1").
+    // Transplanting seed_enc from ctx-alpha into a ctx-beta message must fail,
+    // because the AAD reconstructed during decryption will not match.
+    let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
+        kyberbox_alice_bob();
+
+    let wire_alpha = kyberbox::encrypt(
+        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+    let wire_beta = kyberbox::encrypt(
+        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+
+    let doctored = kyberbox::WirePayload {
+        seed_enc: wire_alpha.seed_enc,
+        enc_body: wire_beta.enc_body,
+        enc_headers: wire_beta.enc_headers,
+    };
+    assert!(
+        kyberbox::decrypt("ctx-beta", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &doctored).is_err(),
+        "seed_enc from a different ctx must not verify"
+    );
+}
+
+#[test]
+fn kyberbox_cross_ctx_enc_body_transplant_fails() {
+    // enc_body is encrypted with a key derived as HKDF(base_key, info="{ctx}/body-key/v1")
+    // and authenticated with AAD "{ctx}/body/v1".
+    // A ciphertext produced under ctx-alpha cannot be decrypted under ctx-beta.
+    let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
+        kyberbox_alice_bob();
+
+    let wire_alpha = kyberbox::encrypt(
+        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+    let wire_beta = kyberbox::encrypt(
+        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+
+    let doctored = kyberbox::WirePayload {
+        seed_enc: wire_beta.seed_enc,
+        enc_body: wire_alpha.enc_body,
+        enc_headers: wire_beta.enc_headers,
+    };
+    assert!(
+        kyberbox::decrypt("ctx-beta", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &doctored).is_err(),
+        "enc_body from a different ctx must not decrypt"
+    );
+}
+
+#[test]
+fn kyberbox_cross_ctx_enc_headers_transplant_fails() {
+    // enc_headers is derived and authenticated analogously to enc_body but with
+    // "{ctx}/headers-key/v1" and "{ctx}/headers/v1". Same transplant must fail.
+    let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
+        kyberbox_alice_bob();
+
+    let wire_alpha = kyberbox::encrypt(
+        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+    let wire_beta = kyberbox::encrypt(
+        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
+    ).unwrap();
+
+    let doctored = kyberbox::WirePayload {
+        seed_enc: wire_beta.seed_enc,
+        enc_body: wire_beta.enc_body,
+        enc_headers: wire_alpha.enc_headers,
+    };
+    assert!(
+        kyberbox::decrypt("ctx-beta", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &doctored).is_err(),
+        "enc_headers from a different ctx must not decrypt"
+    );
+}
+
+#[test]
+fn kyberbox_wire_replay_to_different_recipient_fails() {
+    // A WirePayload encrypted for session A (bob's keys, ctx="session-a") must not
+    // be decryptable in session B (carol's keys, ctx="session-b").
+    // Tests that neither the ML-KEM nor the X25519 component crosses session boundaries.
+    let (alice_x_sk, alice_x_pk, _bob_kyber_sk, bob_kyber_pk, _bob_x_sk, bob_x_pk) =
+        kyberbox_alice_bob();
+    let (carol_x_sk, carol_x_pk, carol_kyber_sk, carol_kyber_pk, _, _) =
+        kyberbox_alice_bob();
+    let _ = (carol_x_pk, carol_kyber_pk);
+
+    let wire = kyberbox::encrypt(
+        "session-a", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"secret"), &sb(b"hdr"),
+    ).unwrap();
+
+    // carol attempts to decrypt a message that was never addressed to her
+    let result = kyberbox::decrypt("session-b", &carol_x_sk, &alice_x_pk, &carol_kyber_sk, &wire);
+    assert!(result.is_err(), "WirePayload addressed to bob must not decrypt for carol");
+}

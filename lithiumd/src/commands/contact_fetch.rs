@@ -11,7 +11,7 @@ use crate::{
         inbound_fetch_generations,
         note_inbound_generation_seen,
     },
-    commands::e2e::{
+    e2e::{
         decrypt_for_prekey,
         decrypt_for_us,
         drop_bootstrap_private_if_established,
@@ -25,7 +25,7 @@ use crate::{
     protocol_manager::Endpoint,
     state::DaemonState,
 };
-use crate::commands::e2e::mark_bootstrap_retire_ready;
+use crate::e2e::mark_bootstrap_retire_ready;
 
 fn build_stored_message(
     text: &str,

@@ -14,6 +14,7 @@ mod identity;
 mod ipc;
 mod commands;
 mod db;
+mod e2e;
 
 use state::DaemonState;
 use util::IpcEndpoint;

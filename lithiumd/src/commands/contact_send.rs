@@ -8,7 +8,7 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
-use crate::commands::e2e::drop_bootstrap_private_if_established;
+use crate::e2e::drop_bootstrap_private_if_established;
 use crate::{
     commands::contact_mailbox::{
         derive_mailboxes_for_generation_from_values,
@@ -16,7 +16,7 @@ use crate::{
         mark_outbound_message_sent,
         self_tx_generation,
     },
-    commands::e2e::{
+    e2e::{
         encrypt_for_peer,
         ensure_self_keyring,
         gen_local_prekey_material,
