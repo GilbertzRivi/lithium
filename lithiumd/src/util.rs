@@ -45,26 +45,26 @@ pub fn default_data_dir() -> PathBuf {
     }
 }
 
-pub fn default_ipc_endpoint() -> IpcEndpoint {
+pub fn default_ipc_endpoint() -> Result<IpcEndpoint> {
     #[cfg(windows)]
     {
         let pipe = std::env::var("LITHIUMD_PIPE_NAME")
             .unwrap_or_else(|_| String::from(r"\\.\pipe\lithiumd"));
-        return IpcEndpoint::NamedPipe(pipe);
+        return Ok(IpcEndpoint::NamedPipe(pipe));
     }
 
     #[cfg(unix)]
     {
         if let Some(v) = std::env::var_os("LITHIUMD_SOCKET_PATH") {
-            return IpcEndpoint::Unix(PathBuf::from(v));
+            return Ok(IpcEndpoint::Unix(PathBuf::from(v)));
         }
 
         if let Some(rt) = std::env::var_os("XDG_RUNTIME_DIR") {
-            return IpcEndpoint::Unix(PathBuf::from(rt).join("lithiumd.sock"));
+            return Ok(IpcEndpoint::Unix(PathBuf::from(rt).join("lithiumd.sock")));
         }
 
         // No safe location available — require explicit override via LITHIUMD_SOCKET_PATH.
-        panic!("XDG_RUNTIME_DIR is not set; set LITHIUMD_SOCKET_PATH to a private directory")
+        Err(LithiumError::env_missing("XDG_RUNTIME_DIR"))
     }
 }
 

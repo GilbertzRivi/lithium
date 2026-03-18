@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::error;
 use zeroize::Zeroize;
 
 use lithium_core::crypto::{keys, kyberbox, sign};
@@ -441,15 +440,7 @@ pub async fn build_crypto_context(
                     kyberbox::decrypt(req_label.as_str(), &x_priv, &peer_key_x, &k_priv, &wire)
                 }) {
                 Ok(v) => { v }
-                Err(e) => {
-                    error!(
-                        endpoint = cfg.endpoint,
-                        label = %req_label,
-                        error = ?e,
-                        "shake decrypt failed"
-                    );
-                    return Err(AppError::from(e));
-                }
+                Err(e) => return Err(AppError::from(e)),
             }
         }
         CryptoMode::Session => {
@@ -483,53 +474,19 @@ pub async fn build_crypto_context(
                 },
             ) {
                 Ok(v) => { v }
-                Err(e) => {
-                    error!(
-                        endpoint = cfg.endpoint,
-                        label = %req_label,
-                        error = ?e,
-                        "session decrypt failed"
-                    );
-                    return Err(AppError::from(e));
-                }
+                Err(e) => return Err(AppError::from(e)),
             }
         }
     };
 
-    unpad_block(dec_body.expose_as_mut_vec()).map_err(|e| {
-        error!(endpoint = cfg.endpoint, error = ?e, "body unpad failed");
-        e
-    })?;
+    unpad_block(dec_body.expose_as_mut_vec())?;
+    unpad_block(dec_headers.expose_as_mut_vec())?;
 
-    unpad_block(dec_headers.expose_as_mut_vec()).map_err(|e| {
-        error!(endpoint = cfg.endpoint, error = ?e, "headers unpad failed");
-        e
-    })?;
+    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
+    let headers_json = SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
 
-    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(|e| {
-        error!(endpoint = cfg.endpoint, error = ?e, "body json parse failed");
-        AppError::from(e)
-    })?;
-
-    let headers_json = SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(|e| {
-        error!(endpoint = cfg.endpoint, error = ?e, "headers json parse failed");
-        AppError::from(e)
-    })?;
-    
-    let ts = body_json.get_string("timestamp").map_err(|e| {
-        error!(endpoint = cfg.endpoint, error = ?e, "timestamp missing");
-        AppError::from(e)
-    })?;
-
-    validate_timestamp(ts.expose(), cfg.ts_skew, cfg.ts_skew).map_err(|e| {
-        error!(
-            endpoint = cfg.endpoint,
-            timestamp = %ts.expose(),
-            error = ?e,
-            "timestamp invalid"
-        );
-        e
-    })?;
+    let ts = body_json.get_string("timestamp").map_err(AppError::from)?;
+    validate_timestamp(ts.expose(), cfg.ts_skew, cfg.ts_skew)?;
 
     let mut client_ed_key: Option<Byte32> = None;
     let mut client_dili_key: Option<SecretBytes> = None;
@@ -539,30 +496,12 @@ pub async fn build_crypto_context(
             let key_ed_raw = headers_json.get_string("key-ed")?;
             let key_dili_raw = headers_json.get_string("key-dili")?;
 
-            let peer_key_ed = Byte32::from_hex(key_ed_raw.expose()).map_err(|e| {
-                error!(
-                    endpoint = cfg.endpoint,
-                    key_ed = %key_ed_raw.expose(),
-                    error = ?e,
-                    "invalid key-ed"
-                );
-                AppError::bad_request("invalid_key_ed")
-            })?;
+            let peer_key_ed = Byte32::from_hex(key_ed_raw.expose())
+                .map_err(|_| AppError::bad_request("invalid_key_ed"))?;
+            let peer_key_dili = SecretBytes::from_hex(key_dili_raw.expose())
+                .map_err(|_| AppError::bad_request("invalid_key_dili"))?;
 
-            let peer_key_dili = SecretBytes::from_hex(key_dili_raw.expose()).map_err(|e| {
-                error!(
-                    endpoint = cfg.endpoint,
-                    key_dili_len = key_dili_raw.expose().len(),
-                    error = ?e,
-                    "invalid key-dili"
-                );
-                AppError::bad_request("invalid_key_dili")
-            })?;
-
-            verify_signature(&headers_json, &body_json, &peer_key_ed, &peer_key_dili).map_err(|e| {
-                error!(endpoint = cfg.endpoint, error = ?e, "signature verification failed");
-                e
-            })?;
+            verify_signature(&headers_json, &body_json, &peer_key_ed, &peer_key_dili)?;
 
             client_ed_key = Some(peer_key_ed);
             client_dili_key = Some(peer_key_dili);

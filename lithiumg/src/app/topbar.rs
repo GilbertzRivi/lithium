@@ -88,5 +88,28 @@ impl LithiumApp {
             };
             ui.label(text);
         });
+
+        if self.mk_rotation_error {
+            ui.separator();
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(80, 30, 0))
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 160, 40),
+                        "Master key rotation failed",
+                    );
+                    ui.add_space(2.0);
+                    ui.label(egui::RichText::new(
+                        "The keystore could not be re-encrypted. Possible causes: disk full, \
+                         keystore directory missing or not writable, or corrupted key files.\n\
+                         \n\
+                         To fix: check that the keystore directory exists and is writable. \
+                         If the error persists, use Account \u{2192} Reset local data to \
+                         reinitialize (you will need to re-register)."
+                    ).small());
+                });
+        }
     }
 }

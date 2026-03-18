@@ -194,6 +194,8 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         store: &EphemeralStoreManager,
         mailbox: Vec<u8>,
     ) -> AppResult<Vec<SecretString>>;
+
+    async fn delete_expired_messages(&self) -> AppResult<u64>;
 }
 
 impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
@@ -446,5 +448,15 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         }
 
         Ok(out)
+    }
+
+    async fn delete_expired_messages(&self) -> AppResult<u64> {
+        let now = Utc::now();
+        let res = messages::Entity::delete_many()
+            .filter(messages::Column::ExpiresAt.lte(now))
+            .exec(self.db())
+            .await
+            .map_err(LithiumError::io)?;
+        Ok(res.rows_affected)
     }
 }

@@ -5,6 +5,7 @@ use super::{Command, LithiumApp, Screen, WorkerEvent};
 impl LithiumApp {
     pub(super) fn handle_ping(&mut self, ping: ipc::PingResult) {
         let s = &ping.status;
+        self.mk_rotation_error = s.mk_rotation_error;
         self.last_ping = Some(ping.clone());
 
         if !s.has_server_url {
@@ -323,6 +324,7 @@ impl LithiumApp {
                     self.messages.clear();
                     self.message_text.clear();
                     self.clear_verify_modal();
+                    self.mk_rotation_error = false;
                     self.set_status("Keystore locked.");
                     self.send(Command::Ping);
                 }

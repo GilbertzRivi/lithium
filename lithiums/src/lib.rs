@@ -4,6 +4,7 @@ pub mod error;
 pub mod identity;
 pub mod middleware;
 pub mod mk_rotator;
+pub mod msg_reaper;
 pub mod state;
 pub mod transport;
 

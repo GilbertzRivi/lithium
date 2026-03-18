@@ -22,7 +22,7 @@ use util::IpcEndpoint;
 #[tokio::main]
 async fn main() -> Result<()> {
     let base_dir = util::default_data_dir();
-    let ipc_endpoint = util::default_ipc_endpoint();
+    let ipc_endpoint = util::default_ipc_endpoint()?;
     let ipc_policy = util::load_ipc_policy()?;
 
     util::prepare_private_dir(&base_dir)?;
@@ -73,9 +73,30 @@ async fn main() -> Result<()> {
         )
     };
 
+    #[cfg(unix)]
+    let mut sigterm = {
+        use tokio::signal::unix::{SignalKind, signal};
+        signal(SignalKind::terminate()).map_err(lithium_core::error::LithiumError::io)?
+    };
+
+    let signal = async {
+        #[cfg(unix)]
+        {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = sigterm.recv() => {}
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    };
+
     tokio::select! {
         _ = ipc_task => {},
         _ = shutdown_rx => {},
+        _ = signal => {},
     }
 
     Ok(())

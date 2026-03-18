@@ -1,5 +1,4 @@
 use std::fmt;
-use tracing::{error, warn};
 use poem::{http::StatusCode, IntoResponse, Response};
 use serde_json::json;
 
@@ -68,36 +67,6 @@ impl std::error::Error for AppError {}
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        if self.code.is_server_error() {
-            match &self.source {
-                Some(src) => error!(
-                    status = %self.code,
-                    msg = self.msg,
-                    error = ?src,
-                    "app error"
-                ),
-                None => error!(
-                    status = %self.code,
-                    msg = self.msg,
-                    "app error"
-                ),
-            }
-        } else {
-            match &self.source {
-                Some(src) => warn!(
-                    status = %self.code,
-                    msg = self.msg,
-                    error = ?src,
-                    "client error"
-                ),
-                None => warn!(
-                    status = %self.code,
-                    msg = self.msg,
-                    "client error"
-                ),
-            }
-        }
-
         let body = json!({
             "ok": false,
             "error": self.msg,

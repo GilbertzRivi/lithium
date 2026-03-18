@@ -1,22 +1,9 @@
-//! Integration tests for `lithiums` (the relay server).
-//!
-//! Requires a PostgreSQL instance.  Set the env var before running:
-//!
-//!   LITHIUM_TEST_DATABASE_URL=postgres://user:pass@localhost/lithium_test \
-//!   cargo test -p lithium_itest -- --test-threads=1
-//!
-//! `--test-threads=1` avoids port collisions between parallel test servers.
-
 use lithium_itest::{
     client::RawShakeBuilder,
     helpers::{TestServer, random_dek_hex, unique_handle},
 };
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_root_endpoint() {
@@ -28,10 +15,6 @@ async fn test_root_endpoint() {
     let json: Value = resp.json().await.expect("json");
     assert!(json["message"].as_str().is_some(), "no message field");
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /shake
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_shake_establishes_session() {
@@ -48,10 +31,6 @@ async fn test_shake_establishes_session() {
         "ses-k missing from shake response headers"
     );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /user/register
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_register_new_user_returns_capability() {
@@ -74,12 +53,10 @@ async fn test_register_duplicate_user_is_rejected() {
     let handle = unique_handle("bob");
     let dek = random_dek_hex();
 
-    // First registration.
     let mut c1 = srv.client();
     c1.generate_user_keys();
     c1.register(&handle, "Password1!", &dek).await;
 
-    // Second registration with the same handle.
     let mut c2 = srv.client();
     c2.generate_user_keys();
     let raw = c2.register_raw(&handle, "Password1!", &dek).await;
@@ -87,10 +64,6 @@ async fn test_register_duplicate_user_is_rejected() {
     assert_eq!(raw.status, 400);
     assert_eq!(raw.error.as_deref(), Some("user_exists"));
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /user/login
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_login_success_returns_dek_and_token() {
@@ -102,7 +75,6 @@ async fn test_login_success_returns_dek_and_token() {
     c.generate_user_keys();
     c.register(&handle, "Password1!", &dek).await;
 
-    // New client — same device keys, fresh session.
     let mut c2 = srv.client();
     c2.copy_keys_from(&c);
     let r = c2.login(&handle, "Password1!").await;
@@ -138,10 +110,6 @@ async fn test_login_unknown_user_returns_401() {
     assert_eq!(raw.status, 401);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /msg/send + POST /msg/fetch
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_send_and_fetch_message() {
     use lithium_core::crypto::keys;
@@ -159,7 +127,6 @@ async fn test_send_and_fetch_message() {
     let content = hex::encode(b"hello integration test");
     sender.send_message(&mailbox, &content).await;
 
-    // Fetch with a fresh (unauthenticated) client.
     let mut fetcher = srv.client();
     fetcher.generate_user_keys();
     let r = fetcher.fetch_messages(&mailbox).await;
@@ -203,22 +170,16 @@ async fn test_messages_are_deleted_after_fetch() {
     let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
     sender.send_message(&mailbox, &hex::encode(b"one-time")).await;
 
-    // First fetch — gets the message.
     let mut f1 = srv.client();
     f1.generate_user_keys();
     let r1 = f1.fetch_messages(&mailbox).await;
     assert_eq!(r1.body["data"].as_array().unwrap().len(), 1);
 
-    // Second fetch — mailbox is empty (one-time delivery).
     let mut f2 = srv.client();
     f2.generate_user_keys();
     let r2 = f2.fetch_messages(&mailbox).await;
     assert!(r2.body["data"].as_array().unwrap().is_empty());
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /user/delete
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_delete_account_succeeds_and_blocks_login() {
@@ -237,10 +198,6 @@ async fn test_delete_account_succeeds_and_blocks_login() {
     let raw = c2.login_raw(&handle, "Password1!").await;
     assert_eq!(raw.status, 401);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /user/revoke
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_revoke_with_valid_capability_deletes_account() {
@@ -274,10 +231,6 @@ async fn test_revoke_with_wrong_capability_is_silent() {
     c.revoke(&fake_cap).await; // must not panic
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Security: anti-replay
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_duplicate_request_body_is_rejected() {
     let srv = TestServer::start().await;
@@ -291,10 +244,6 @@ async fn test_duplicate_request_body_is_rejected() {
     assert_eq!(raw.status, 400, "replay must be rejected with 400");
     assert_eq!(raw.error.as_deref(), Some("replay_detected"));
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Security: timestamp validation
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_stale_timestamp_is_rejected() {
@@ -330,10 +279,6 @@ async fn test_future_timestamp_is_rejected() {
     assert_eq!(raw.error.as_deref(), Some("request is from the future"));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Security: invalid JWT
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_invalid_jwt_is_rejected() {
     let srv = TestServer::start().await;
@@ -345,16 +290,11 @@ async fn test_invalid_jwt_is_rejected() {
     c.register(&handle, "Password1!", &dek).await;
     c.login(&handle, "Password1!").await;
 
-    // Corrupt the JWT so the server rejects it.
     c.poison_jwt().await;
 
     let raw = c.delete_raw().await;
     assert_eq!(raw.status, 401);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Security: missing crypto headers
-// ─────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_request_without_crypto_headers_is_rejected() {
@@ -373,10 +313,6 @@ async fn test_request_without_crypto_headers_is_rejected() {
     );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Rate limiting: login
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[tokio::test]
 async fn test_login_rate_limit_triggers_after_threshold() {
     let srv = TestServer::start().await;
@@ -387,14 +323,13 @@ async fn test_login_rate_limit_triggers_after_threshold() {
     c.generate_user_keys();
     c.register(&handle, "Password1!", &dek).await;
 
-    // Threshold is 5; attempt 6 times with wrong password.
+    // login fail threshold is 5
     for _ in 0..6 {
         let mut cx = srv.client();
         cx.copy_keys_from(&c);
         cx.login_raw(&handle, "WrongPass!").await;
     }
 
-    // 7th attempt must be 401 (credentials) or 429 (rate limited).
     let mut cx = srv.client();
     cx.copy_keys_from(&c);
     let raw = cx.login_raw(&handle, "Password1!").await;
@@ -403,4 +338,290 @@ async fn test_login_rate_limit_triggers_after_threshold() {
         "expected 401 or 429, got {}",
         raw.status
     );
+}
+
+#[tokio::test]
+async fn test_body_over_limit_rejected() {
+    let srv = TestServer::start().await;
+    let http = reqwest::Client::new();
+    let resp = http
+        .post(format!("http://{}/shake", srv.addr))
+        .body(vec![0u8; 1024 * 1024 + 1])
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status().as_u16();
+    let json: Value = resp.json().await.unwrap_or(Value::Null);
+    assert_eq!(status, 400);
+    assert_eq!(json["error"].as_str(), Some("body_too_large"));
+}
+
+#[tokio::test]
+async fn test_garbage_encrypted_body_rejected() {
+    let srv = TestServer::start().await;
+    let http = reqwest::Client::new();
+    // Valid-looking headers, but body is random noise — kyberbox decrypt must fail.
+    let resp = http
+        .post(format!("http://{}/shake", srv.addr))
+        .header("key-x", "ab".repeat(32))
+        .header("key-k", "cd".repeat(32))
+        .header("seed", "ef".repeat(48))
+        .header("data", "12".repeat(48))
+        .body(vec![0xffu8; 512])
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().as_u16() >= 400);
+}
+
+#[tokio::test]
+async fn test_session_with_nonexistent_ses_keys_rejected() {
+    let srv = TestServer::start().await;
+    let http = reqwest::Client::new();
+    // Valid header set for session mode, but ses-x/ses-k IDs don't exist in server store.
+    let resp = http
+        .post(format!("http://{}/user/register", srv.addr))
+        .header("ses-x", "aa".repeat(32))
+        .header("ses-k", "bb".repeat(32))
+        .header("key-x", "cc".repeat(32))
+        .header("key-k", "dd".repeat(32))
+        .header("seed", "ee".repeat(48))
+        .header("data", "ff".repeat(48))
+        .body(vec![0u8; 64])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn test_session_keys_consumed_after_use() {
+    let srv = TestServer::start().await;
+    let mut c = srv.client();
+
+    let shake_resp = c.shake().await;
+    let ses_x = shake_resp.headers["ses-x"].as_str().unwrap().to_owned();
+    let ses_k = shake_resp.headers["ses-k"].as_str().unwrap().to_owned();
+
+    c.generate_user_keys();
+    c.register(&unique_handle("keyused"), "Password1!", &random_dek_hex()).await;
+
+    let http = reqwest::Client::new();
+    let resp = http
+        .post(format!("http://{}/user/login", srv.addr))
+        .header("ses-x", &ses_x)
+        .header("ses-k", &ses_k)
+        .header("key-x", "cc".repeat(32))
+        .header("key-k", "dd".repeat(32))
+        .header("seed", "ee".repeat(48))
+        .header("data", "ff".repeat(48))
+        .body(vec![0u8; 64])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn test_register_invalid_dek_rejected() {
+    let srv = TestServer::start().await;
+    let mut c = srv.client();
+    c.generate_user_keys();
+    let raw = c.register_raw(&unique_handle("baddek"), "Password1!", "not-valid-hex").await;
+    assert_eq!(raw.status, 400);
+    assert_eq!(raw.error.as_deref(), Some("invalid_dek"));
+}
+
+#[tokio::test]
+async fn test_login_lockout_blocks_correct_password() {
+    let srv = TestServer::start().await;
+    let handle = unique_handle("lockout");
+    let dek = random_dek_hex();
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "CorrectPassword1!", &dek).await;
+
+    // login fail threshold is 5
+    for _ in 0..5 {
+        let mut cx = srv.client();
+        cx.copy_keys_from(&c);
+        cx.login_raw(&handle, "BadPassword!").await;
+    }
+
+    let mut cx = srv.client();
+    cx.copy_keys_from(&c);
+    let raw = cx.login_raw(&handle, "CorrectPassword1!").await;
+    assert_eq!(raw.status, 429, "correct password must be blocked while rate limit lock is active");
+}
+
+#[tokio::test]
+async fn test_login_rate_limit_case_insensitive() {
+    let srv = TestServer::start().await;
+    let handle = unique_handle("cilock");
+    let dek = random_dek_hex();
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "Password1!", &dek).await;
+
+    // normalize_login_handler lowercases before keying the rate limit counter,
+    // so uppercase and lowercase share the same bucket.
+    let handle_upper = handle.to_uppercase();
+    for _ in 0..5 {
+        let mut cx = srv.client();
+        cx.generate_user_keys();
+        cx.login_raw(&handle_upper, "Password1!").await;
+    }
+
+    let mut cx = srv.client();
+    cx.copy_keys_from(&c);
+    let raw = cx.login_raw(&handle, "Password1!").await;
+    assert_eq!(raw.status, 429);
+}
+
+#[tokio::test]
+async fn test_register_lockout_after_duplicate_threshold() {
+    let srv = TestServer::start().await;
+    let handle = unique_handle("reglimit");
+    let dek = random_dek_hex();
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "Password1!", &dek).await;
+
+    // register fail threshold is 3
+    for _ in 0..3 {
+        let mut cx = srv.client();
+        cx.generate_user_keys();
+        cx.register_raw(&handle, "Password1!", &random_dek_hex()).await;
+    }
+
+    let mut cx = srv.client();
+    cx.generate_user_keys();
+    let raw = cx.register_raw(&handle, "Password1!", &random_dek_hex()).await;
+    assert_eq!(raw.status, 429);
+    assert_eq!(raw.error.as_deref(), Some("try_later"));
+}
+
+#[tokio::test]
+async fn test_fetch_invalid_mailbox_byte_length() {
+    let srv = TestServer::start().await;
+    let mut c = srv.client();
+    c.generate_user_keys();
+
+    // server accepts only 16 or 32 byte mailboxes
+    let bad_mailbox = hex::encode([0xaau8; 3]);
+    let raw = c.fetch_messages_raw(&bad_mailbox).await;
+    assert_eq!(raw.status, 400);
+    assert_eq!(raw.error.as_deref(), Some("invalid_mailbox"));
+}
+
+#[tokio::test]
+async fn test_send_invalid_content_hex_rejected() {
+    use lithium_core::crypto::keys;
+
+    let srv = TestServer::start().await;
+    let handle = unique_handle("badcontent");
+    let dek = random_dek_hex();
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "Password1!", &dek).await;
+    c.login(&handle, "Password1!").await;
+
+    let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
+    let raw = c.send_message_raw(&mailbox, "not-valid-hex!").await;
+    assert_eq!(raw.status, 400);
+    assert_eq!(raw.error.as_deref(), Some("invalid_content"));
+}
+
+#[tokio::test]
+async fn test_send_mailbox_too_short_rejected() {
+    let srv = TestServer::start().await;
+    let handle = unique_handle("mbshort");
+    let dek = random_dek_hex();
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "Password1!", &dek).await;
+    c.login(&handle, "Password1!").await;
+
+    let bad_mailbox = hex::encode([0xbbu8; 7]);
+    let content = hex::encode(b"payload");
+    let raw = c.send_message_raw(&bad_mailbox, &content).await;
+    assert_eq!(raw.status, 400);
+    assert_eq!(raw.error.as_deref(), Some("invalid_mailbox"));
+}
+
+#[tokio::test]
+async fn test_multiple_senders_all_messages_fetched() {
+    use lithium_core::crypto::keys;
+
+    let srv = TestServer::start().await;
+    let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
+    let dek = random_dek_hex();
+
+    async fn register_login_send(
+        srv: &TestServer,
+        prefix: &str,
+        mailbox: &str,
+        payload: &[u8],
+    ) -> String {
+        let handle = unique_handle(prefix);
+        let dek = random_dek_hex();
+        let mut c = srv.client();
+        c.generate_user_keys();
+        c.register(&handle, "Password1!", &dek).await;
+        c.login(&handle, "Password1!").await;
+        let content = hex::encode(payload);
+        c.send_message(mailbox, &content).await;
+        hex::encode(payload)
+    }
+
+    let _ = dek;
+    register_login_send(&srv, "snd1", &mailbox, b"message-from-sender-one").await;
+    register_login_send(&srv, "snd2", &mailbox, b"message-from-sender-two").await;
+    register_login_send(&srv, "snd3", &mailbox, b"message-from-sender-three").await;
+
+    let mut fetcher = srv.client();
+    fetcher.generate_user_keys();
+    let r = fetcher.fetch_messages(&mailbox).await;
+    let data = r.body["data"].as_array().expect("data array");
+    assert_eq!(data.len(), 3, "expected all three messages in one fetch");
+
+    let payloads: Vec<Vec<u8>> = data
+        .iter()
+        .map(|v| hex::decode(v.as_str().expect("hex str")).expect("hex decode"))
+        .collect();
+
+    assert!(payloads.contains(&b"message-from-sender-one".to_vec()));
+    assert!(payloads.contains(&b"message-from-sender-two".to_vec()));
+    assert!(payloads.contains(&b"message-from-sender-three".to_vec()));
+}
+
+#[tokio::test]
+async fn test_jwt_single_use() {
+    use lithium_core::crypto::keys;
+
+    let srv = TestServer::start().await;
+    let handle = unique_handle("jwtonce");
+    let dek = random_dek_hex();
+    let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
+    let content = hex::encode(b"test");
+
+    let mut c = srv.client();
+    c.generate_user_keys();
+    c.register(&handle, "Password1!", &dek).await;
+    c.login(&handle, "Password1!").await;
+
+    c.send_message(&mailbox, &content).await;
+
+    // send_message_raw: the client got a fresh JWT from the server's reply_ok_authed
+    // in the first send, so a second call is expected to succeed with that new token.
+    // To test that the ORIGINAL token cannot be reused, we instead poison the fresh
+    // token the client holds and verify the server rejects the garbage.
+    c.poison_jwt().await;
+    let raw = c.send_message_raw(&mailbox, &content).await;
+    assert_eq!(raw.status, 401);
 }

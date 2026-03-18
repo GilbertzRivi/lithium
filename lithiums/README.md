@@ -41,6 +41,8 @@ src/
 
 ## Konfiguracja
 
+`lithiums` nasłuchuje na czystym HTTP. TLS terminuje reverse proxy (nginx, Caddy itp.) umieszczony przed procesem. Domyślny bind `127.0.0.1` zakłada, że proxy działa na tym samym hoście.
+
 Cała konfiguracja przez zmienne środowiskowe (obsługa `.env` przez `dotenvy`):
 
 | Zmienna                  | Wymagana | Domyślnie           | Opis                                             |
@@ -50,10 +52,14 @@ Cała konfiguracja przez zmienne środowiskowe (obsługa `.env` przez `dotenvy`)
 | `DB_USER`                | tak      | —                   | Użytkownik bazy danych                           |
 | `DB_PASSWORD_FILE`       | tak      | —                   | Ścieżka do pliku z hasłem (Docker secret)        |
 | `DB_NAME`                | tak      | —                   | Nazwa bazy danych                                |
+| `DB_MAX_CONNECTIONS`     | nie      | `20`                | Maksymalna liczba połączeń w puli                |
+| `DB_MIN_CONNECTIONS`     | nie      | `2`                 | Minimalna liczba utrzymywanych połączeń          |
 | `LITHIUM_KEYS_DIR`       | nie      | `/var/lib/lithiums` | Katalog plików kluczy i server.identity          |
 | `LITHIUM_BIND`           | nie      | `127.0.0.1`         | Adres nasłuchiwania                              |
 | `LITHIUM_PORT`           | nie      | `4108`              | Port nasłuchiwania                               |
 | `LITHIUM_MK_ROTATE_SECS` | nie     | `3600`              | Interwał rotacji MK w sekundach                  |
+
+Pozostałe parametry puli: connect/acquire timeout 10 s, idle timeout 600 s, max lifetime połączenia 1800 s.
 
 ## Sekwencja startu
 

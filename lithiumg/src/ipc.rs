@@ -71,6 +71,8 @@ pub struct PingStatus {
     pub has_server_identity: bool,
     #[serde(default)]
     pub first_run: bool,
+    #[serde(default)]
+    pub mk_rotation_error: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

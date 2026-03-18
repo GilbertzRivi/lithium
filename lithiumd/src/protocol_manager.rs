@@ -93,7 +93,7 @@ impl Endpoint {
     }
 
     pub fn include_identity_keys_in_app_headers(&self) -> bool {
-        matches!(self, Endpoint::Shake | Endpoint::Register | Endpoint::MsgFetch)
+        matches!(self, Endpoint::Register)
     }
 
     pub fn sign_with_ephemeral_keys(&self) -> bool {

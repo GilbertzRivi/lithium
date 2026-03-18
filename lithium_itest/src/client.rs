@@ -1,7 +1,4 @@
-/// Integration-test HTTP client with Lithium's encrypted transport.
-///
-/// Mirrors `lithiumd::ProtocolManager` but lives in the test crate so tests
-/// can build and send real encrypted requests against a running `lithiums` server.
+// mirrors lithiumd::ProtocolManager - real encrypted requests against a live server
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lithium_core::{
@@ -13,7 +10,6 @@ use reqwest::{header::HeaderMap, Client};
 use serde_json::{Value, json};
 use zeroize::Zeroize;
 
-// ── Session-state store keys ──────────────────────────────────────────────────
 const ST_PEER_X: &str = "peer_x";
 const ST_PEER_K: &str = "peer_k";
 const ST_SES_X: &str = "ses_x";
@@ -22,8 +18,6 @@ const ST_JWT: &str = "jwt";
 
 const SESSION_TTL: Duration = Duration::from_secs(120);
 const JWT_TTL: Duration = Duration::from_secs(120);
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Server public-key bundle.  Built from `KeyManager::public_keys()` in tests.
 #[derive(Clone)]
@@ -40,8 +34,6 @@ pub struct RawResponse {
     pub status: u16,
     pub error: Option<String>,
 }
-
-// ── Endpoint metadata ─────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy)]
 enum Ep {
@@ -91,14 +83,10 @@ impl Ep {
     }
 }
 
-// ── Decrypted response ────────────────────────────────────────────────────────
-
 pub struct TestResponse {
     pub body: Value,
     pub headers: Value,
 }
-
-// ── Client ────────────────────────────────────────────────────────────────────
 
 pub struct TestLithiumClient {
     base: String,
@@ -151,8 +139,6 @@ impl TestLithiumClient {
         self.store_str(ST_JWT, "garbage.garbage.garbage", JWT_TTL).await;
     }
 
-    // ── High-level happy-path methods ─────────────────────────────────────────
-
     pub async fn shake(&mut self) -> TestResponse {
         self.do_shake().await
     }
@@ -193,8 +179,6 @@ impl TestLithiumClient {
         self.send(Ep::MsgFetch, body).await.expect("fetch_messages failed")
     }
 
-    // ── Error-returning variants for negative tests ───────────────────────────
-
     pub async fn register_raw(&mut self, handler: &str, password: &str, dek_hex: &str) -> RawResponse {
         self.ensure_shake().await;
         let body = json!({ "handler": handler, "password": password, "dek": dek_hex });
@@ -226,7 +210,32 @@ impl TestLithiumClient {
         }
     }
 
-    // ── Session management ────────────────────────────────────────────────────
+    pub async fn send_message_raw(
+        &mut self,
+        mailbox_hex: &str,
+        content_hex: &str,
+    ) -> RawResponse {
+        match self.st_take_str(ST_JWT).await {
+            None => RawResponse { status: 401, error: Some("no_jwt".to_owned()) },
+            Some(tok) => {
+                let body =
+                    json!({ "token": tok.expose(), "mailbox": mailbox_hex, "content": content_hex });
+                match self.send(Ep::MsgSend, body).await {
+                    Ok(_) => RawResponse { status: 200, error: None },
+                    Err(r) => r,
+                }
+            }
+        }
+    }
+
+    pub async fn fetch_messages_raw(&mut self, mailbox_hex: &str) -> RawResponse {
+        self.ensure_shake().await;
+        let body = json!({ "mailbox": mailbox_hex });
+        match self.send(Ep::MsgFetch, body).await {
+            Ok(_) => RawResponse { status: 200, error: None },
+            Err(r) => r,
+        }
+    }
 
     async fn ensure_shake(&mut self) {
         let has = self.st_peek(ST_SES_X).await.is_some() && self.st_peek(ST_PEER_X).await.is_some();
@@ -246,16 +255,12 @@ impl TestLithiumClient {
         r
     }
 
-    // ── Core request ──────────────────────────────────────────────────────────
-
     async fn send(&mut self, ep: Ep, mut body: Value) -> Result<TestResponse, RawResponse> {
-        // Timestamp.
         let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         body["timestamp"] = Value::String(format!("{:016x}", ts));
 
         let body_bytes = serde_json::to_vec(&body).expect("serialize body");
 
-        // Signatures.
         let mut app_headers = json!({});
         if ep.sign_ephemeral() {
             let (ed_priv, ed_pub) = keys::random_ed25519_keypair().expect("ed25519");
@@ -285,7 +290,6 @@ impl TestLithiumClient {
 
         let headers_bytes = serde_json::to_vec(&app_headers).expect("serialize headers");
 
-        // Encryption keys.
         let (peer_x, peer_k, ses_x_id, ses_k_id) = if matches!(ep, Ep::Shake) {
             (self.bootstrap.shake_pub_x.clone(), self.bootstrap.shake_pub_k.clone(), None, None)
         } else {
@@ -302,6 +306,7 @@ impl TestLithiumClient {
         let (req_priv_k, req_pub_k) = keys::random_kyber_mlkem1024_keypair().expect("kyber");
 
         let mut bp = body_bytes;
+
         pad_data(&mut bp);
         let mut hp = headers_bytes;
         pad_headers(&mut hp);
@@ -316,7 +321,6 @@ impl TestLithiumClient {
         )
         .expect("kyberbox encrypt");
 
-        // Build HTTP headers.
         let mut h = HeaderMap::new();
         h.insert("key-x", hv(hex::encode(req_pub_x.as_slice())));
         h.insert("key-k", hv(hex::encode(req_pub_k.expose_as_slice())));
@@ -334,7 +338,6 @@ impl TestLithiumClient {
             );
         }
 
-        // Send.
         let url = format!("{}{}", self.base, ep.path());
         let resp = self
             .http
@@ -362,7 +365,6 @@ impl TestLithiumClient {
         let rh = resp.headers().clone();
         let resp_bytes = resp.bytes().await.expect("read body").to_vec();
 
-        // Decrypt.
         let resp_peer_x = Byte32::from_hex(&hdr(&rh, "key-x")).expect("key-x parse");
         let resp_peer_k = hex::decode(&hdr(&rh, "key-k")).expect("key-k hex");
         let resp_seed = hex::decode(&hdr(&rh, "seed")).expect("seed hex");
@@ -384,7 +386,6 @@ impl TestLithiumClient {
         unpad(dec_body.expose_as_mut_vec()).expect("body unpad");
         unpad(dec_headers.expose_as_mut_vec()).expect("headers unpad");
 
-        // Verify server signatures.
         let sig_ed = hex::decode(hdr(&rh, "sig-ed")).expect("sig-ed hex");
         let sig_dili = hex::decode(hdr(&rh, "sig-dili")).expect("sig-dili hex");
         assert!(
@@ -404,7 +405,6 @@ impl TestLithiumClient {
         let headers_val: Value =
             serde_json::from_slice(dec_headers.expose_as_slice()).expect("headers json");
 
-        // Persist session state.
         self.st_set(ST_PEER_X, SecretBytes::from_slice(resp_peer_x.as_slice()), SESSION_TTL).await;
         self.st_set(ST_PEER_K, SecretBytes::new(resp_peer_k), SESSION_TTL).await;
 
@@ -420,8 +420,6 @@ impl TestLithiumClient {
 
         Ok(TestResponse { body: body_val, headers: headers_val })
     }
-
-    // ── Store helpers ──────────────────────────────────────────────────────────
 
     async fn st_set(&self, key: &str, value: SecretBytes, ttl: Duration) {
         self.store.set(key, &value, ttl).await.expect("store set");
@@ -450,8 +448,6 @@ impl TestLithiumClient {
     }
 }
 
-// ── Padding ───────────────────────────────────────────────────────────────────
-
 fn pad_block(buf: &mut Vec<u8>, block: usize) {
     let pad = (block - ((buf.len() + 1) % block)) % block;
     buf.push(0x80);
@@ -471,8 +467,6 @@ fn unpad(data: &mut Vec<u8>) -> Result<(), &'static str> {
     if data.last() == Some(&0x80) { data.pop(); Ok(()) } else { data.zeroize(); Err("bad padding") }
 }
 
-// ── HTTP header helpers ───────────────────────────────────────────────────────
-
 fn hv(s: impl AsRef<str>) -> reqwest::header::HeaderValue {
     reqwest::header::HeaderValue::from_str(s.as_ref()).expect("header value")
 }
@@ -484,8 +478,6 @@ fn hdr(h: &HeaderMap, name: &str) -> String {
         .expect("header utf8")
         .to_owned()
 }
-
-// ── Raw shake for timestamp/replay tests (no client state needed) ─────────────
 
 pub struct RawShakeBuilder {
     pub bootstrap: ServerBootstrap,

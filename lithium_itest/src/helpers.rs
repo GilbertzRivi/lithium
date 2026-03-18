@@ -12,19 +12,10 @@ use uuid::Uuid;
 
 use crate::client::{ServerBootstrap, TestLithiumClient};
 
-// ── Shared PostgreSQL Docker container ───────────────────────────────────────
-//
-// Strategy:
-//   • One Docker container (`lithium_itest_pg`, port 15432) for the whole
-//     test binary run.
-//   • Each test creates a fresh database and receives a `DbGuard` that drops
-//     the database synchronously when the test finishes.
-//   • On process exit the container is removed via `libc::atexit`.
-//     This fires even when Rust's test harness calls `std::process::exit`.
-//
-// Re-runs: if the previous container is still present (e.g. the process was
-// killed) `docker start lithium_itest_pg` reuses it.
-// Full reset: `docker rm -f lithium_itest_pg`.
+// One Docker container (lithium_itest_pg, port 15432) is shared across all test
+// binaries in a cargo test run. The container is not removed on exit because multiple
+// binaries run concurrently - the first to exit would kill it for the rest. Reuse on
+// the next run via `docker start`. Full reset: `docker rm -f lithium_itest_pg`.
 
 struct SharedPg {
     port: u16,
@@ -33,22 +24,12 @@ struct SharedPg {
 
 static SHARED_PG: OnceCell<SharedPg> = OnceCell::const_new();
 
-// atexit handler — synchronous, no allocations allowed.
-extern "C" fn remove_pg_container() {
-    // CONTAINER_NAME is a &'static str stored at compile time.
-    std::process::Command::new("docker")
-        .args(["rm", "-f", "lithium_itest_pg"])
-        .output()
-        .ok();
-}
-
 async fn ensure_postgres() -> &'static SharedPg {
     SHARED_PG
         .get_or_init(|| async {
             const NAME: &str = "lithium_itest_pg";
             const PORT: u16 = 15432;
 
-            // Try to restart a stopped container from a previous run.
             let started = tokio::process::Command::new("docker")
                 .args(["start", NAME])
                 .output()
@@ -89,11 +70,6 @@ async fn ensure_postgres() -> &'static SharedPg {
 
             wait_for_postgres(NAME).await;
 
-            // Register cleanup: remove the container when the process exits.
-            // libc::atexit is called by std::process::exit (used by the Rust
-            // test harness), so this fires reliably after all tests finish.
-            unsafe { libc::atexit(remove_pg_container) };
-
             SharedPg { port: PORT, container_name: NAME }
         })
         .await
@@ -115,9 +91,6 @@ async fn wait_for_postgres(container_name: &str) {
     panic!("PostgreSQL in '{container_name}' did not become ready after 30 s");
 }
 
-// ── Per-test ephemeral database ───────────────────────────────────────────────
-
-/// Drops its database when it goes out of scope (i.e. when the test ends).
 struct DbGuard {
     container_name: &'static str,
     db_name: String,
@@ -125,7 +98,7 @@ struct DbGuard {
 
 impl Drop for DbGuard {
     fn drop(&mut self) {
-        // Synchronous docker exec — brief but acceptable at end-of-test.
+        // sync drop is fine at test teardown
         std::process::Command::new("docker")
             .args([
                 "exec",
@@ -143,8 +116,6 @@ impl Drop for DbGuard {
     }
 }
 
-/// Creates a fresh database in the shared container and returns `(url, guard)`.
-/// The guard drops the database when it is dropped.
 async fn create_test_db(pg: &'static SharedPg) -> (String, DbGuard) {
     let db_name = format!("lithium_t_{}", Uuid::new_v4().simple());
 
@@ -175,27 +146,13 @@ async fn create_test_db(pg: &'static SharedPg) -> (String, DbGuard) {
     (url, guard)
 }
 
-// ── TestServer ────────────────────────────────────────────────────────────────
-
-/// A running test server with its own isolated PostgreSQL database.
-///
-/// When dropped, the database is deleted automatically.
-/// When the test binary exits, the shared Docker container is removed.
 pub struct TestServer {
     pub addr: SocketAddr,
     pub bootstrap: ServerBootstrap,
-    /// Keeps the ephemeral database alive; drops it when the test ends.
     _db: Option<DbGuard>,
 }
 
 impl TestServer {
-    /// Start a server bound to a random port with an isolated database.
-    ///
-    /// Database selection (in priority order):
-    /// 1. `LITHIUM_TEST_DATABASE_URL` — use as-is (CI / existing PostgreSQL).
-    ///    Database is NOT dropped afterwards since the user manages it.
-    /// 2. Docker — start `lithium_itest_pg` container automatically;
-    ///    create and later drop a fresh database for this test.
     pub async fn start() -> Self {
         let (db_url, db_guard) = match std::env::var("LITHIUM_TEST_DATABASE_URL") {
             Ok(url) => (url, None),
@@ -269,14 +226,10 @@ impl TestServer {
     }
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
-
-/// Returns a unique user handle for each test to avoid DB conflicts.
 pub fn unique_handle(prefix: &str) -> String {
     format!("{}_{}", prefix, Uuid::new_v4().simple())
 }
 
-/// Random 32-byte hex string (simulates a client DEK blob).
 pub fn random_dek_hex() -> String {
     use lithium_core::crypto::keys;
     keys::random_32().expect("random_32").to_hex().expose().to_string()

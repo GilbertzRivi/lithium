@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use tracing::{debug, error};
 use poem::{Endpoint, IntoResponse, Middleware, Request, Result as PoemResult};
 
 use lithium_core::secrets::bytes::SecretBytes;
@@ -59,17 +58,6 @@ impl<E: Endpoint> Endpoint for CryptoEndpoint<E> {
             SecretBytes::from_slice(&body_bytes)
         };
 
-        let header_names: Vec<String> = headers_map.keys().cloned().collect();
-
-        debug!(
-            endpoint = self.cfg.endpoint,
-            mode = ?self.cfg.mode,
-            auth = ?self.cfg.auth,
-            body_len = cipher_body.expose_as_slice().len(),
-            headers = ?header_names,
-            "crypto middleware start"
-        );
-
         let creq: CryptoReq = match build_crypto_context(
             self.state.clone(),
             self.cfg.clone(),
@@ -79,17 +67,7 @@ impl<E: Endpoint> Endpoint for CryptoEndpoint<E> {
             .await
         {
             Ok(v) => v,
-            Err(e) => {
-                error!(
-                    endpoint = self.cfg.endpoint,
-                    mode = ?self.cfg.mode,
-                    auth = ?self.cfg.auth,
-                    headers = ?header_names,
-                    error = ?e,
-                    "build_crypto_context failed"
-                );
-                return Err(poem::Error::from_response(e.into_response()));
-            }
+            Err(e) => return Err(poem::Error::from_response(e.into_response())),
         };
 
         req.extensions_mut().insert(creq);

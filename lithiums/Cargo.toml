@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 lithium_core = { path = "../lithium_core" }
 poem = { version = "3.1.12", features = ["anyhow", "compression", "multipart"] }
-tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync", "signal"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 hex = "0.4.3"
@@ -20,4 +20,5 @@ rand = "0.10.0"
 chrono = "0.4.44"
 anyhow = "1.0.102"
 tracing = "0.1.44"
+tracing-subscriber = "0.3"
 subtle = "2.6.1"

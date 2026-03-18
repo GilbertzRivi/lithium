@@ -1,6 +1,5 @@
 use std::{sync::Arc, time::Duration};
 
-use log::error;
 use reqwest::Client;
 use serde_json::json;
 use subtle::ConstantTimeEq;
@@ -85,14 +84,14 @@ pub async fn handle(
 
     let (stop_tx, mut stop_rx) = watch::channel(false);
     let keys2 = Arc::clone(&keys);
+    let mk_err_flag = Arc::clone(&state.mk_rotation_error);
     let handle = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(30)) => {
                     let mut km = keys2.lock().await;
-                    if let Err(e) = km.maybe_rotate_mk() {
-                        error!("mk rotation failed: {e:?}");
-                    }
+                    let failed = km.maybe_rotate_mk().is_err();
+                    *mk_err_flag.lock().await = failed;
                 }
                 changed = stop_rx.changed() => {
                     if changed.is_err() || *stop_rx.borrow() {

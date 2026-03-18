@@ -46,11 +46,7 @@ pub async fn run(
 
         tokio::spawn(async move {
             let _permit = permit;
-            if let Err(e) =
-                super::handle_conn(first, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await
-            {
-                eprintln!("ipc conn error: {e:?}");
-            }
+            let _ = super::handle_conn(first, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await;
         });
     }
 
@@ -72,11 +68,7 @@ pub async fn run(
 
         tokio::spawn(async move {
             let _permit = permit;
-            if let Err(e) =
-                super::handle_conn(server, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await
-            {
-                eprintln!("ipc conn error: {e:?}");
-            }
+            let _ = super::handle_conn(server, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await;
         });
     }
 }

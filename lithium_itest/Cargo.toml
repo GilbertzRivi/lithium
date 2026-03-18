@@ -15,9 +15,56 @@ uuid = { version = "1.22.0", features = ["v4"] }
 rand = "0.10.0"
 zeroize = "1.8.2"
 tempfile = "3.27.0"
-libc = "0.2.183"
 poem = { version = "3.1.12" }
 
 [[test]]
 name = "server"
-path = "tests/server_tests.rs"
+path = "tests/server/server_tests.rs"
+
+[[test]]
+name = "auth_abuse"
+path = "tests/server/auth_abuse.rs"
+
+[[test]]
+name = "mailbox_abuse"
+path = "tests/server/mailbox_abuse.rs"
+
+[[test]]
+name = "replay_timestamp"
+path = "tests/server/replay_timestamp.rs"
+
+[[test]]
+name = "concurrency"
+path = "tests/server/concurrency.rs"
+
+[[test]]
+name = "daemon_basic"
+path = "tests/daemon/basic.rs"
+
+[[test]]
+name = "daemon_server"
+path = "tests/daemon/server.rs"
+
+[[test]]
+name = "daemon_adversarial"
+path = "tests/daemon/adversarial.rs"
+
+[[test]]
+name = "daemon_state_order"
+path = "tests/daemon/state_order.rs"
+
+[[test]]
+name = "daemon_payload"
+path = "tests/daemon/payload.rs"
+
+[[test]]
+name = "daemon_concurrency"
+path = "tests/daemon/concurrency.rs"
+
+[[test]]
+name = "daemon_persistence"
+path = "tests/daemon/persistence.rs"
+
+[[test]]
+name = "daemon_contacts"
+path = "tests/daemon/contacts.rs"

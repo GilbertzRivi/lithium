@@ -102,6 +102,7 @@ pub struct LithiumApp {
     status: String,
     status_is_error: bool,
     last_ping: Option<PingResult>,
+    mk_rotation_error: bool,
 
     server_url_input: String,
     server_identity_path: Option<PathBuf>,
@@ -154,6 +155,7 @@ impl LithiumApp {
             status: "Connecting to daemon...".into(),
             status_is_error: false,
             last_ping: None,
+            mk_rotation_error: false,
             server_url_input: String::new(),
             server_identity_path: None,
             data_password: String::new(),
@@ -246,6 +248,7 @@ impl LithiumApp {
         self.delete_account_modal_open = false;
         self.confirm_delete_account = false;
         self.wipe_modal_open = false;
+        self.mk_rotation_error = false;
     }
 
     fn open_remote_delete_modal(&mut self) {

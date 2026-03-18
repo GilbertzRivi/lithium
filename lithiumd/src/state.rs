@@ -41,6 +41,7 @@ pub struct DaemonState {
 
     pub ipc_auth: Arc<Mutex<IpcAuthState>>,
     pub contact_fetch_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    pub mk_rotation_error: Arc<Mutex<bool>>,
 
     pub base_dir: PathBuf,
     pub base_url: Arc<RwLock<Option<Url>>>,
@@ -65,6 +66,7 @@ impl DaemonState {
             local_db: Arc::new(Mutex::new(None)),
             ipc_auth: Arc::new(Mutex::new(IpcAuthState::default())),
             contact_fetch_locks: Arc::new(Mutex::new(HashMap::new())),
+            mk_rotation_error: Arc::new(Mutex::new(false)),
             base_dir,
             base_url: Arc::new(RwLock::new(base_url)),
             identity_path,
@@ -101,6 +103,7 @@ impl DaemonState {
             dm.close_by_ref().await;
         }
         *self.keys.lock().await = None;
+        *self.mk_rotation_error.lock().await = false;
 
         let mut ipc = self.ipc_auth.lock().await;
         ipc.session_token = None;

@@ -9,10 +9,11 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithiums::{build_app, db, error::AppResult, identity, mk_rotator, state};
+use lithiums::{build_app, db, error::AppResult, identity, mk_rotator, msg_reaper, state};
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
+    tracing_subscriber::fmt::init();
     let bind_host = env::var("LITHIUM_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
     let bind_port = env::var("LITHIUM_PORT").unwrap_or_else(|_| "4108".to_string());
     let bind: SocketAddr = format!("{bind_host}:{bind_port}")
@@ -45,6 +46,8 @@ async fn main() -> AppResult<()> {
     let db_conn = db::connect_from_env().await?;
     db::migrate(&db_conn).await?;
     let dbm = Arc::new(DataManager::new(db_conn, Arc::clone(&key_manager)));
+    let _msg_reaper =
+        msg_reaper::spawn_msg_reaper(Arc::clone(&dbm), Duration::from_secs(300));
 
     let app_state = Arc::new(state::AppState {
         key_manager,
@@ -54,8 +57,27 @@ async fn main() -> AppResult<()> {
 
     let app = build_app(app_state);
 
+    #[cfg(unix)]
+    let mut sigterm = {
+        use tokio::signal::unix::{SignalKind, signal};
+        signal(SignalKind::terminate()).map_err(LithiumError::io)?
+    };
+
+    let shutdown = async move {
+        #[cfg(unix)]
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    };
+
+    // Plain HTTP — TLS is terminated by the reverse proxy in front of this process.
     Server::new(TcpListener::bind(bind))
-        .run(app)
+        .run_with_graceful_shutdown(app, shutdown, Some(Duration::from_secs(30)))
         .await
         .map_err(LithiumError::io)?;
 

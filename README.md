@@ -232,6 +232,8 @@ cargo build --release -p lithiumd -p lithiumg
 
 ### Uruchomienie serwera relay
 
+`lithiums` nasłuchuje na czystym HTTP. TLS terminuje reverse proxy (nginx, Caddy itp.) przed procesem serwera.
+
 Docelowym środowiskiem deploymentu jest Docker Compose — cała konfiguracja serwera odbywa się przez zmienne środowiskowe, hasło do bazy podawane jest przez plik (Docker secret), a katalog kluczy montowany jako wolumin.
 
 ```bash

@@ -6,7 +6,6 @@ use tokio::{
 };
 
 use lithium_core::error::{LithiumError, Result};
-use log::{error, warn};
 use crate::{
     ipc::IpcPeerMeta,
     state::DaemonState,
@@ -133,23 +132,16 @@ pub async fn run(
         let (stream, _addr) = listener.accept().await.map_err(LithiumError::io)?;
         let peer = match peer_meta(&stream) {
             Ok(v) => v,
-            Err(e) => {
-                warn!("ipc peercred error: {e:?}");
-                continue;
-            }
+            Err(_) => continue,
         };
 
-        if let Err(e) = authorize_peer(peer, &policy) {
-            warn!("ipc auth reject: {e:?}");
+        if authorize_peer(peer, &policy).is_err() {
             continue;
         }
 
         let permit = match limiter.clone().try_acquire_owned() {
             Ok(v) => v,
-            Err(_) => {
-                warn!("ipc auth reject: too many connections");
-                continue;
-            }
+            Err(_) => continue,
         };
 
         let shutdown_tx = Arc::clone(&shutdown_tx);
@@ -158,10 +150,7 @@ pub async fn run(
 
         tokio::spawn(async move {
             let _permit = permit;
-
-            if let Err(e) = super::handle_conn(stream, shutdown_tx, state, idle_timeout, peer).await {
-                error!("ipc conn error: {e:?}");
-            }
+            let _ = super::handle_conn(stream, shutdown_tx, state, idle_timeout, peer).await;
         });
     }
 }
