@@ -5,7 +5,7 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithiums::{build_app, db, mk_rotator, state};
+use lithiums::{build_app, db, health::HealthState, mk_rotator, state};
 use poem::{listener::TcpListener, Server};
 use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
@@ -173,8 +173,12 @@ impl TestServer {
         km.set_rotate_interval(Duration::from_secs(3600));
         let key_manager = Arc::new(Mutex::new(km));
 
-        let _rotator =
-            mk_rotator::spawn_mk_rotator(Arc::clone(&key_manager), Duration::from_secs(3600));
+        let health = HealthState::new();
+        let _rotator = mk_rotator::spawn_mk_rotator(
+            Arc::clone(&key_manager),
+            Arc::clone(&health),
+            Duration::from_secs(3600),
+        );
 
         let db_conn = db::connect_url(&db_url).await.expect("db connect");
         db::migrate(&db_conn).await.expect("db migrate");
@@ -184,6 +188,7 @@ impl TestServer {
             key_manager,
             store: EphemeralStoreManager::new().expect("store"),
             db: dbm,
+            health,
         });
 
         let port = {

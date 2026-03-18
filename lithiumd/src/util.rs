@@ -113,14 +113,17 @@ pub fn mark_registered(base_dir: &Path) -> std::io::Result<()> {
 
 
 fn overwrite_regular_file_best_effort(path: &Path, len: u64) -> io::Result<()> {
-    let mut f = OpenOptions::new().write(true).open(path)?;
+    use rand::TryRng;
+    use rand::rngs::SysRng;
 
-    let zeros = [0u8; 1024 * 1024];
+    let mut f = OpenOptions::new().write(true).open(path)?;
+    let mut buf = [0u8; 1024 * 1024];
     let mut remaining = len;
 
     while remaining > 0 {
-        let n = remaining.min(zeros.len() as u64) as usize;
-        f.write_all(&zeros[..n])?;
+        let n = remaining.min(buf.len() as u64) as usize;
+        SysRng.try_fill_bytes(&mut buf[..n]).map_err(|_| io::Error::other("rng failed"))?;
+        f.write_all(&buf[..n])?;
         remaining -= n as u64;
     }
 

@@ -158,6 +158,10 @@ impl<E: Endpoint> Endpoint for GuardEndpoint<E> {
             .await
             .map_err(|e| poem::Error::from_response(e.into_response()))?;
 
+        if req.method() == poem::http::Method::GET {
+            return self.inner.call(req).await;
+        }
+
         let mut headers = HashMap::with_capacity(req.headers().len());
         for (k, v) in req.headers().iter() {
             headers.insert(k.as_str().to_ascii_lowercase(), v.as_bytes().to_vec());

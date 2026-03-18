@@ -1,5 +1,7 @@
 use std::{collections::HashSet, env, time::Duration};
 
+use lithium_core::secrets::SecretString;
+
 use lithium_core::error::{LithiumError, Result};
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, Statement, TransactionTrait, Value};
 
@@ -35,7 +37,7 @@ pub async fn connect_from_env() -> Result<DatabaseConnection> {
         // Read from the file pointed to by DB_PASSWORD_FILE (typically a Docker secret).
         let path = require("DB_PASSWORD_FILE")?;
         std::fs::read_to_string(&path)
-            .map(|s| s.trim_end_matches(['\n', '\r']).to_string())
+            .map(|s| SecretString::new(s.trim_end_matches(['\n', '\r']).to_string()))
             .map_err(LithiumError::io)?
     };
     let name     = require("DB_NAME")?;
@@ -43,7 +45,7 @@ pub async fn connect_from_env() -> Result<DatabaseConnection> {
     let url = format!(
         "postgres://{}:{}@{}:{}/{}",
         encode_userinfo(&user),
-        encode_userinfo(&password),
+        encode_userinfo(password.expose()),
         host,
         port,
         name,

@@ -3,9 +3,44 @@ use subtle::ConstantTimeEq;
 
 use serde_json::json;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     sync::{oneshot, Mutex},
 };
+
+const IPC_MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
+
+async fn next_ipc_line<R: AsyncBufRead + Unpin>(r: &mut R) -> io::Result<Option<String>> {
+    let mut buf = Vec::new();
+    loop {
+        let chunk = r.fill_buf().await?;
+        if chunk.is_empty() {
+            return if buf.is_empty() { Ok(None) } else { Ok(Some(finish_line(buf)?)) };
+        }
+        match chunk.iter().position(|&b| b == b'\n') {
+            Some(pos) => {
+                if buf.len() + pos > IPC_MAX_LINE_BYTES {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+                }
+                buf.extend_from_slice(&chunk[..pos]);
+                r.consume(pos + 1);
+                return Ok(Some(finish_line(buf)?));
+            }
+            None => {
+                if buf.len() + chunk.len() > IPC_MAX_LINE_BYTES {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
+                }
+                let n = chunk.len();
+                buf.extend_from_slice(chunk);
+                r.consume(n);
+            }
+        }
+    }
+}
+
+fn finish_line(mut buf: Vec<u8>) -> io::Result<String> {
+    if buf.last() == Some(&b'\r') { buf.pop(); }
+    String::from_utf8(buf).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8"))
+}
 use lithium_core::crypto::keys;
 use lithium_core::error::{LithiumError, Result};
 use lithium_core::passwords::passwords::PasswordPolicy;
@@ -145,12 +180,12 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (r, mut w) = tokio::io::split(stream);
-    let mut lines = BufReader::new(r).lines();
+    let mut reader = BufReader::new(r);
 
     let pol = PasswordPolicy::default();
 
     loop {
-        let next = tokio::time::timeout(idle_timeout, lines.next_line())
+        let next = tokio::time::timeout(idle_timeout, next_ipc_line(&mut reader))
             .await
             .map_err(|_| timeout_err("ipc idle timeout"))?;
 

@@ -9,7 +9,7 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithiums::{build_app, db, error::AppResult, identity, mk_rotator, msg_reaper, state};
+use lithiums::{build_app, db, error::AppResult, health::HealthState, identity, mk_rotator, msg_reaper, state};
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
@@ -40,19 +40,28 @@ async fn main() -> AppResult<()> {
     }
 
     let key_manager = Arc::new(Mutex::new(km));
-    let _mk_rotator =
-        mk_rotator::spawn_mk_rotator(Arc::clone(&key_manager), Duration::from_secs(30));
+    let health = HealthState::new();
+
+    let _mk_rotator = mk_rotator::spawn_mk_rotator(
+        Arc::clone(&key_manager),
+        Arc::clone(&health),
+        Duration::from_secs(30),
+    );
 
     let db_conn = db::connect_from_env().await?;
     db::migrate(&db_conn).await?;
     let dbm = Arc::new(DataManager::new(db_conn, Arc::clone(&key_manager)));
-    let _msg_reaper =
-        msg_reaper::spawn_msg_reaper(Arc::clone(&dbm), Duration::from_secs(300));
+    let _msg_reaper = msg_reaper::spawn_msg_reaper(
+        Arc::clone(&dbm),
+        Arc::clone(&health),
+        Duration::from_secs(300),
+    );
 
     let app_state = Arc::new(state::AppState {
         key_manager,
         store: EphemeralStoreManager::new()?,
         db: dbm,
+        health,
     });
 
     let app = build_app(app_state);

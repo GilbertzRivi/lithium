@@ -93,10 +93,13 @@ Wszystkie trasy owinięte są w `GuardMiddleware` (zewnętrzna) oraz trasową `C
 
 | Metoda | Ścieżka          | Tryb krypto | Tryb auth      | Opis                                         |
 |--------|------------------|-------------|----------------|----------------------------------------------|
-| GET    | `/`              | —           | —              | Health check / powitanie                     |
+| GET    | `/`              | —           | —              | Powitanie                                    |
+| GET    | `/health`        | —           | —              | Health check (status reapera i rotacji MK)   |
 | POST   | `/shake`         | Shake       | KeysInHeaders  | Wymiana kluczy sesji                         |
 | POST   | `/user/register` | Session     | KeysInHeaders  | Rejestracja nowego użytkownika               |
 | POST   | `/user/login`    | Session     | LoginByHandler | Uwierzytelnienie, otrzymanie JWT + DEK       |
+| POST   | `/user/revoke`   | Session     | KeysInHeaders  | Usunięcie konta przez capability (bez logowania) |
+| POST   | `/user/delete`   | Session     | JwtUser        | Usunięcie konta przez zalogowanego użytkownika |
 | POST   | `/msg/send`      | Session     | JwtUser        | Wysłanie wiadomości do skrzynki              |
 | POST   | `/msg/fetch`     | Session     | KeysInHeaders  | Pobranie i usunięcie oczekujących wiadomości |
 
@@ -170,30 +173,28 @@ Używany dla wszystkich uwierzytelnionych endpointów po początkowym Shake.
 | `LoginByHandler` | Odczytuje `handler` z odszyfrowanego ciała, ładuje `UserRecord` z DB; `ctx.user` jest ustawiony (weryfikacja hasła dzieje się w samym handlerze)                                                  |
 | `JwtUser`        | Odczytuje pole `token` z odszyfrowanego ciała (JWT szesnastkowo zakodowany), waliduje podpis HS256, wywołuje `store.take` (jednorazowe), ładuje użytkownika po user_id; `ctx.user` jest ustawiony |
 
-### Nagłówki żądania
+### Nagłówki żądania (cleartext HTTP)
 
-| Nagłówek   | Opis                                                         |
-|------------|--------------------------------------------------------------|
-| `key-x`    | Klucz publiczny X25519 klienta (hex)                         |
-| `key-k`    | Klucz publiczny ML-KEM-1024 klienta (hex)                    |
-| `key-ed`   | Klucz publiczny Ed25519 klienta (hex)                        |
-| `key-dili` | Klucz publiczny ML-DSA-87 klienta (hex)                      |
-| `ses-x`    | Klucz publiczny X25519 sesji (hex) — tylko tryb Session      |
-| `ses-k`    | Klucz publiczny ML-KEM-1024 sesji (hex) — tylko tryb Session |
-| `ts`       | Unix timestamp (sekundy, string szesnastkowy)                |
+| Nagłówek | Opis |
+|----------|------|
+| `key-x`  | Efemeryczny klucz publiczny X25519 klienta (hex) — do deszyfrowania przez serwer |
+| `key-k`  | Efemeryczny klucz publiczny ML-KEM-1024 klienta (hex) — do deszyfrowania przez serwer |
+| `seed`   | Zaszyfrowane ziarno KEM |
+| `data`   | Blob zaszyfrowanych nagłówków aplikacyjnych (KyberBox) |
+| `ses-x`  | Losowy identyfikator sesji X25519 (hex) — lookup klucza prywatnego w EphemeralStore; tylko tryb Session |
+| `ses-k`  | Losowy identyfikator sesji ML-KEM-1024 (hex) — lookup klucza prywatnego w EphemeralStore; tylko tryb Session |
 
-Pole `token` (JWT szesnastkowo) przekazywane jest w **ciele żądania**, nie w nagłówkach (dotyczy wyłącznie trybu `JwtUser`).
+Pola `key-ed`, `key-dili`, `sig-ed`, `sig-dili` przekazywane są w **zaszyfrowanych nagłówkach aplikacyjnych** (`data`), nie w cleartext. Pole `timestamp` przekazywane jest w **zaszyfrowanym ciele JSON**. Pole `token` (JWT hex) przekazywane jest w ciele (dotyczy wyłącznie trybu `JwtUser`).
 
 ### Nagłówki odpowiedzi
 
 Po pomyślnym przetworzeniu `reply_ok` / `reply_ok_authed` generuje odpowiedź:
 
-1. Generuje nowe pary kluczy sesji X25519 + ML-KEM-1024; przechowuje klucze prywatne w `EphemeralStore` z TTL sesji
-2. Kyberbox-szyfruje nagłówki odpowiedzi (w tym klucze prywatne sesji) kluczami publicznymi klienta
+1. Generuje nowe pary kluczy sesji X25519 + ML-KEM-1024 oraz losowe identyfikatory `session_x_id`, `session_k_id` (po 32 losowe bajty każdy); przechowuje klucze prywatne w `EphemeralStore` pod tymi identyfikatorami z TTL sesji
+2. Umieszcza identyfikatory (`ses-x`, `ses-k`) w nagłówkach JSON szyfrowanych przez KyberBox — klient odczyta je po deszyfrowaniu i odeśle w nagłówkach kolejnego żądania
 3. Podwójnie podpisuje zaszyfrowane ciało odpowiedzi kluczami Ed25519 + ML-DSA-87 serwera
 4. Dopełnia ciało (do bloku 32–64 KB) i nagłówki (do bloku 4–8 KB) w celu ukrycia rozmiarów
-5. Ustawia nagłówki odpowiedzi: `sig-ed`, `sig-dili`, `data` (blob zaszyfrowanych nagłówków), 
-  `seed` (zaszyfrowane ziarno KEM), `key-x` (nowy klucz publiczny X25519 sesji), `key-k` (nowy klucz publiczny ML-KEM sesji)
+5. Ustawia cleartext nagłówki HTTP odpowiedzi: `sig-ed`, `sig-dili`, `data` (blob zaszyfrowanych nagłówków), `seed` (zaszyfrowane ziarno KEM), `key-x` (klucz publiczny X25519 nowej sesji — klient szyfruje do niego kolejne żądanie), `key-k` (klucz publiczny ML-KEM-1024 nowej sesji)
 
 ### JWT
 

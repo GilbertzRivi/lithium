@@ -29,7 +29,10 @@ pub async fn handle(
         return err_resp(id, "server_url_not_set");
     };
 
-    let http = Client::builder().http1_only().build().expect("http client");
+    let http = match Client::builder().http1_only().build() {
+        Ok(c) => c,
+        Err(_) => return internal_err(id),
+    };
 
     let proto = ProtocolManager::<PasswordFileMkProvider>::new(
         base_url,

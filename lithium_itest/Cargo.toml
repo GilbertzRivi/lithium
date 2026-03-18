@@ -68,3 +68,19 @@ path = "tests/daemon/persistence.rs"
 [[test]]
 name = "daemon_contacts"
 path = "tests/daemon/contacts.rs"
+
+[[test]]
+name = "ds_messaging"
+path = "tests/daemon_server_tests/messaging.rs"
+
+[[test]]
+name = "ds_invite_abuse"
+path = "tests/daemon_server_tests/invite_abuse.rs"
+
+[[test]]
+name = "ds_account_lifecycle"
+path = "tests/daemon_server_tests/account_lifecycle.rs"
+
+[[test]]
+name = "ds_concurrent"
+path = "tests/daemon_server_tests/concurrent.rs"

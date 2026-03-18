@@ -48,19 +48,10 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
             v.get("peer").map(|p| !p.is_null()).unwrap_or(false)
         });
 
-        let peer_cid = peer_json.with_exposed(|v| {
-            v.get("peer")
-                .and_then(|p| p.get("cid"))
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string()
-        });
-
         out.push(json!({
             "contact_id": hex::encode(r.contact_id),
             "label": label,
             "peer_set": peer_set,
-            "peer_cid": peer_cid
         }));
     }
 

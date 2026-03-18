@@ -6,10 +6,13 @@ use lithium_core::keys::PlainFileMkProvider;
 use lithium_core::keys::manager::KeyManager;
 use lithium_core::utils::store::EphemeralStoreManager;
 
+use crate::health::HealthState;
+
 pub type SharedState = Arc<AppState>;
 
 pub struct AppState {
     pub key_manager: Arc<Mutex<KeyManager<PlainFileMkProvider>>>,
     pub store: EphemeralStoreManager,
     pub db: Arc<DataManager<PlainFileMkProvider>>,
+    pub health: Arc<HealthState>,
 }

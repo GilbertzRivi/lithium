@@ -1,16 +1,12 @@
-# KyberBox: Notatka bezpieczeństwa
+# KyberBox — analiza bezpieczeństwa
 
 Niniejszy dokument opisuje konstrukcję KyberBox z pliku `lithium_core/src/crypto/kyberbox.rs` oraz jej użycie w `lithiumd/src/e2e/session.rs`. Wyjaśnia cel kompozycji, dokładny przepływ kluczy, właściwości wynikające z konstrukcji, granice odpowiedzialności oraz otwarte pytania istotne z perspektywy audytu.
-
----
 
 ## Cel
 
 KyberBox to hybrydowy schemat szyfrowania, który szyfruje dwa niezależne plaintexty (`body` i `headers`) w jednej operacji kryptograficznej, produkując trzy nieprzezroczyste blobs: `enc_body`, `enc_headers`, `seed_enc`. Konstrukcja jest zaprojektowana tak, żeby skompromitowanie samego komponentu klasycznego (X25519) nie wystarczyło do odszyfrowania wiadomości — atakujący musi przełamać również komponent post-kwantowy (ML-KEM-1024). Symetrycznie: skompromitowanie samego komponentu post-kwantowego też nie wystarczy.
 
 KyberBox ma na celu zapewnienie wyłącznie **poufności**. Nie uwierzytelnia nadawcy, nie wiąże szyfrogramu z tożsamością nadawcy i nie chroni przed replay. Te odpowiedzialności leżą po stronie warstw wyżej.
-
----
 
 ## Prymitywy
 
@@ -25,8 +21,6 @@ Wszystkie wersje są przypięte w `Cargo.lock`.
 | CSRNG | `rand::rngs::SysRng` | — |
 
 Implementacja ML-KEM-1024 pochodzi z PQClean (`ml-kem-1024`, czysta implementacja referencyjna w C) — nie z katalogu `kyber1024`, który odpowiada przedstandardowemu draftowi CRYSTALS-Kyber (oba katalogi istnieją w bundlowanym drzewie PQClean, ale są niespójne na poziomie formatu i nie są wzajemnie kompatybilne). Potwierdza to prefiks FFI `PQCLEAN_MLKEM1024_CLEAN_` oraz stała `PQCLEAN_MLKEM1024_CLEAN_CRYPTO_BYTES = 32`, zgodna z FIPS 203. Ścieżki AVX2 i NEON są domyślnie włączone.
-
----
 
 ## Przepływ kluczy
 
@@ -52,13 +46,13 @@ Krok 2: Szyfrowanie seed (ścieżka ML-KEM)
   aad_seed         = [0x01] || "kyberbox/v1|kem=mlkem1024|aead=aes256-gcm-siv|"
                    || [0x01, 0x01, 0x01, 0x20] || SHA256(ct_kem)
                    || "{ctx}/seed/v1"
-  seed_enc         = [nagłówek 36B] || [u16be len(ct_kem)] || ct_kem
+  seed_enc         = [naglowek 36B] || [u16be len(ct_kem)] || ct_kem
                    || AES-256-GCM-SIV(seed_plain, aead_key_kem, nonce_s, aad_seed)
 
-Krok 3: Klucz bazowy (kombinacja obu ścieżek)
+Krok 3: Klucz bazowy (kombinacja obu sciezek)
   base_key = HKDF-SHA256(IKM=ecdh_key, salt=seed_plain, info="{ctx}/base-key/v1")
 
-Krok 4: Szyfrowanie payloadów
+Krok 4: Szyfrowanie payloadow
   body_key    = HKDF-SHA256(IKM=base_key, salt=brak, info="{ctx}/body-key/v1")
   headers_key = HKDF-SHA256(IKM=base_key, salt=brak, info="{ctx}/headers-key/v1")
   enc_body    = [0x01] || nonce_b || AES-256-GCM-SIV(body, body_key, nonce_b,
@@ -72,8 +66,6 @@ Wynik: WirePayload { enc_body, enc_headers, seed_enc }
 Wszystkie nonce (`nonce_s`, `nonce_b`, `nonce_h`) to 12 losowych bajtów z CSRNG, generowanych niezależnie przy każdym wywołaniu szyfrowania.
 
 Deszyfrowanie odwraca kolejność: parsuje `seed_enc`, weryfikuje `SHA256(ct_kem)` względem zapisanego salta *przed* decapsulacją, decapsuluje `ss_kem`, wyprowadza `aead_key_kem`, odszyfrowuje `seed_plain`, następnie odtwarza łańcuch kluczy z `ecdh_key` i `seed_plain` i odszyfrowuje body oraz headers.
-
----
 
 ## Właściwości wynikające z konstrukcji
 
@@ -89,8 +81,6 @@ Poniższe właściwości wynikają z zamierzeń projektowych i analizy konstrukc
 
 **Weryfikacja integralności przed decapsulacją.** W `decrypt_kyber_seed`, `SHA256(ct_kem)` jest weryfikowane względem zapisanego salta w blobie *zanim* nastąpi decapsulacja. Zapobiega to użyciu blobu jako wyroczni decapsulacji dla ciphertextów wybranych przez atakującego (przynajmniej na poziomie deterministycznego filtrowania). Czy ten filtr jest wystarczający wobec atakującego adaptacyjnego, wymaga weryfikacji w konkretnym modelu bezpieczeństwa ML-KEM. Oznacza to też, że uszkodzenie `ct_kem` jest wykrywane przed wywołaniem kodu ML-KEM w C.
 
----
-
 ## Założenia
 
 KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wywołującego:
@@ -103,8 +93,6 @@ KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wy
 
 **CSRNG jest niezakompromitowany.** `seed_plain`, efemeryczny klucz X25519 i wszystkie nonce AEAD pochodzą z `SysRng`. Jakikolwiek bias lub przewidywalność systemowego generatora łamie świeżość klucza per wiadomość.
 
----
-
 ## Czego KyberBox nie gwarantuje
 
 **Uwierzytelnienie nadawcy.** Nic w KyberBox nie wiąże szyfrogramu z konkretnym nadawcą. Każda strona, która zna `peer_k_pub` i `peer_pub_x` (lub przechwyci `from_x_pub` podczas transmisji), może wyprodukować prawidłowy `WirePayload`. W protokole Lithium uwierzytelnienie jest zapewniane zewnętrznie przez podwójny podpis Ed25519 + ML-DSA-87 nad plaintextem nagłówków i body, weryfikowany w `session.rs` przed zwróceniem odszyfrowanej treści.
@@ -114,8 +102,6 @@ KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wy
 **Forward secrecy na poziomie X25519 w obrębie jednej epoki ratchet.** Klucz X25519 odbiorcy (`rx_x_priv`) jest przechowywany aż do momentu, gdy odbiorca wyśle odpowiedź i nadawca zacznie używać nowego klucza. Wszystkie wiadomości wysłane do odbiorcy w tej epoce mają wspólny komponent X25519. Skompromitowanie `rx_x_priv` pozwala retroaktywnie odszyfrować komponent ECDH dla wszystkich wiadomości zaszyfrowanych dla tego klucza. Ścieżka ML-KEM nadal zapewnia separację per wiadomość (każda ma unikalny `seed_plain`), ale jeśli ML-KEM zostanie złamany, odzyskanie `rx_x_priv` pozwoliłoby odszyfrować wszystkie wiadomości z epoki.
 
 **Explicite powiązanie między `seed_enc`, `enc_body` i `enc_headers`.** Trzy pola `WirePayload` to niezależnie uwierzytelnione blobs AEAD. Nie istnieje żaden wspólny MAC ani commitment obejmujący je wszystkie razem. Powiązanie jest implicite: `enc_body` i `enc_headers` są odszyfrowywalne tylko jeśli `seed_plain` zostanie poprawnie odzyskane z `seed_enc`, i tylko jeśli `seed_plain` jest tym samym, które użyto podczas szyfrowania. Podstawienie dowolnego pola z innej wiadomości powoduje błąd AEAD, ale jest to błąd AEAD, nie naruszenie protokołu wyższego poziomu, które odbiorca mógłby odróżnić od zwykłego uszkodzenia transmisji.
-
----
 
 ## Otwarte ryzyka i pytania do audytora
 
@@ -129,11 +115,9 @@ KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wy
 
 **`SHA256(ct_kem)` jako salt HKDF w derywacji klucza seed.** Salt jest hashem ciphertextu ML-KEM widocznego dla atakującego, który służy jednocześnie jako sprawdzenie integralności. Używanie hashu wartości widocznej dla atakującego jako salta KDF jest niestandardowe. Argument bezpieczeństwa brzmi: `ss_kem` (shared secret ML-KEM) jest właściwym materiałem klucza, a salt musi jedynie być niesekretny i unikalny per ciphertext — co `SHA256(ct_kem)` spełnia. Audytor powinien zweryfikować, że ta konstrukcja nie wprowadza osłabienia w dowodzie bezpieczeństwa HKDF, w szczególności: czy atakujący, który może wybrać `ct_kem` (np. przez złośliwą wiadomość), może wymusić konkretną wartość salta w sposób osłabiający wynikający `aead_key_kem`.
 
----
-
 ## Podsumowanie
 
-KyberBox to prosta hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 enkapsuluje świeży 32-bajtowy seed, X25519 dostarcza drugi niezależny shared secret, oba są łączone przez HKDF w `base_key`, a body i headers są szyfrowane przez AES-256-GCM-SIV pod kluczami wyprowadzonymi z `base_key`. Schemat ma na celu osiągnięcie świeżości klucza per wiadomość przez losowy seed, hybrydowego bezpieczeństwa klasyczne/post-kwantowe przez kombinowaną derywację klucza i odporności na nonce reuse przez konstrukcję SIV — o ile użyte prymitywy spełniają standardowe założenia bezpieczeństwa.
+KyberBox to prosta hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 enkapsuluje świeży 32-bajtowy seed, X25519 dostarcza drugi niezależny shared secret, oba są łączone przez HKDF w `base_key`, a body i headers są szyfrowane przez AES-256-GCM-SIV pod kluczami wyprowadzonymi z `base_key`. Schemat ma na celu osiągnięcie świeżości klucza per wiadomość przez losowy seed, hybrydowego bezpieczeństwa klasyczne/post-kwantowego przez kombinowaną derywację klucza i odporności na nonce reuse przez konstrukcję SIV — o ile użyte prymitywy spełniają standardowe założenia bezpieczeństwa.
 
 Nie zapewnia uwierzytelnienia, ochrony przed replay ani forward secrecy w obrębie jednej epoki ratchet na własną rękę. Wszystkie te właściwości są delegowane do warstwy sesji w `lithiumd/src/e2e/session.rs`.
 

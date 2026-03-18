@@ -1,4 +1,4 @@
-# Lithium — założenia projektowe i bezpieczeństwa
+# Lithium — model bezpieczeństwa i założenia projektowe
 
 ## Cel projektu
 
@@ -39,7 +39,7 @@ Lithium ma dążyć do tego, aby:
 
 * serwer nie znał treści wiadomości,
 * serwer nie był źródłem zaufania między użytkownikami,
-* operator matematycznie nie był w stanie ujawnić danych.
+* operator matematycznie nie był w stanie ujawnić danych,
 * kompromitacja serwera nie dawała dostępu do możliwie niczego,
 * kompromitacja dysku nie umożliwiała odzyskania danych,
 * utrata części stanu mogła skutkować utratą danych, jeżeli zmniejsza to ryzyko kompromitacji.
@@ -62,15 +62,15 @@ Wiadomości są projektowane jako one-time fetch i zostają usunięte po pobrani
 
 ### Manual fetch
 
-Manual fetch jest celowy. Ma ograniczać korelację, zmniejszać ekspozycję metadanych i nie upodabniać 
+Manual fetch jest celowy. Ma ograniczać korelację, zmniejszać ekspozycję metadanych i nie upodabniać
 systemu do klasycznego, stale aktywnego komunikatora.
 
 ### Brak pełnego offline unlock
 
 Offline unlock nie jest celem projektu.
 
-Odszyfrowanie lokalnych danych zależy częściowo od komponentu odzyskiwanego przez serwer, 
-to jest to świadoma decyzja. Preferowane jest utracenie możliwości odszyfrowania danych 
+Odszyfrowanie lokalnych danych zależy częściowo od komponentu odzyskiwanego przez serwer,
+to jest to świadoma decyzja. Preferowane jest utracenie możliwości odszyfrowania danych
 zamiast pozostawienia ich odzyskiwalnymi po utracie kontroli nad urządzeniem.
 
 ### Recoverability przegrywa z bezpieczeństwem
@@ -79,19 +79,35 @@ Lithium w wielu miejscach preferuje nieodwracalną utratę dostępu nad wygodny 
 
 To nie jest UX bug. To jest założenie.
 
-## Non-goals
+### Deterministyczne szyfrowanie identyfikatora użytkownika na serwerze
 
-Lithium celowo nie próbuje zapewnić:
+Identyfikator użytkownika w bazie serwera jest derywowany deterministycznie z handlera (`UUID v5`)
+i szyfrowany deterministycznie (nonce wyprowadzony z UUID i DEK).
 
-* recovery po utracie sekretów,
-* działania offline,
-* gwarancji dostarczenia każdej wiadomości,
-* wygodnego UX znanego z komunikatorów masowych,
-* odzyskiwania danych,
-* ochrony przed całkowicie przejętym endpointem,
-* funkcji zwiększających wiedzę serwera tylko po to, żeby system był przyjemniejszy w użyciu.
+Jest to świadomy trade-off wymagany przez semantykę lookup — bez deterministyczności serwer
+musiałby przechowywać plaintext handlera lub dodatkową tablicę mapowań.
 
-Brak tych właściwości nie powinien być klasyfikowany jako podatność, jeśli wynika z modelu bezpieczeństwa.
+Konsekwencja: ten sam użytkownik zawsze daje ten sam `id_enc`. Ponieważ jednak w bazie istnieje
+dokładnie jeden wiersz na użytkownika, powtórzenia w bazie nie są możliwe. Dwa snapshoty bazy
+też nic nie ujawnią ponad fakt, że dany wiersz nadal istnieje — nie można z tego odtworzyć
+handlera, bo jest zaszyfrowany i zahashowany.
+
+Nie jest to podatność w modelu Lithium, ale jest to świadome odstępstwo od semantyki
+niedeterministycznego szyfrowania.
+
+### Lokalny resource exhaustion
+
+Niektóre struktury in-memory rosną proporcjonalnie do liczby unikalnych wartości w żądaniach.
+Przykład: `contact_fetch_locks` w `lithiumd` — mapa rośnie wraz z liczbą unikalnych `contact_id`,
+nigdy nie jest czyszczona.
+
+Przy normalnym użyciu to kilkadziesiąt wpisów i jest nieistotne.
+Przy intencjonalnym zalewaniu losowymi identyfikatorami mapa rośnie w nieskończoność.
+
+Jest to świadoma decyzja. Lithium nie jest komunikatorem dla anonimowych, niezaufanych klientów.
+Strona, która ma dostęp do mailboxa, jest stroną uwierzytelnioną — a ktoś, kto celowo wyczerpuje
+własne zasoby, robi krzywdę sobie. Bounded resource exhaustion przez niezaufane requestujące strony
+nie jest zagrożeniem w modelu Lithium, bo nie narusza poufności ani integralności danych.
 
 ## Serwer
 
@@ -109,7 +125,7 @@ Serwer nie powinien móc:
 
 * odszyfrować treści,
 * ustanawiać zaufania między peerami,
-* uczestniczyć w parowaniu użytkowników
+* uczestniczyć w parowaniu użytkowników.
 
 ## Lokalny klient i IPC
 
@@ -163,7 +179,8 @@ Poniższe rzeczy nie powinny być automatycznie klasyfikowane jako podatności b
 * brak offline unlock,
 * brak recovery przez operatora,
 * możliwość utraty danych po utracie komponentu serwerowego,
-* preferowanie destrukcji lokalnego stanu nad jego odzysk.
+* preferowanie destrukcji lokalnego stanu nad jego odzysk,
+* resource exhaustion wywołany przez uwierzytelnioną stronę na własnym endpoincie (lokalny DoS).
 
 ## Klasyfikacja ustaleń audytowych
 
@@ -174,6 +191,18 @@ Każde ustalenie powinno być klasyfikowane jako jedno z poniższych:
 3. **non-goal** — dotyczy czegoś, czego Lithium celowo nie zapewnia.
 
 Brak tego rozróżnienia prowadzi do błędnej oceny systemu.
+
+## Zmiana server.identity jest celowo bolesna
+
+Daemon buforuje `ServerBootstrap` (klucze publiczne serwera) przez cały czas trwania sesji keystore.
+Jeśli operator zmieni `server.identity` na serwerze — np. po re-key po kompromitacji —
+każdy klient musi ręcznie wgrać nowy plik i wykonać `lock_keystore` + `unlock_keystore`.
+
+Jest to celowa decyzja. Operator nie ma dostępu do urządzeń klientów i nie może wymusić
+aktualizacji zaufania bez ich wiedzy i świadomej akcji. Automatyczna aktualizacja kluczy serwera
+otworzyłaby wektor dla operatora, który chce podmienić klucze bez wiedzy użytkownika.
+
+Bolesność tej operacji jest funkcją bezpieczeństwa, nie wadą UX.
 
 ## Podsumowanie
 

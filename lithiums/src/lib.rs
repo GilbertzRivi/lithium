@@ -1,6 +1,7 @@
 pub mod api;
 pub mod db;
 pub mod error;
+pub mod health;
 pub mod identity;
 pub mod middleware;
 pub mod mk_rotator;
@@ -9,7 +10,9 @@ pub mod state;
 pub mod transport;
 
 use poem::{get, handler, post, Endpoint, EndpointExt, Route};
-use poem::web::Json;
+use poem::web::{Data, Json};
+use poem::http::StatusCode;
+use poem::Response;
 use serde_json::json;
 
 use crate::middleware::crypto::CryptoMiddleware;
@@ -23,9 +26,36 @@ fn root() -> Json<serde_json::Value> {
     }))
 }
 
+#[handler]
+fn health_check(state: Data<&state::SharedState>) -> Response {
+    let h = &state.health;
+    let reaper_last_ok = h.reaper_last_ok.load(std::sync::atomic::Ordering::Relaxed);
+    let reaper_errors = h.reaper_errors.load(std::sync::atomic::Ordering::Relaxed);
+    let mk_last_ok = h.mk_rotation_last_ok.load(std::sync::atomic::Ordering::Relaxed);
+    let mk_errors = h.mk_rotation_errors.load(std::sync::atomic::Ordering::Relaxed);
+
+    let body = json!({
+        "reaper": { "last_ok": reaper_last_ok, "errors_total": reaper_errors },
+        "mk_rotation": { "last_ok": mk_last_ok, "errors_total": mk_errors },
+    });
+
+    // 503 until both subsystems have had at least one successful run
+    let status = if reaper_last_ok > 0 && mk_last_ok > 0 {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    Response::builder()
+        .status(status)
+        .content_type("application/json")
+        .body(body.to_string())
+}
+
 pub fn build_app(state: state::SharedState) -> impl Endpoint {
     Route::new()
         .at("/", get(root))
+        .at("/health", get(health_check.data(state.clone())))
         .at(
             "/shake",
             post(api::handshake::handshake).with(CryptoMiddleware::new(

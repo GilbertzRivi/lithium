@@ -12,7 +12,10 @@ use crate::{
 pub async fn wipe(state: &Arc<DaemonState>) -> Result<(), ()> {
     let dir = state.base_dir.clone();
     state.lock_keystore().await;
-    util::wipe_dir_all(&dir).map_err(|_| ())?;
+    tokio::task::spawn_blocking(move || util::wipe_dir_all(&dir))
+        .await
+        .map_err(|_| ())?
+        .map_err(|_| ())?;
     state.mark_needs_register().await;
     Ok(())
 }

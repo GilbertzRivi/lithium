@@ -331,10 +331,14 @@ W odpowiedzi na te założenia:
 
 ---
 
-## Dokumentacja techniczna komponentów
+## Dokumentacja techniczna
 
-- [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami, format plików kluczy
-- [`lithiumd/README.md`](lithiumd/README.md) — IPC, protokół E2E WireV1, mailbox, zaproszenia, SQLite, PasswordFileMkProvider
-- [`lithiumg/README.md`](lithiumg/README.md) — GUI, maszyna stanów ekranów, model wątków, protokół IPC
-- [`lithiums/README.md`](lithiums/README.md) — REST API, middleware, transport Shake/Session, schemat PostgreSQL
-- [`lithium_assumptions.md`](lithium_assumptions.md) — założenia projektowe i model zaufania (dla audytorów i integratorów)
+- [`docs/`](docs/index.md) — indeks dokumentacji (dla audytorów i integratorów)
+  - [`docs/security-model.md`](docs/security-model.md) — model zaufania, priorytety, świadome kompromisy, klasyfikacja ustaleń audytowych
+  - [`docs/crypto-protocol.md`](docs/crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport, E2E, mailbox, cykl życia kluczy
+  - [`docs/ipc-reference.md`](docs/ipc-reference.md) — referencja protokołu IPC daemona
+  - [`docs/kyberbox.md`](docs/kyberbox.md) — analiza bezpieczeństwa schematu KyberBox
+- [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami
+- [`lithiumd/README.md`](lithiumd/README.md) — daemon klienta: IPC, E2E, mailbox, SQLite
+- [`lithiums/README.md`](lithiums/README.md) — serwer relay: REST API, middleware, transport, PostgreSQL
+- [`lithiumg/README.md`](lithiumg/README.md) — GUI: maszyna stanów, model wątków
