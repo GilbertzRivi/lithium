@@ -5,7 +5,7 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithiums::{build_app, db, health::HealthState, mk_rotator, state};
+use lithiums::{build_app, db, health::HealthState, mk_rotator, provider::ServerMkProvider, state};
 use poem::{listener::TcpListener, Server};
 use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
@@ -165,9 +165,13 @@ impl TestServer {
 
         let keys_path = tempfile::tempdir().expect("tempdir").keep();
 
-        let mut km =
-            KeyManager::<PlainFileMkProvider>::start_plain(&keys_path, KeyStoreKind::Server)
-                .expect("KeyManager init");
+        let mk_path = keys_path.join("server").join("mk");
+        let mut km = KeyManager::start(
+            &keys_path,
+            KeyStoreKind::Server,
+            ServerMkProvider::Plain(PlainFileMkProvider::new(mk_path)),
+        )
+        .expect("KeyManager init");
 
         let pub_keys = km.public_keys().clone();
         km.set_rotate_interval(Duration::from_secs(3600));

@@ -50,7 +50,14 @@ All schemes are hybrid classical + post-quantum.
 - **KDF**: HKDF-SHA256; passwords: Argon2
 - **Secret types**: `Byte32`, `SecretBytes`, `SecretString`, `MasterKey32` — all `zeroize` on drop
 
-Key lifecycle: `KeyManager<MkProvider>` in `lithium_core/src/keys/manager.rs`. `MkProvider` is pluggable (`PlainFileMkProvider` for file-based storage). Keys rotate hourly via `MkRotator` (spawned in `lithiumd` and `lithiums`).
+Key lifecycle: `KeyManager<MkProvider>` in `lithium_core/src/keys/manager.rs`. `MkProvider` is pluggable:
+
+- `PlainFileMkProvider` — master key stored as a plain file (used by `lithiumd`)
+- `TpmMkProvider` — master key sealed into the TPM as a KEYEDHASH object; used by `lithiums` when the `tpm` feature is enabled (default). The sealing parent is an ECC P-256 restricted decryption key derived deterministically from the owner seed, so it is never persisted. Sealed blob goes to `LITHIUM_TPM_SEALED_PATH`. Falls back to `PlainFileMkProvider` when `LITHIUM_MK_PROVIDER=plain`.
+
+`ServerMkProvider` in `lithiums/src/provider.rs` is an enum that dispatches to whichever provider is active.
+
+Keys rotate hourly via `MkRotator` (spawned in `lithiumd` and `lithiums`).
 
 ### IPC (lithiumd)
 

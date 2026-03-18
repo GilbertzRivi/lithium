@@ -4,9 +4,10 @@ use std::time::Duration;
 use tokio::{sync::{watch, Mutex}, task::JoinHandle};
 use tracing::error;
 
-use lithium_core::keys::{KeyManager, PlainFileMkProvider};
+use lithium_core::keys::KeyManager;
 
 use crate::health::HealthState;
+use crate::provider::ServerMkProvider;
 
 pub struct MkRotatorHandle {
     _stop_tx: watch::Sender<bool>,
@@ -14,7 +15,7 @@ pub struct MkRotatorHandle {
 }
 
 pub fn spawn_mk_rotator(
-    km: Arc<Mutex<KeyManager<PlainFileMkProvider>>>,
+    km: Arc<Mutex<KeyManager<ServerMkProvider>>>,
     health: Arc<HealthState>,
     tick_every: Duration,
 ) -> MkRotatorHandle {

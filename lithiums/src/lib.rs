@@ -6,8 +6,12 @@ pub mod identity;
 pub mod middleware;
 pub mod mk_rotator;
 pub mod msg_reaper;
+pub mod provider;
 pub mod state;
 pub mod transport;
+
+#[cfg(feature = "tpm")]
+pub mod tpm_provider;
 
 use poem::{get, handler, post, Endpoint, EndpointExt, Route};
 use poem::web::{Data, Json};

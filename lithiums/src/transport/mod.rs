@@ -26,7 +26,7 @@ use lithium_core::crypto::{keys, kyberbox, sign};
 use lithium_core::crypto::kyberbox::WirePayload;
 use lithium_core::db::manager::DataManager;
 use lithium_core::error::LithiumError;
-use lithium_core::keys::PlainFileMkProvider;
+use crate::provider::ServerMkProvider;
 use lithium_core::secrets::{Byte32, Byte64, SecretJson, SecretString};
 use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::utils::headers::{header_hex, header_hex_bytes, header_str};
@@ -361,7 +361,7 @@ pub async fn create_token_for_user(
 pub async fn get_user_from_token(
     token: &str,
     secret: &Byte32,
-    dbm: &Arc<DataManager<PlainFileMkProvider>>,
+    dbm: &Arc<DataManager<ServerMkProvider>>,
     store: &EphemeralStoreManager,
 ) -> Result<UserRecord, AppError> {
     let mut validation = Validation::new(Algorithm::HS256);

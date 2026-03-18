@@ -3,10 +3,11 @@ use std::time::Duration;
 
 use tokio::{sync::watch, task::JoinHandle};
 use tracing::error;
-use lithium_core::{db::manager::DataManager, keys::PlainFileMkProvider};
+use lithium_core::db::manager::DataManager;
 
 use crate::db::repo::ServerDbExt;
 use crate::health::HealthState;
+use crate::provider::ServerMkProvider;
 
 pub struct MsgReaperHandle {
     _stop_tx: watch::Sender<bool>,
@@ -14,7 +15,7 @@ pub struct MsgReaperHandle {
 }
 
 pub fn spawn_msg_reaper(
-    db: Arc<DataManager<PlainFileMkProvider>>,
+    db: Arc<DataManager<ServerMkProvider>>,
     health: Arc<HealthState>,
     tick_every: Duration,
 ) -> MsgReaperHandle {

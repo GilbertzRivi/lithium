@@ -3,11 +3,16 @@ name = "lithiums"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["tpm"]
+tpm = ["dep:tss-esapi"]
+
 [dependencies]
 lithium_core = { path = "../lithium_core" }
 poem = { version = "3.1.12", features = ["anyhow", "compression", "multipart"] }
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync", "signal"] }
 serde = { version = "1.0.228", features = ["derive"] }
+tss-esapi = { version = "7.6.0", optional = true }
 serde_json = "1.0.149"
 hex = "0.4.3"
 uuid = { version = "1.22.0", features = ["v4", "v5", "serde"] }

@@ -9,7 +9,25 @@ use lithium_core::{
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
-use lithiums::{build_app, db, error::AppResult, health::HealthState, identity, mk_rotator, msg_reaper, state};
+use lithiums::{
+    build_app, db, error::AppResult, health::HealthState, identity, mk_rotator, msg_reaper,
+    provider::ServerMkProvider, state,
+};
+
+#[cfg(feature = "tpm")]
+use lithiums::tpm_provider::TpmMkProvider;
+
+fn make_provider(keys_dir: &std::path::Path) -> ServerMkProvider {
+    #[cfg(feature = "tpm")]
+    if env::var("LITHIUM_MK_PROVIDER").as_deref() != Ok("plain") {
+        let sealed_path = env::var("LITHIUM_TPM_SEALED_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| keys_dir.join("server").join("mk.sealed"));
+        return ServerMkProvider::Tpm(TpmMkProvider::new(sealed_path));
+    }
+
+    ServerMkProvider::Plain(PlainFileMkProvider::new(keys_dir.join("server").join("mk")))
+}
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
@@ -28,8 +46,7 @@ async fn main() -> AppResult<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(3600);
 
-    let mut km =
-        KeyManager::<PlainFileMkProvider>::start_plain(&keys_dir, KeyStoreKind::Server)?;
+    let mut km = KeyManager::start(&keys_dir, KeyStoreKind::Server, make_provider(&keys_dir))?;
     km.set_rotate_interval(Duration::from_secs(rotate_secs));
 
     let identity_path = keys_dir.join("server.identity");

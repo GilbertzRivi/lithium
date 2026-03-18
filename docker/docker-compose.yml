@@ -45,6 +45,10 @@ services:
       - /usr/local/cargo/bin/cargo
       - run
       - --release
+    devices:
+      - /dev/tpmrm0:/dev/tpmrm0
+    group_add:
+      - 107
 
 secrets:
   db_password:

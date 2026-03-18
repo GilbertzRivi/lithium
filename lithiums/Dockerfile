@@ -5,6 +5,7 @@ FROM rust:1-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    libtss2-dev \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
@@ -21,6 +22,8 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    libtss2-esys-3.0.2-0 \
+    libtss2-tctildr0 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --create-home --home-dir /home/lithium --shell /usr/sbin/nologin lithium \
  && mkdir -p /var/lib/lithiums \
@@ -32,5 +35,4 @@ USER lithium
 WORKDIR /home/lithium
 
 EXPOSE 4108
-
 ENTRYPOINT ["/usr/local/bin/lithiums"]
