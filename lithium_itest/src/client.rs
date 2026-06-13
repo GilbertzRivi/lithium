@@ -330,8 +330,8 @@ impl TestLithiumClient {
         if ep.requires_session() {
             let sx = ses_x_id.expect("ses-x missing");
             let sk = ses_k_id.expect("ses-k missing");
-            h.insert("ses-x", hv(sx.expose().to_owned()));
-            h.insert("ses-k", hv(sk.expose().to_owned()));
+            h.insert("ses-x", hv(sx.expose()));
+            h.insert("ses-k", hv(sk.expose()));
             h.insert(
                 reqwest::header::CONTENT_TYPE,
                 reqwest::header::HeaderValue::from_static("application/octet-stream"),
@@ -366,9 +366,9 @@ impl TestLithiumClient {
         let resp_bytes = resp.bytes().await.expect("read body").to_vec();
 
         let resp_peer_x = Byte32::from_hex(&hdr(&rh, "key-x")).expect("key-x parse");
-        let resp_peer_k = hex::decode(&hdr(&rh, "key-k")).expect("key-k hex");
-        let resp_seed = hex::decode(&hdr(&rh, "seed")).expect("seed hex");
-        let resp_data = hex::decode(&hdr(&rh, "data")).expect("data hex");
+        let resp_peer_k = hex::decode(hdr(&rh, "key-k")).expect("key-k hex");
+        let resp_seed = hex::decode(hdr(&rh, "seed")).expect("seed hex");
+        let resp_data = hex::decode(hdr(&rh, "data")).expect("data hex");
 
         let (mut dec_body, mut dec_headers) = kyberbox::decrypt(
             &ep.ctx_resp(),
