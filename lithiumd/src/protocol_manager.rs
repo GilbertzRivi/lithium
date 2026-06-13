@@ -712,7 +712,7 @@ fn pad_block(buf: &mut Vec<u8>, block_size: usize) {
     let pad_len = (block_size - (total_len % block_size)) % block_size;
     buf.reserve(1 + pad_len);
     buf.push(0x80);
-    buf.extend(std::iter::repeat(0u8).take(pad_len));
+    buf.extend(std::iter::repeat_n(0u8, pad_len));
 }
 
 fn random_block_size() -> usize {

@@ -193,7 +193,7 @@ pub async fn handle(
         Ok(v) => v,
         Err(_) => return crypto_err(id),
     };
-    let mailbox_hex = hex::encode(&mbox_out);
+    let mailbox_hex = hex::encode(mbox_out);
 
     let (wire, ui_meta) = match encrypt_for_peer(
         &mut self_v,

@@ -17,11 +17,10 @@ pub async fn handle(id: u64, data: String, state: Arc<DaemonState>) -> IpcRespon
         return err_resp(id, format!("server_identity_invalid:{e}"));
     }
 
-    if let Some(parent) = state.identity_path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
+    if let Some(parent) = state.identity_path.parent()
+        && std::fs::create_dir_all(parent).is_err() {
             return internal_err(id);
         }
-    }
 
     if std::fs::write(&state.identity_path, &bytes).is_err() {
         return internal_err(id);

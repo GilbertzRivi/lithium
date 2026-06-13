@@ -72,8 +72,8 @@ pub async fn handle(
                 };
 
                 let peer_matches = match existing_peer_json.with_exposed(|existing_peer_json| {
-                    if let Some(peer_obj) = existing_peer_json.get("peer") {
-                        if !peer_obj.is_null() {
+                    if let Some(peer_obj) = existing_peer_json.get("peer")
+                        && !peer_obj.is_null() {
                             let existing_cid_hex =
                                 peer_obj.get("cid").and_then(|v| v.as_str()).unwrap_or("");
                             let existing_cid =
@@ -82,7 +82,6 @@ pub async fn handle(
                                 SecretBytes::from_hex(peer.cid_hex.expose().trim()).ok()?;
                             return Some(existing_cid.expose_as_slice() == incoming_cid.expose_as_slice());
                         }
-                    }
                     Some(true)
                 }) {
                     Some(v) => v,

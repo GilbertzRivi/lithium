@@ -75,11 +75,10 @@ fn derive_mailbox(
 }
 
 fn peer_sender_pub_for_generation(peer_v: &Value, generation: u64) -> Result<Byte32> {
-    if let Some(map) = sender_pub_map(peer_v) {
-        if let Some(v) = map.get(&generation.to_string()).and_then(|v| v.as_str()) {
+    if let Some(map) = sender_pub_map(peer_v)
+        && let Some(v) = map.get(&generation.to_string()).and_then(|v| v.as_str()) {
             return Byte32::from_hex(v.trim());
         }
-    }
 
     let peer = peer_obj(peer_v).ok_or_else(|| LithiumError::invalid_credentials("peer_not_set"))?;
 

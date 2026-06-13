@@ -142,7 +142,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
             Ok(v) => v,
             Err(_) => continue,
         };
-        let mailbox_hex = hex::encode(&mbox_in);
+        let mailbox_hex = hex::encode(mbox_in);
 
         let resp = match proto
             .send(Endpoint::MsgFetch, json!({ "mailbox": mailbox_hex }), json!({}))

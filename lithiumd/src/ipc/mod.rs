@@ -120,17 +120,15 @@ async fn authorize_request(
 
     #[cfg(target_os = "linux")]
     {
-        if let Some(bound_uid) = auth.bound_uid {
-            if peer.uid != Some(bound_uid) {
+        if let Some(bound_uid) = auth.bound_uid
+            && peer.uid != Some(bound_uid) {
                 return Some(err_resp(req.id, "ipc_auth_failed"));
             }
-        }
 
-        if let Some(bound_pid) = auth.bound_pid {
-            if peer.pid != Some(bound_pid) {
+        if let Some(bound_pid) = auth.bound_pid
+            && peer.pid != Some(bound_pid) {
                 return Some(err_resp(req.id, "ipc_auth_failed"));
             }
-        }
     }
 
     None

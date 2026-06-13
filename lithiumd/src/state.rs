@@ -10,6 +10,8 @@ use lithium_core::secrets::{Byte32, SecretString};
 use crate::password_provider::PasswordFileMkProvider;
 use crate::protocol_manager::ProtocolManager;
 
+type SharedKeyManager = Arc<Mutex<KeyManager<PasswordFileMkProvider>>>;
+
 pub struct MkRotator {
     pub stop_tx: watch::Sender<bool>,
     pub handle: tokio::task::JoinHandle<()>,
@@ -36,7 +38,7 @@ pub struct DaemonState {
     pub data_pass: Arc<Mutex<Option<SecretString>>>,
     pub dek_plain: Arc<Mutex<Option<Byte32>>>,
 
-    pub keys: Arc<Mutex<Option<Arc<Mutex<KeyManager<PasswordFileMkProvider>>>>>>,
+    pub keys: Arc<Mutex<Option<SharedKeyManager>>>,
     pub local_db: Arc<Mutex<Option<Arc<DataManager<PasswordFileMkProvider>>>>>,
 
     pub ipc_auth: Arc<Mutex<IpcAuthState>>,

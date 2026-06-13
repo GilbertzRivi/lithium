@@ -105,11 +105,10 @@ fn peer_meta(_stream: &UnixStream) -> Result<IpcPeerMeta> {
 
 #[cfg(target_os = "linux")]
 fn authorize_peer(peer: IpcPeerMeta, policy: &IpcPolicy) -> Result<()> {
-    if let Some(allowed_uid) = policy.allowed_uid {
-        if peer.uid != Some(allowed_uid) {
+    if let Some(allowed_uid) = policy.allowed_uid
+        && peer.uid != Some(allowed_uid) {
             return Err(LithiumError::invalid_perms("ipc_peer_uid_denied"));
         }
-    }
 
     Ok(())
 }

@@ -52,7 +52,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 Err(_) => return crypto_err(id),
             };
 
-            let capability = match proto.register(&dek_blob_hex.expose()).await {
+            let capability = match proto.register(dek_blob_hex.expose()).await {
                 Ok(v) => v,
                 Err(_) => return protocol_err(id),
             };

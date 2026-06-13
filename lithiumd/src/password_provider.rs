@@ -178,7 +178,7 @@ impl MkProvider for PasswordFileMkProvider {
         )?;
 
         let bytes = Self::encode_file(&salt, &blob);
-        keyfile::write_secure(&self.path, &bytes.expose_as_slice())
+        keyfile::write_secure(&self.path, bytes.expose_as_slice())
     }
 
     fn derive_secret32(&self, mk_ignored_by_design: &Byte32, label: &[u8]) -> Result<Byte32> {

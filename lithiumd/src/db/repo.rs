@@ -258,9 +258,6 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         let key_enc_opt = self
             .db()
             .transaction(|txn| {
-                let prekey_id = prekey_id.clone();
-                let now = now;
-
                 Box::pin(async move {
                     let Some(row) = prekeys::Entity::find()
                         .filter(prekeys::Column::PrekeyId.eq(prekey_id))
