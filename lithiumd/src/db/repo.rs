@@ -50,7 +50,8 @@ pub trait DaemonDbExt<P: MkProvider + Send + Sync + 'static> {
         mailbox: Vec<u8>,
         direction: i32,
         content: SecretBytes,
-    ) -> Result<i64>;
+        msg_id: Option<Vec<u8>>,
+    ) -> Result<bool>;
 
     async fn list_messages_page(
         &self,
@@ -148,7 +149,8 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         mailbox: Vec<u8>,
         direction: i32,
         content: SecretBytes,
-    ) -> Result<i64> {
+        msg_id: Option<Vec<u8>>,
+    ) -> Result<bool> {
         let now = Utc::now();
 
         let enc = self
@@ -161,11 +163,22 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
             mailbox: Set(mailbox),
             direction: Set(direction),
             content_enc: Set(enc.expose_as_slice().to_vec()),
+            msg_id: Set(msg_id),
             created_at: Set(now),
         };
 
-        let inserted = am.insert(self.db()).await.map_err(LithiumError::io)?;
-        Ok(inserted.id)
+        match am.insert(self.db()).await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                let s = e.to_string().to_lowercase();
+                // A unique violation on msg_id is a replay of an already-stored message, not a failure.
+                if s.contains("unique") || s.contains("duplicate") {
+                    Ok(false)
+                } else {
+                    Err(LithiumError::io(e))
+                }
+            }
+        }
     }
 
     async fn list_messages_page(

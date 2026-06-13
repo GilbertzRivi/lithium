@@ -99,7 +99,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
     }
 
     {
-        let new_self_bytes = match self_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
             let mut out = SecretBytes::new(Vec::new());
             serde_json::to_writer(out.expose_as_mut_vec(), v)?;
             Ok(out)
@@ -108,7 +108,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
             Err(_) => return err_resp(id, "json_error"),
         };
 
-        let new_peer_bytes = match peer_v.with_exposed(|v| -> std::result::Result<SecretBytes, serde_json::Error> {
+        let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
             let mut out = SecretBytes::new(Vec::new());
             serde_json::to_writer(out.expose_as_mut_vec(), v)?;
             Ok(out)
@@ -215,12 +215,26 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             Err(_) => return err_resp(id, "json_error"),
                         };
 
-                        if dm
-                            .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
+                        let msg_id = ui
+                            .get("msg_id")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.as_bytes().to_vec());
+
+                        match dm
+                            .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored, msg_id)
                             .await
-                            .is_err()
                         {
-                            return storage_err(id);
+                            Ok(true) => {}
+                            Ok(false) => {
+                                out.push(json!({
+                                    "ok": false,
+                                    "err": "duplicate",
+                                    "mailbox_gen": seen_gen
+                                }));
+                                continue;
+                            }
+                            Err(_) => return storage_err(id),
                         }
 
                         out.push(json!({
@@ -313,12 +327,26 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     Err(_) => return err_resp(id, "json_error"),
                                 };
 
-                                if dm
-                                    .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored)
+                                let msg_id = ui
+                                    .get("msg_id")
+                                    .and_then(|v| v.as_str())
+                                    .filter(|s| !s.is_empty())
+                                    .map(|s| s.as_bytes().to_vec());
+
+                                match dm
+                                    .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored, msg_id)
                                     .await
-                                    .is_err()
                                 {
-                                    return storage_err(id);
+                                    Ok(true) => {}
+                                    Ok(false) => {
+                                        out.push(json!({
+                                            "ok": false,
+                                            "err": "duplicate",
+                                            "mailbox_gen": seen_gen
+                                        }));
+                                        continue;
+                                    }
+                                    Err(_) => return storage_err(id),
                                 }
 
                                 out.push(json!({

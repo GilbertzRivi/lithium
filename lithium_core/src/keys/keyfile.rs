@@ -54,6 +54,14 @@ pub fn write_secure(path: &Path, data: &[u8]) -> Result<()> {
     }
 
     fs::rename(&tmp, path).map_err(LithiumError::io)?;
+
+    // fsync the directory so the rename itself survives a crash, not just the file bytes.
+    // Best-effort: a failing directory fsync must not turn a successful write into an error.
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        let _ = fs::File::open(parent).and_then(|dir| dir.sync_all());
+    }
+
     Ok(())
 }
 

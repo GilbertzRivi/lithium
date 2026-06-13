@@ -39,6 +39,9 @@ pub mod messages {
         pub direction: i32,
         pub content_enc: Vec<u8>,
 
+        #[sea_orm(unique)]
+        pub msg_id: Option<Vec<u8>>,
+
         pub created_at: DateTimeUtc,
     }
 

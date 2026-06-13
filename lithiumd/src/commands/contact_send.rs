@@ -269,7 +269,7 @@ pub async fn handle(
     };
 
     if dm
-        .add_message(contact_id.clone(), mbox_out.to_vec(), 1, stored)
+        .add_message(contact_id.clone(), mbox_out.to_vec(), 1, stored, None)
         .await
         .is_err()
     {
