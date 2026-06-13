@@ -53,7 +53,7 @@ pub fn validate_password(password: &SecretString, pol: PasswordPolicy) -> Result
         return Err(LithiumError::string_policy());
     }
 
-    if s.as_bytes().iter().any(|&b| b == 0) {
+    if s.as_bytes().contains(&0) {
         return Err(LithiumError::string_policy());
     }
 

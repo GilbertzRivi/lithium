@@ -244,14 +244,14 @@ fn ensure_asymmetric_material(
         &priv_dir.join(ED_PRIV),
         mk,
         KT_ED_SEED,
-        || keys::random_fixed::<32>(),
+        keys::random_fixed::<32>,
     )?;
 
     let x_seed = ensure_secret32_keyfile(
         &priv_dir.join(X_PRIV),
         mk,
         KT_X_SEED,
-        || keys::random_fixed::<32>(),
+        keys::random_fixed::<32>,
     )?;
 
     let kyber_pub = {

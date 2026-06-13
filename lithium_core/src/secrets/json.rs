@@ -26,6 +26,7 @@ fn ty_name(v: &Value) -> &'static str {
 
 impl SecretJson {
     #[inline]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self> {
         let v: Value = serde_json::from_str(s)?;
         Ok(Self { value: v, raw: Some(SecretString::new(s.to_owned())) })

@@ -10,15 +10,9 @@ pub fn encrypt_raw(
     nonce: &Byte12,
     aad: &SecretBytes,
 ) -> Result<SecretBytes> {
-    let key: &Key<Aes256GcmSiv> = key
-        .as_slice()
-        .try_into()
-        .map_err(|_| LithiumError::aead_failed())?;
+    let key: &Key<Aes256GcmSiv> = key.as_slice().into();
 
-    let nonce: &Nonce = nonce
-        .as_slice()
-        .try_into()
-        .map_err(|_| LithiumError::aead_failed())?;
+    let nonce: &Nonce = nonce.as_slice().into();
 
     let cipher = Aes256GcmSiv::new(key);
     let ct = cipher.encrypt(
@@ -38,15 +32,9 @@ pub fn decrypt_raw(
     nonce: &Byte12,
     aad: &SecretBytes,
 ) -> Result<SecretBytes> {
-    let key: &Key<Aes256GcmSiv> = key
-        .as_slice()
-        .try_into()
-        .map_err(|_| LithiumError::aead_failed())?;
+    let key: &Key<Aes256GcmSiv> = key.as_slice().into();
 
-    let nonce: &Nonce = nonce
-        .as_slice()
-        .try_into()
-        .map_err(|_| LithiumError::aead_failed())?;
+    let nonce: &Nonce = nonce.as_slice().into();
 
     let cipher = Aes256GcmSiv::new(key);
     let pt = cipher.decrypt(

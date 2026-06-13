@@ -112,6 +112,7 @@ fn encrypt_payload(
     Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_record(
     version: u8,
     alg_id: u8,
@@ -170,6 +171,7 @@ fn read_u32(buf: &[u8], idx: &mut usize) -> Result<u32> {
     Ok(v)
 }
 
+#[allow(clippy::type_complexity)]
 fn parse_keyfile(
     buf: &SecretBytes,
 ) -> Result<(u8, u8, u16, [u8; 32], [u8; 12], Vec<u8>, [u8; 12], Vec<u8>)> {

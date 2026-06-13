@@ -69,11 +69,10 @@ impl EphemeralStoreManager {
                 Some(cur) => cur.version == top.version && cur.expires_at <= now,
                 None => false,
             };
-            if should_remove {
-                if let Some(mut removed) = guard.map.remove(&top.key) {
+            if should_remove
+                && let Some(mut removed) = guard.map.remove(&top.key) {
                     removed.ciphertext.expose_as_mut_vec().zeroize();
                 }
-            }
         }
         Ok(())
     }
@@ -99,9 +98,8 @@ impl EphemeralStoreManager {
         let now = Instant::now();
         let expires_at = now + ttl;
         let mut guard = self.inner.lock().await;
-        if let Some(e) = guard.map.get(key) {
-            if e.expires_at > now { return Ok(false); }
-        }
+        if let Some(e) = guard.map.get(key)
+            && e.expires_at > now { return Ok(false); }
         let ver = Self::next_version(&mut guard);
         guard.map.insert(key.to_owned(), StoreEntry { ciphertext: value.clone(), expires_at, version: ver });
         guard.heap.push(HeapEntry { expires_at, version: ver, key: key.to_owned() });

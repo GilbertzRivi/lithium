@@ -17,11 +17,11 @@ pub fn random_fixed<const N: usize>() -> Result<FixedBytes<N>> {
     Ok(out)
 }
 #[inline]
-pub fn random_12() -> Result<Nonce12> { Ok(random_fixed::<12>()?) }
+pub fn random_12() -> Result<Nonce12> { random_fixed::<12>() }
 #[inline]
-pub fn random_32() -> Result<SessionId32> { Ok(random_fixed::<32>()?) }
+pub fn random_32() -> Result<SessionId32> { random_fixed::<32>() }
 #[inline]
-pub fn random_master_key32() -> Result<MasterKey32> { Ok(random_fixed::<32>()?) }
+pub fn random_master_key32() -> Result<MasterKey32> { random_fixed::<32>() }
 
 #[inline]
 pub fn random_x25519_keypair() -> Result<(FixedBytes<32>, FixedBytes<32>)> {

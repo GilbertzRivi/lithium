@@ -19,7 +19,7 @@ impl SecretString {
 
     #[inline]
     pub fn new_checked(s: String) -> Result<Self> {
-        if s.as_bytes().iter().any(|&b| b == 0) {
+        if s.as_bytes().contains(&0) {
             return Err(LithiumError::string_policy());
         }
         Ok(Self::new(s))
@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for SecretString {
     {
         let mut s = String::deserialize(deserializer)?;
 
-        if s.as_bytes().iter().any(|&b| b == 0) {
+        if s.as_bytes().contains(&0) {
             s.zeroize();
             return Err(D::Error::custom("invalid secret string"));
         }

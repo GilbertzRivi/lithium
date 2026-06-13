@@ -148,7 +148,7 @@ impl SecretBytes {
         if s.len() >= 2 && (&s[..2] == "0x" || &s[..2] == "0X") {
             return Err(LithiumError::hex_prefix_disallowed());
         }
-        if (s.len() % 2) != 0 {
+        if !s.len().is_multiple_of(2) {
             return Err(LithiumError::new(CryptoErrorKind::InvalidHexLength {
                 expected: s.len() + 1,
                 got: s.len(),
