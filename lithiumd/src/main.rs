@@ -1,26 +1,40 @@
-use std::sync::Arc;
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 use reqwest::Url;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, watch, Mutex};
 
 use lithium_core::error::Result;
 
-mod password_provider;
-mod protocol_manager;
-
-mod util;
-mod state;
-mod identity;
-mod ipc;
 mod commands;
 mod db;
 mod e2e;
+mod identity;
+mod ipc;
+mod password_provider;
+mod protocol_manager;
+mod state;
+mod tray;
+mod util;
 
 use state::DaemonState;
 use util::IpcEndpoint;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("fatal: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let base_dir = util::default_data_dir();
     let ipc_endpoint = util::default_ipc_endpoint()?;
     let ipc_policy = util::load_ipc_policy()?;
@@ -51,6 +65,44 @@ async fn main() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
 
+    let (stop_tx, stop_rx) = watch::channel(false);
+    let daemon_done = Arc::new(AtomicBool::new(false));
+    let daemon_done_clone = Arc::clone(&daemon_done);
+
+    let daemon_thread = thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(daemon_async(
+            state,
+            ipc_endpoint,
+            ipc_policy,
+            shutdown_tx,
+            shutdown_rx,
+            stop_rx,
+        ));
+        daemon_done_clone.store(true, Ordering::Release);
+    });
+
+    let action = tray::run(&stop_tx, &daemon_done);
+
+    daemon_thread.join().ok();
+
+    if action == tray::Action::Restart {
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| std::path::PathBuf::from("lithiumd"));
+        let _ = std::process::Command::new(exe).spawn();
+    }
+
+    Ok(())
+}
+
+async fn daemon_async(
+    state: Arc<DaemonState>,
+    ipc_endpoint: IpcEndpoint,
+    ipc_policy: util::IpcPolicy,
+    shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    shutdown_rx: oneshot::Receiver<()>,
+    mut stop_rx: watch::Receiver<bool>,
+) {
     #[cfg(unix)]
     let ipc_task = {
         let IpcEndpoint::Unix(socket_path) = &ipc_endpoint;
@@ -75,8 +127,8 @@ async fn main() -> Result<()> {
 
     #[cfg(unix)]
     let mut sigterm = {
-        use tokio::signal::unix::{SignalKind, signal};
-        signal(SignalKind::terminate()).map_err(lithium_core::error::LithiumError::io)?
+        use tokio::signal::unix::{signal, SignalKind};
+        signal(SignalKind::terminate()).expect("sigterm handler")
     };
 
     let signal = async {
@@ -96,8 +148,7 @@ async fn main() -> Result<()> {
     tokio::select! {
         _ = ipc_task => {},
         _ = shutdown_rx => {},
+        _ = stop_rx.changed() => {},
         _ = signal => {},
     }
-
-    Ok(())
 }

@@ -15,6 +15,8 @@ cargo clippy -- -D warnings
 cargo fmt
 ```
 
+On Linux, building `lithiumd` links GTK 3 and libappindicator for the system tray — install `libgtk-3-dev` and `libappindicator3-dev` (or the libayatana-appindicator equivalent), or the build fails at the `*-sys` pkg-config step.
+
 ## Architecture
 
 Lithium is a post-quantum end-to-end encrypted messenger. The server is explicitly untrusted — it only relays ciphertexts and never sees plaintext.
@@ -25,7 +27,7 @@ Lithium is a post-quantum end-to-end encrypted messenger. The server is explicit
 - **`lithiumd`** — local daemon; manages keys, exposes IPC endpoint over Unix socket
 - **`lithiumg`** — egui GUI client; communicates with `lithiumd` via IPC
 - **`lithiums`** — relay server; PostgreSQL-backed REST API (Poem framework)
-- **`lithium_itest`** — integration tests; not a binary, only `[[test]]` entries in Cargo.toml
+- **`lithium_itest`** — integration tests; shared helpers in `src/` (`client`, `helpers`) consumed by the `[[test]]` binaries under `tests/`, no executable of its own
 
 ### Data Flow
 
@@ -58,6 +60,16 @@ Key lifecycle: `KeyManager<MkProvider>` in `lithium_core/src/keys/manager.rs`. `
 `ServerMkProvider` in `lithiums/src/provider.rs` is an enum that dispatches to whichever provider is active.
 
 Keys rotate hourly via `MkRotator` (spawned in `lithiumd` and `lithiums`).
+
+### Daemon Process Model (lithiumd)
+
+`main()` is deliberately not `#[tokio::main]`. The system tray must own the process's main thread, so startup splits in two:
+
+- The Tokio runtime and the whole async daemon (`daemon_async` in `main.rs`) run on a dedicated `std::thread`.
+- The main thread runs `tray::run` (`lithiumd/src/tray.rs`) — a `tray-icon` menu with "Restart" and "Close". On Linux it first does `gtk::init`; if GTK or the tray fails to build it degrades to `wait_daemon_done` (no icon, just blocks until the daemon exits).
+- Two primitives bridge the threads: a `watch::channel<bool>` carries the tray's stop signal into the daemon's `tokio::select!`, and an `Arc<AtomicBool>` (`daemon_done`) lets the daemon tell the tray it has exited.
+- "Close", SIGTERM, and the IPC `shutdown` command all unwind the same `select!`. "Restart" additionally re-spawns the current executable (`current_exe`) after the daemon thread joins.
+- `#![cfg_attr(windows, windows_subsystem = "windows")]` suppresses the console window on Windows.
 
 ### IPC (lithiumd)
 
@@ -97,7 +109,7 @@ Server is a hostile relay. All keys on client. Loss of key material preferred ov
 
 ## Integration Tests (lithium_itest)
 
-Two test suites: `tests/server/` and `tests/daemon/`.
+Three test suites under `tests/`: `server/` (server in isolation), `daemon/` (daemon against an in-process `TestServer`), and `daemon_server_tests/` (two daemons talking through a real server). Shared helpers — `IpcClient`, `TestServer`, `ServerBootstrap` — live in `lithium_itest/src/` (`client`, `helpers`).
 
 ### Daemon tests
 
@@ -127,7 +139,20 @@ Key details in `common.rs`:
 - `DaemonProcess::start()` uses `max_conn=4` so normal tests don't starve each other
 - `daemon_bin()` is lazily built once per test process via `OnceLock`
 
+### Daemon-server tests
+
+`tests/daemon_server_tests/common.rs` re-includes `../daemon/common.rs`, then adds `start_daemon()` (longer `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` because each `contact_send` is two HTTP round-trips) and `connect_pair()` (runs the full two-daemon invite handshake). Binaries are prefixed `ds_`:
+
+| Binary | Path | What it covers |
+|---|---|---|
+| `ds_messaging` | `tests/daemon_server_tests/messaging.rs` | ordered + bidirectional messaging, one-time fetch (server-side delete), message direction |
+| `ds_invite_abuse` | `tests/daemon_server_tests/invite_abuse.rs` | send/fetch on a pending invite, unknown contact IDs, peer-takeover rejection |
+| `ds_account_lifecycle` | `tests/daemon_server_tests/account_lifecycle.rs` | delete resets to first-run, token invalidation, handle reuse, taken-handle register |
+| `ds_concurrent` | `tests/daemon_server_tests/concurrent.rs` | concurrent senders, accumulating send/fetch cycles |
+
 ## Code Style
+
+`PROJECT_STYLE.md` holds the full, example-driven style guide (module layout, naming, IPC handler shape, error handling, DB and state patterns) derived from the codebase. The rules below are the essentials; consult `PROJECT_STYLE.md` when writing non-trivial new code.
 
 ### Comments
 
