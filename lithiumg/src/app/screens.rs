@@ -51,14 +51,13 @@ impl LithiumApp {
                 ui.add_space(8.0);
             }
 
-            if ui.button("Browse…").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Browse…").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Server identity", &["identity"])
                     .pick_file()
                 {
                     self.server_identity_path = Some(path);
                 }
-            }
 
             ui.add_space(8.0);
 
@@ -66,14 +65,12 @@ impl LithiumApp {
             if ui
                 .add_enabled(can_upload, egui::Button::new("Upload"))
                 .clicked()
-            {
-                if let Some(path) = &self.server_identity_path {
+                && let Some(path) = &self.server_identity_path {
                     match std::fs::read(path) {
                         Ok(data) => self.send(Command::SetServerIdentity { data }),
                         Err(e) => self.set_error(format!("Could not read file: {e}")),
                     }
                 }
-            }
         });
     }
 

@@ -198,12 +198,11 @@ impl LithiumApp {
                         self.selected_contact_id = Some(pending);
                     } else if self.selected_contact_id.is_none() && !self.contacts.is_empty() {
                         self.selected_contact_id = Some(self.contacts[0].contact_id.clone());
-                    } else if let Some(selected) = &self.selected_contact_id {
-                        if !self.contacts.iter().any(|c| &c.contact_id == selected) {
+                    } else if let Some(selected) = &self.selected_contact_id
+                        && !self.contacts.iter().any(|c| &c.contact_id == selected) {
                             self.selected_contact_id =
                                 self.contacts.first().map(|c| c.contact_id.clone());
                         }
-                    }
 
                     if let Some(cid) = self.pending_verify_contact_id.clone() {
                         let ready = self

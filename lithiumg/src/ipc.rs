@@ -147,11 +147,10 @@ pub struct ContactFetchResult {
 }
 
 async fn send_request(mut req: Value) -> Result<Value, String> {
-    if let Some(token) = current_auth_token() {
-        if let Some(obj) = req.as_object_mut() {
+    if let Some(token) = current_auth_token()
+        && let Some(obj) = req.as_object_mut() {
             obj.insert("auth_token".into(), Value::String(token));
         }
-    }
 
     let line = serde_json::to_string(&req).map_err(|e| format!("json_encode_failed:{e}"))?;
 
