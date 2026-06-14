@@ -7,7 +7,7 @@ use lithium_core::{
 use serde_json::{json, Map, Value};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-const LABEL_MAILBOX: &[u8] = b"lithium/mbox/address/v1";
+use crate::labels::LABEL_MAILBOX;
 
 pub const MAILBOX_ROTATE_EVERY_DEFAULT: u64 = 32;
 pub const MAILBOX_FETCH_PAST_GENS: u64 = 2;

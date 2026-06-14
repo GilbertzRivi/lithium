@@ -22,19 +22,10 @@ use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::db::models::{messages, users};
 use crate::error::{AppError, AppResult};
-
-const UIDENC_VER: u8 = 1;
-const MSG_VER: u8 = 1;
-
-const AAD_UIDENC: &[u8] = b"user-idenc/v1";
-const UIDENC_NONCE_LABEL: &[u8] = b"user-idenc/nonce/v1";
-
-const AAD_MSG: &[u8] = b"message-content/v1";
-
-const AAD_USER_PASSWORD_HASH: &[u8] = b"user-password-hash/v1";
-const AAD_USER_ED_KEY: &[u8] = b"user-ed-key/v1";
-const AAD_USER_DILI_KEY: &[u8] = b"user-dili-key/v1";
-const AAD_USER_DEK: &[u8] = b"user-dek/v1";
+use crate::labels::{
+    AAD_MSG, AAD_UIDENC, AAD_USER_DEK, AAD_USER_DILI_KEY, AAD_USER_ED_KEY, AAD_USER_PASSWORD_HASH,
+    MSG_VER, UIDENC_NONCE_LABEL, UIDENC_VER,
+};
 
 const MSG_KEY_TTL: Duration = Duration::from_secs(24 * 3600);
 

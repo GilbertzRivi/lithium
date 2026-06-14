@@ -18,6 +18,7 @@ mod db;
 mod e2e;
 mod identity;
 mod ipc;
+mod labels;
 mod password_provider;
 mod protocol_manager;
 mod state;

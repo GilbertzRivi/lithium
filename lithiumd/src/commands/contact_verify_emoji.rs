@@ -13,6 +13,7 @@ use lithium_core::{
 use crate::{
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
+    labels::{PARTY_TRANSCRIPT_LABEL, VERIFY_EMOJI_LABEL},
     state::DaemonState,
 };
 
@@ -62,7 +63,7 @@ fn party_transcript(
     let derived = kdf::derive32(
         &SecretBytes::from_slice(&bundle),
         None,
-        &SecretBytes::from_slice(b"lithiumd/party-transcript/v2"),
+        &SecretBytes::from_slice(PARTY_TRANSCRIPT_LABEL),
     )?;
     Ok(*derived.as_array())
 }
@@ -111,7 +112,7 @@ fn compute_verify_emojis(
     let (t_a, t_b) = if t_self <= t_peer { (t_self, t_peer) } else { (t_peer, t_self) };
 
     let mut info = Vec::with_capacity(32 + 64);
-    info.extend_from_slice(b"lithiumd/contact-verify-emoji/v2");
+    info.extend_from_slice(VERIFY_EMOJI_LABEL);
     info.extend_from_slice(&t_a);
     info.extend_from_slice(&t_b);
 

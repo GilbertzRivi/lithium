@@ -8,12 +8,10 @@ use zeroize::Zeroize;
 
 use crate::crypto::{aead, keys};
 use crate::error::{CryptoErrorKind, LithiumError, Result};
+use crate::labels::{
+    ALG_ID_AES256_GCM_SIV, DEK_LEN, KEYFILE_KEK_INFO, KEYFILE_MAGIC, KEYFILE_VERSION,
+};
 use crate::secrets::{Byte12, Byte32, FixedBytes, MasterKey32, SecretBytes};
-
-pub const KEYFILE_MAGIC: &[u8; 4] = b"KEYF";
-pub const KEYFILE_VERSION: u8 = 1;
-pub const ALG_ID_AES256_GCM_SIV: u8 = 1;
-pub const DEK_LEN: u16 = 32;
 
 #[inline]
 pub fn read_keyfile_bytes(path: &Path) -> Result<SecretBytes> {
@@ -74,7 +72,7 @@ fn aad_for(version: u8, key_type: &str) -> SecretBytes {
 fn derive_kek(mk: &MasterKey32, salt: &[u8; 32]) -> Result<Byte32> {
     let hk = Hkdf::<Sha256>::new(Some(salt), mk.as_slice());
     let mut out = Byte32::new_zeroed();
-    hk.expand(b"kek/v1", out.as_mut_slice())?;
+    hk.expand(KEYFILE_KEK_INFO, out.as_mut_slice())?;
     Ok(out)
 }
 

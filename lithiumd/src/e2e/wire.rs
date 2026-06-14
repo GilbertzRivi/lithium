@@ -4,11 +4,7 @@ use lithium_core::{
 };
 use serde_json::{Map, Value};
 
-pub(crate) const MAGIC: &[u8; 3] = b"LM1";
-pub(crate) const VER: u8 = 1;
-
-pub(crate) const E2E_LABEL: &str = "lithiumd/e2e-msg/v1";
-pub(crate) const E2E_SIG_LABEL: &[u8] = b"lithiumd/e2e-msg-sig/v1";
+use crate::labels::{E2E_WIRE_MAGIC, E2E_WIRE_VER};
 
 // How many old receive-key slots to keep for out-of-order delivery.
 pub const DEFAULT_WINDOW: u64 = 32;
@@ -51,8 +47,8 @@ pub fn pack_wire(w: &WireV1) -> Vec<u8> {
     let mut out = Vec::with_capacity(
         3 + 1 + 32 + 32 + 2 + w.seed.len() + 4 + w.enc_headers.len() + 4 + w.enc_body.len(),
     );
-    out.extend_from_slice(MAGIC);
-    out.push(VER);
+    out.extend_from_slice(E2E_WIRE_MAGIC);
+    out.push(E2E_WIRE_VER);
     out.extend_from_slice(&w.to_id);
     out.extend_from_slice(&w.from_x_pub);
 
@@ -72,7 +68,7 @@ pub fn unpack_wire(b: &[u8]) -> Result<WireV1> {
     if b.len() < 3 + 1 + 32 + 32 + 2 + 4 + 4 {
         return Err(LithiumError::invalid_credentials("bad_wire"));
     }
-    if &b[..3] != MAGIC || b[3] != VER {
+    if &b[..3] != E2E_WIRE_MAGIC || b[3] != E2E_WIRE_VER {
         return Err(LithiumError::invalid_credentials("bad_wire"));
     }
 

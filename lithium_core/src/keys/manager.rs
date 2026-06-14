@@ -11,6 +11,7 @@ use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 
 use crate::crypto::keys;
 use crate::error::{LithiumError, Result};
+use crate::labels::JWT_LABEL;
 use crate::secrets::{Byte32, MasterKey32, SecretBytes};
 
 use super::keyfile;
@@ -44,8 +45,6 @@ const KT_KYBER_SK: &str = "kyber-mlkem1024-sk-v2";
 const KT_DILI_SK: &str = "dilithium-mldsa87-sk-v2";
 const KT_ROTATE_NEXT_OLD: &str = "rotate-next-mk-old-v1";
 const KT_ROTATE_NEXT_NEW: &str = "rotate-next-mk-new-v1";
-
-const JWT_LABEL: &[u8] = b"lithium/jwt-secret/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyStoreKind {

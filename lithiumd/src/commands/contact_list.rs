@@ -7,6 +7,7 @@ use lithium_core::secrets::SecretJson;
 use crate::{
     db::models::contacts,
     ipc::types::{err_resp, storage_err, IpcResponse},
+    labels::AAD_CONTACT_PEER,
     state::DaemonState,
 };
 
@@ -29,7 +30,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
     for r in rows {
         let peer_pt = match dm.decrypt_db_blob(
             &lithium_core::secrets::bytes::SecretBytes::new(r.peer_state_enc.clone()),
-            &lithium_core::secrets::bytes::SecretBytes::from_slice(b"lithiumd/contact-peer/v1"),
+            &lithium_core::secrets::bytes::SecretBytes::from_slice(AAD_CONTACT_PEER),
         ).await {
             Ok(v) => v,
             Err(_) => return storage_err(id),

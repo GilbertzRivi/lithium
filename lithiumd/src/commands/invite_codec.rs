@@ -7,8 +7,7 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
-const INV_MAGIC: &[u8; 4] = b"LCI1";
-const INV_VER: u8 = 3;
+use crate::labels::{INV_MAGIC, INV_VER};
 
 const MLKEM1024_PUBLIC_KEY_LEN: usize = 1568;
 const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;

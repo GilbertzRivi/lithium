@@ -10,12 +10,9 @@ use lithium_core::{
 };
 use lithium_core::secrets::bytes::SecretBytes;
 
-const MAGIC: &[u8; 4] = b"LMK1";
-const SALT_LEN: usize = 32;
-const AAD: &[u8] = b"lithium/mkfile/v1";
+use crate::labels::{MKFILE_AAD, MKFILE_MAGIC, MKFILE_SALT_LEN, USER_COMBINED_LABEL};
 
 const USER_ROOT_SALT_FILE: &str = "root.salt";
-const USER_COMBINED_LABEL: &[u8] = b"lithium/user-provider/combined/v1";
 
 pub struct PasswordFileMkProvider {
     path: PathBuf,
@@ -113,9 +110,9 @@ impl PasswordFileMkProvider {
     }
 
     fn encode_file(salt: &Byte32, blob: &SecretBytes) -> SecretBytes {
-        let mut out = Vec::with_capacity(4 + 1 + SALT_LEN + 4 + blob.expose_as_slice().len());
-        out.extend_from_slice(MAGIC);
-        out.push(SALT_LEN as u8);
+        let mut out = Vec::with_capacity(4 + 1 + MKFILE_SALT_LEN + 4 + blob.expose_as_slice().len());
+        out.extend_from_slice(MKFILE_MAGIC);
+        out.push(MKFILE_SALT_LEN as u8);
         out.extend_from_slice(salt.as_slice());
         out.extend_from_slice(&(blob.expose_as_slice().len() as u32).to_le_bytes());
         out.extend_from_slice(blob.expose_as_slice());
@@ -125,22 +122,22 @@ impl PasswordFileMkProvider {
     fn decode_file(buf: &SecretBytes) -> Result<(Byte32, SecretBytes)> {
         let b = buf.expose_as_slice();
 
-        if b.len() < 4 + 1 + SALT_LEN + 4 {
+        if b.len() < 4 + 1 + MKFILE_SALT_LEN + 4 {
             return Err(LithiumError::internal());
         }
-        if &b[0..4] != MAGIC {
+        if &b[0..4] != MKFILE_MAGIC {
             return Err(LithiumError::internal());
         }
 
         let salt_len = b[4] as usize;
-        if salt_len != SALT_LEN {
+        if salt_len != MKFILE_SALT_LEN {
             return Err(LithiumError::internal());
         }
 
         let salt_off = 5;
-        let salt = Byte32::from_slice(&b[salt_off..salt_off + SALT_LEN])?;
+        let salt = Byte32::from_slice(&b[salt_off..salt_off + MKFILE_SALT_LEN])?;
 
-        let len_off = salt_off + SALT_LEN;
+        let len_off = salt_off + MKFILE_SALT_LEN;
         let blob_len = u32::from_le_bytes(
             b[len_off..len_off + 4]
                 .try_into()
@@ -163,7 +160,7 @@ impl MkProvider for PasswordFileMkProvider {
         let (salt, blob) = Self::decode_file(&buf)?;
         let user_key = self.derive_user_key(&salt)?;
 
-        let pt = aead::decrypt(&blob, &user_key, &SecretBytes::from_slice(AAD))
+        let pt = aead::decrypt(&blob, &user_key, &SecretBytes::from_slice(MKFILE_AAD))
             .map_err(|e| {
                 if e.kind == lithium_core::error::CryptoErrorKind::AeadFailed {
                     LithiumError::invalid_credentials("bad_data_password")
@@ -185,7 +182,7 @@ impl MkProvider for PasswordFileMkProvider {
             &SecretBytes::from_slice(mk.as_slice()),
             &user_key,
             &nonce,
-            &SecretBytes::from_slice(AAD),
+            &SecretBytes::from_slice(MKFILE_AAD),
         )?;
 
         let bytes = Self::encode_file(&salt, &blob);

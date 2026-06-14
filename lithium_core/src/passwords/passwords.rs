@@ -6,13 +6,10 @@ use argon2::{
 use crate::{
     crypto::{aead, keys},
     error::{LithiumError, Result},
+    labels::{DEK_WRAP_AAD, DEK_WRAP_SALT_LEN, DEK_WRAP_VER},
     secrets::{Byte32, SecretString},
     secrets::bytes::SecretBytes,
 };
-
-const DEK_WRAP_VER: u8 = 1;
-const DEK_WRAP_AAD: &[u8] = b"lithium/dek-wrap/v1";
-const DEK_WRAP_SALT_LEN: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PasswordPolicy {

@@ -3,6 +3,7 @@ pub mod db;
 pub mod error;
 pub mod health;
 pub mod identity;
+pub(crate) mod labels;
 pub mod middleware;
 pub mod mk_rotator;
 pub mod msg_reaper;

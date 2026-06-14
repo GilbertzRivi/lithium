@@ -12,12 +12,9 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
-use super::models::{contacts, messages, prekeys};
+use crate::labels::{AAD_CONTACT_PEER, AAD_CONTACT_SELF, AAD_MESSAGE, AAD_PREKEY};
 
-const AAD_CONTACT_SELF: &[u8] = b"lithiumd/contact-self/v1";
-const AAD_CONTACT_PEER: &[u8] = b"lithiumd/contact-peer/v1";
-const AAD_MESSAGE: &[u8] = b"lithiumd/message/v1";
-const AAD_PREKEY: &[u8] = b"lithiumd/prekey/v1";
+use super::models::{contacts, messages, prekeys};
 
 #[derive(Clone)]
 pub struct ContactRow {

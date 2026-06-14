@@ -19,16 +19,12 @@ use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 use crate::{
     crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
+    labels::{
+        AEAD_VERSION, KYBER_AEAD_ID, KYBER_BOX_VERSION, KYBER_KEMDEM_INFO, KYBER_KEM_ID,
+        KYBER_SALT_LEN, KYBERBOX_AAD_PREFIX,
+    },
     secrets::{Byte32, bytes::SecretBytes},
 };
-
-const AEAD_VERSION: u8 = 1;
-const KYBER_BOX_VERSION: u8 = 1;
-const KYBER_KEM_ID: u8 = 1;
-const KYBER_AEAD_ID: u8 = 1;
-const KYBER_SALT_LEN: u8 = 32;
-const KYBERBOX_AAD_PREFIX: &[u8] = b"kyberbox/v1|kem=mlkem1024|aead=aes256-gcm-siv|";
-const KYBER_KEMDEM_INFO: &[u8] = b"kemdem/kyber-mlkem1024/v1";
 
 #[derive(Clone, Debug)]
 pub struct WirePayload {

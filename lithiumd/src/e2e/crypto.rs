@@ -5,11 +5,9 @@ use lithium_core::{
 };
 use serde_json::Value;
 
-use super::wire::E2E_SIG_LABEL;
+use crate::labels::{E2E_SIG_LABEL, KID_LABEL};
 
 pub(crate) fn id_from_peer_pubs(peer_x_pub_hex: &str, peer_k_pub_hex: &str) -> Result<[u8; 32]> {
-    const KID_LABEL: &[u8] = b"lithiumd/e2e-peer-kid/v1";
-
     let x = Byte32::from_hex(peer_x_pub_hex.trim())?;
     let k = SecretBytes::from_hex(peer_k_pub_hex.trim())?;
 

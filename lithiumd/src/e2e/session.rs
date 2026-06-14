@@ -6,6 +6,7 @@ use lithium_core::{
 use serde_json::{Value, json};
 
 use crate::commands::contact_mailbox::{current_outbound_mailbox_pubs, peer_store_mailbox_sender_keys};
+use crate::labels::E2E_LABEL;
 
 use super::{
     crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
@@ -20,7 +21,7 @@ use super::{
         self_find_seq, self_get_rx_privs, self_next_seq, ensure_self_keyring,
         mark_bootstrap_retire_ready,
     },
-    wire::{E2E_LABEL, DEFAULT_WINDOW, PREKEY_TARGET, WireV1},
+    wire::{DEFAULT_WINDOW, PREKEY_TARGET, WireV1},
 };
 
 fn decrypt_with_privs(
