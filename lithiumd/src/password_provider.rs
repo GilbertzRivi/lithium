@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use argon2::{Algorithm, Argon2, Params, Version};
 
@@ -181,8 +181,7 @@ impl MkProvider for PasswordFileMkProvider {
         keyfile::write_secure(&self.path, bytes.expose_as_slice())
     }
 
-    fn derive_secret32(&self, mk_ignored_by_design: &Byte32, label: &[u8]) -> Result<Byte32> {
-        let _ = mk_ignored_by_design;
+    fn derive_secret32(&self, _mk: &Byte32, label: &[u8], _secrets_dir: &Path) -> Result<Byte32> {
         let root = self.derive_combined_root()?;
         kdf::derive32(
             &SecretBytes::from_slice(root.as_slice()),

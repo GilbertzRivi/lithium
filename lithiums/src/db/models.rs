@@ -31,8 +31,8 @@ pub mod messages {
     #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
     #[sea_orm(table_name = "messages")]
     pub struct Model {
-        #[sea_orm(primary_key, auto_increment = true)]
-        pub id: i64,
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: Vec<u8>,
 
         pub mailbox: Vec<u8>,
         pub content: Vec<u8>,

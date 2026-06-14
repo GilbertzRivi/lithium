@@ -66,8 +66,8 @@ pub trait MkProvider {
     fn load_mk(&self) -> Result<Byte32>;
     fn store_mk(&self, mk: &Byte32) -> Result<()>;
 
-    fn derive_secret32(&self, _mk: &Byte32, _label: &[u8]) -> Result<Byte32> {
-        Err(LithiumError::invalid_credentials("mk_provider_derive_secret32_unused"))
+    fn derive_secret32(&self, mk: &Byte32, label: &[u8], secrets_dir: &Path) -> Result<Byte32> {
+        load_or_create_label_secret32(secrets_dir, mk, label)
     }
 }
 
@@ -566,7 +566,7 @@ impl<P: MkProvider> KeyManager<P> {
         }
 
         let root_mk = self.mk_provider.load_mk()?;
-        load_or_create_label_secret32(&self.secrets_dir, &root_mk, label)
+        self.mk_provider.derive_secret32(&root_mk, label, &self.secrets_dir)
     }
 
     pub fn mk_provider_mut(&mut self) -> &mut P {

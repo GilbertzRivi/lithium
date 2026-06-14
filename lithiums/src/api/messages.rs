@@ -32,7 +32,7 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     let content_sb =
         SecretBytes::from_hex(content_hex.expose()).map_err(|_| AppError::bad_request("invalid_content"))?;
 
-    let _ = state
+    state
         .db
         .add_message(
             &state.store,

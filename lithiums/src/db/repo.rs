@@ -187,7 +187,7 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         mailbox: Vec<u8>,
         content: SecretBytes,
         ttl: Duration,
-    ) -> AppResult<i64>;
+    ) -> AppResult<()>;
 
     async fn get_messages(
         &self,
@@ -351,11 +351,12 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         mailbox: Vec<u8>,
         content: SecretBytes,
         ttl: Duration,
-    ) -> AppResult<i64> {
+    ) -> AppResult<()> {
         let expires_at =
             Utc::now() + chrono::TimeDelta::from_std(ttl).map_err(|_| LithiumError::internal())?;
 
         let msg_key: Byte32 = keys::random_32()?;
+        let id = keys::random_32()?.as_slice().to_vec();
 
         let mut aad = Vec::with_capacity(AAD_MSG.len() + mailbox.len());
         aad.extend_from_slice(AAD_MSG);
@@ -365,18 +366,17 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         drop(content);
 
         let am = messages::ActiveModel {
-            id: Default::default(),
+            id: Set(id.clone()),
             mailbox: Set(mailbox),
             content: Set(blob.expose_as_slice().to_vec()),
             expires_at: Set(expires_at),
         };
 
-        let inserted = am.insert(self.db()).await.map_err(LithiumError::io)?;
-        let id = inserted.id;
+        am.insert(self.db()).await.map_err(LithiumError::io)?;
 
         if let Err(e) = store
             .set(
-                &id.to_string(),
+                &hex::encode(&id),
                 &SecretBytes::from_slice(msg_key.as_slice()),
                 MSG_KEY_TTL,
             )
@@ -386,7 +386,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
             return Err(AppError::from(e));
         }
 
-        Ok(id)
+        Ok(())
     }
 
     async fn get_messages(
@@ -396,7 +396,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
     ) -> AppResult<Vec<SecretString>> {
         let now = Utc::now();
 
-        let rows: Vec<(i64, Vec<u8>)> = self
+        let rows: Vec<(Vec<u8>, Vec<u8>)> = self
             .db()
             .transaction(|txn| {
                 let mailbox = mailbox.clone();
@@ -404,14 +404,14 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
                     let mut q = messages::Entity::find()
                         .filter(messages::Column::Mailbox.eq(mailbox))
                         .filter(messages::Column::ExpiresAt.gt(now))
-                        .order_by_asc(messages::Column::Id);
+                        .order_by_asc(messages::Column::ExpiresAt);
 
                     q = q.lock_with_behavior(LockType::Update, LockBehavior::SkipLocked);
 
                     let ms = q.all(txn).await?;
 
                     for m in &ms {
-                        messages::Entity::delete_by_id(m.id).exec(txn).await?;
+                        messages::Entity::delete_by_id(m.id.clone()).exec(txn).await?;
                     }
 
                     Ok::<_, sea_orm::DbErr>(ms.into_iter().map(|m| (m.id, m.content)).collect())
@@ -431,8 +431,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let mut out: Vec<SecretString> = Vec::with_capacity(rows.len());
 
         for (id, blob) in rows {
-            let key_str = SecretString::new(id.to_string());
-            let Some(kbox) = store.take(key_str.expose()).await? else {
+            let Some(kbox) = store.take(&hex::encode(&id)).await? else {
                 continue;
             };
 

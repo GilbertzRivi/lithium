@@ -106,7 +106,7 @@ async fn test_peer_takeover_rejected() {
     let fin_c = ca
         .send(json!({"cmd": "accept_invite", "code": code_c, "contact_id": cid_a, "label": "C", "auth_token": tok_a}))
         .await;
-    assert_eq!(fin_c["error"].as_str().unwrap(), "peer_already_set_mismatch", "{:?}", fin_c);
+    assert_eq!(fin_c["error"].as_str().unwrap(), "peer_already_set", "{:?}", fin_c);
 }
 
 #[tokio::test]

@@ -94,7 +94,7 @@ const MIGRATIONS: &[Migration] = &[
                 delete_token_hash BYTEA NOT NULL
             )",
             "CREATE TABLE IF NOT EXISTS messages (
-                id         BIGSERIAL PRIMARY KEY,
+                id         BYTEA PRIMARY KEY,
                 mailbox    BYTEA NOT NULL,
                 content    BYTEA NOT NULL,
                 expires_at TIMESTAMPTZ NOT NULL

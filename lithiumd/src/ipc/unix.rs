@@ -47,7 +47,7 @@ fn bind_private_listener(socket_path: &Path) -> Result<UnixListener> {
         Err(e) => return Err(LithiumError::io(e)),
     }
 
-    let old_umask = unsafe { libc::umask(0o117) };
+    let old_umask = unsafe { libc::umask(0o177) };
     let _guard = UmaskGuard(old_umask);
 
     let std_listener = StdUnixListener::bind(socket_path).map_err(LithiumError::io)?;

@@ -71,25 +71,11 @@ pub async fn handle(
                     Err(_) => return err_resp(id, "peer_state_corrupt"),
                 };
 
-                let peer_matches = match existing_peer_json.with_exposed(|existing_peer_json| {
-                    if let Some(peer_obj) = existing_peer_json.get("peer")
-                        && !peer_obj.is_null() {
-                            let existing_cid_hex =
-                                peer_obj.get("cid").and_then(|v| v.as_str()).unwrap_or("");
-                            let existing_cid =
-                                SecretBytes::from_hex(existing_cid_hex.trim()).ok()?;
-                            let incoming_cid =
-                                SecretBytes::from_hex(peer.cid_hex.expose().trim()).ok()?;
-                            return Some(existing_cid.expose_as_slice() == incoming_cid.expose_as_slice());
-                        }
-                    Some(true)
-                }) {
-                    Some(v) => v,
-                    None => return err_resp(id, "peer_state_corrupt"),
-                };
+                let peer_established = existing_peer_json
+                    .with_exposed(|v| v.get("peer").map(|p| !p.is_null()).unwrap_or(false));
 
-                if !peer_matches {
-                    return err_resp(id, "peer_already_set_mismatch");
+                if peer_established {
+                    return err_resp(id, "peer_already_set");
                 }
 
                 let sj = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
