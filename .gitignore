@@ -12,3 +12,4 @@ Cargo.lock
 .idea/*
 docker
 /audit.md
+/hardening.md

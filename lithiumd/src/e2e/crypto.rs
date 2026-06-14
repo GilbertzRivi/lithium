@@ -3,7 +3,7 @@ use lithium_core::{
     error::{LithiumError, Result},
     secrets::{Byte32, SecretJson, bytes::SecretBytes},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::wire::E2E_SIG_LABEL;
 
@@ -110,76 +110,6 @@ pub(crate) fn sign_e2e_payload(
         sig_ed.to_hex().expose().to_owned(),
         sig_dili.to_hex().expose().to_owned(),
     ))
-}
-
-// Returns (hdr_unsigned_bytes, sig_ed_hex, sig_dili_hex).
-pub(crate) fn signed_header_parts(hdr_v: &Value) -> Result<(Vec<u8>, String, String)> {
-    let v = hdr_v
-        .get("v")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("v"))?;
-    let mode = hdr_v
-        .get("mode")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("mode"))?;
-    let ts_ms = hdr_v
-        .get("ts_ms")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("ts_ms"))?;
-    let msg_id = hdr_v
-        .get("msg_id")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("msg_id"))?;
-    let kind = hdr_v
-        .get("kind")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("kind"))?;
-    let step = hdr_v
-        .get("step")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("step"))?;
-    let mbox_gen = hdr_v
-        .get("mbox_gen")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("mbox_gen"))?;
-    let mailbox = hdr_v
-        .get("mailbox")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("mailbox"))?;
-    let reply = hdr_v
-        .get("reply")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("reply"))?;
-    let prekeys = hdr_v
-        .get("prekeys")
-        .cloned()
-        .ok_or_else(|| LithiumError::json_missing_field("prekeys"))?;
-
-    let auth = hdr_v
-        .get("auth")
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| LithiumError::json_missing_field("auth"))?;
-
-    let sig_ed = auth
-        .get("sig_ed")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| LithiumError::json_missing_field("auth.sig_ed"))?
-        .to_string();
-
-    let sig_dili = auth
-        .get("sig_dili")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| LithiumError::json_missing_field("auth.sig_dili"))?
-        .to_string();
-
-    let hdr_unsigned = serde_json::to_vec(&json!({
-        "v": v, "mode": mode, "ts_ms": ts_ms, "msg_id": msg_id,
-        "kind": kind, "step": step, "mbox_gen": mbox_gen,
-        "mailbox": mailbox, "reply": reply, "prekeys": prekeys
-    }))
-    .map_err(LithiumError::json_parse)?;
-
-    Ok((hdr_unsigned, sig_ed, sig_dili))
 }
 
 pub(crate) fn verify_e2e_payload(

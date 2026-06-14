@@ -301,3 +301,88 @@ impl<P: MkProvider + Send + Sync + 'static> DaemonDbExt<P> for DataManager<P> {
         Ok(Some(pt))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use lithium_core::keys::{KeyManager, KeyStoreKind, PlainFileMkProvider};
+    use tokio::sync::Mutex;
+
+    async fn temp_dm() -> (tempfile::TempDir, Arc<DataManager<PlainFileMkProvider>>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let km =
+            KeyManager::<PlainFileMkProvider>::start_plain(dir.path(), KeyStoreKind::User)
+                .expect("keystore");
+        let dm = crate::db::init_local_data_manager(dir.path(), Arc::new(Mutex::new(km)))
+            .await
+            .expect("data manager");
+        (dir, dm)
+    }
+
+    fn body(text: &str) -> SecretBytes {
+        SecretBytes::from_slice(text.as_bytes())
+    }
+
+    #[tokio::test]
+    async fn add_message_dedups_on_repeated_msg_id() {
+        let (_dir, dm) = temp_dm().await;
+        let cid = vec![7u8; 32];
+        let mbox = vec![1u8; 32];
+        let mid = b"signed-msg-id-1".to_vec();
+
+        let first = dm
+            .add_message(cid.clone(), mbox.clone(), 0, body("hello"), Some(mid.clone()))
+            .await
+            .expect("first insert");
+        assert!(first, "first delivery must be stored");
+
+        let second = dm
+            .add_message(cid.clone(), mbox.clone(), 0, body("hello-again"), Some(mid.clone()))
+            .await
+            .expect("replayed insert must not surface as an error");
+        assert!(!second, "replayed msg_id must be deduplicated (Ok(false))");
+
+        let rows = dm.list_messages_page(&cid, None, 100).await.expect("list");
+        assert_eq!(rows.len(), 1, "duplicate must not create a second row");
+    }
+
+    #[tokio::test]
+    async fn add_message_stores_distinct_msg_ids() {
+        let (_dir, dm) = temp_dm().await;
+        let cid = vec![9u8; 32];
+        let mbox = vec![2u8; 32];
+
+        assert!(dm
+            .add_message(cid.clone(), mbox.clone(), 0, body("a"), Some(b"id-a".to_vec()))
+            .await
+            .unwrap());
+        assert!(dm
+            .add_message(cid.clone(), mbox.clone(), 0, body("b"), Some(b"id-b".to_vec()))
+            .await
+            .unwrap());
+
+        let rows = dm.list_messages_page(&cid, None, 100).await.unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn add_message_without_msg_id_is_never_deduped() {
+        let (_dir, dm) = temp_dm().await;
+        let cid = vec![3u8; 32];
+        let mbox = vec![4u8; 32];
+
+        assert!(dm
+            .add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
+            .await
+            .unwrap());
+        assert!(dm
+            .add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
+            .await
+            .unwrap());
+
+        let rows = dm.list_messages_page(&cid, None, 100).await.unwrap();
+        assert_eq!(rows.len(), 2, "NULL msg_id must not collide under UNIQUE");
+    }
+}

@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use crate::commands::contact_mailbox::{current_outbound_mailbox_pubs, peer_store_mailbox_sender_keys};
 
 use super::{
-    crypto::{malicious_message_err, sign_e2e_payload, signed_header_parts, verify_e2e_payload},
+    crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
+    header::{Auth, Mailbox, Reply, SignedHeader, SignedHeaderWire, SIGNED_HEADER_V},
     prekeys::prekey_blob_to_privs,
     state_peer::{
         ensure_peer_e2e, merge_remote_prekeys_into_peer, peer_bootstrap_target,
@@ -45,11 +46,11 @@ fn decrypt_with_privs(
         },
     )?;
 
-    let hdr_v: Value =
-        serde_json::from_slice(pt_headers.expose_as_slice()).map_err(LithiumError::json_parse)?;
+    let wire_hdr: SignedHeaderWire = serde_json::from_slice(pt_headers.expose_as_slice())
+        .map_err(|_| malicious_message_err())?;
+    let hdr = &wire_hdr.header;
 
-    let (hdr_unsigned, sig_ed_hex, sig_dili_hex) =
-        signed_header_parts(&hdr_v).map_err(|_| malicious_message_err())?;
+    let hdr_unsigned = hdr.canonical_bytes().map_err(|_| malicious_message_err())?;
 
     verify_e2e_payload(
         peer_v,
@@ -57,51 +58,30 @@ fn decrypt_with_privs(
         &w.from_x_pub,
         &hdr_unsigned,
         pt_body.expose_as_slice(),
-        &sig_ed_hex,
-        &sig_dili_hex,
+        &wire_hdr.auth.sig_ed,
+        &wire_hdr.auth.sig_dili,
     )?;
 
-    if let Some(arr) = hdr_v.get("prekeys").and_then(|v| v.as_array()) {
-        merge_remote_prekeys_into_peer(peer_v, arr, PREKEY_TARGET);
-    }
+    merge_remote_prekeys_into_peer(peer_v, &hdr.prekeys, PREKEY_TARGET);
 
-    let mode = hdr_v.get("mode").and_then(|v| v.as_str()).unwrap_or("ratchet");
-    let step_in = hdr_v.get("step").and_then(|v| v.as_u64()).unwrap_or(0);
-    let mailbox_gen = hdr_v.get("mbox_gen").and_then(|v| v.as_u64()).unwrap_or(0);
+    let step_in = hdr.step;
+    let mailbox_gen = hdr.mbox_gen;
 
-    if let Some(mailbox_obj) = hdr_v.get("mailbox").and_then(|v| v.as_object()) {
-        let cur_pub = mailbox_obj.get("sender_cur_x_pub").and_then(|v| v.as_str());
-        let next_pub = mailbox_obj.get("sender_next_x_pub").and_then(|v| v.as_str());
-
-        if let (Some(cur), Some(next)) = (cur_pub, next_pub) {
-            peer_store_mailbox_sender_keys(peer_v, mailbox_gen, cur, next);
-        }
-    }
+    peer_store_mailbox_sender_keys(
+        peer_v,
+        mailbox_gen,
+        &hdr.mailbox.sender_cur_x_pub,
+        &hdr.mailbox.sender_next_x_pub,
+    );
 
     let peer_step_cur = peer_v["e2e_peer"]["step"].as_u64().unwrap_or(0);
 
     if step_in > peer_step_cur {
-        let reply = hdr_v
-            .get("reply")
-            .ok_or_else(|| LithiumError::json_missing_field("reply"))?;
-        let reply_id_hex = reply
-            .get("id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field("reply.id"))?;
-        let reply_x_pub = reply
-            .get("x_pub")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field("reply.x_pub"))?;
-        let reply_k_pub = reply
-            .get("k_pub")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field("reply.k_pub"))?;
-
-        let reply_id = Byte32::from_hex(reply_id_hex.trim())?;
+        let reply_id = Byte32::from_hex(hdr.reply.id.trim())?;
         peer_v["e2e_peer"] = json!({
             "id": reply_id.to_hex().expose(),
-            "x_pub": reply_x_pub,
-            "k_pub": reply_k_pub,
+            "x_pub": hdr.reply.x_pub.as_str(),
+            "k_pub": hdr.reply.k_pub.as_str(),
             "step": step_in,
             "updated_at_ms": super::wire::now_ms()
         });
@@ -109,15 +89,11 @@ fn decrypt_with_privs(
 
     peer_v["need_recover"] = json!(false);
 
-    let ts_ms = hdr_v.get("ts_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-    let msg_id = hdr_v.get("msg_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let kind = hdr_v.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
     Ok((
         pt_body.expose_as_slice().to_vec(),
         json!({
-            "ts_ms": ts_ms, "msg_id": msg_id, "kind": kind,
-            "step": step_in, "mode": mode, "mailbox_gen": mailbox_gen
+            "ts_ms": hdr.ts_ms, "msg_id": hdr.msg_id.as_str(), "kind": hdr.kind.as_str(),
+            "step": step_in, "mode": hdr.mode.as_str(), "mailbox_gen": mailbox_gen
         }),
     ))
 }
@@ -207,42 +183,35 @@ pub fn encrypt_for_peer(
     let ts_ms = super::wire::now_ms();
     let msg_id = keys::random_fixed::<16>()?.to_hex().expose().to_owned();
 
-    let hdr_unsigned = json!({
-        "v": 1, "mode": mode, "ts_ms": ts_ms, "msg_id": msg_id,
-        "kind": kind, "step": step, "mbox_gen": mailbox_gen,
-        "mailbox": {
-            "sender_cur_x_pub": mailbox_sender_cur_x_pub,
-            "sender_next_x_pub": mailbox_sender_next_x_pub
+    let header = SignedHeader {
+        v: SIGNED_HEADER_V,
+        mode: mode.to_owned(),
+        ts_ms,
+        msg_id: msg_id.clone(),
+        kind: kind.to_owned(),
+        step,
+        mbox_gen: mailbox_gen,
+        mailbox: Mailbox {
+            sender_cur_x_pub: mailbox_sender_cur_x_pub,
+            sender_next_x_pub: mailbox_sender_next_x_pub,
         },
-        "reply": {
-            "id": reply_id.to_hex().expose(),
-            "x_pub": rx_x_pub_hex.expose(),
-            "k_pub": rx_k_pub_hex.expose()
+        reply: Reply {
+            id: reply_id.to_hex().expose().to_owned(),
+            x_pub: rx_x_pub_hex.expose().to_owned(),
+            k_pub: rx_k_pub_hex.expose().to_owned(),
         },
-        "prekeys": prekeys_advertise
-    });
+        prekeys: prekeys_advertise.to_vec(),
+    };
 
-    let hdr_unsigned_bytes =
-        serde_json::to_vec(&hdr_unsigned).map_err(LithiumError::json_parse)?;
+    let hdr_unsigned_bytes = header.canonical_bytes()?;
 
     let (sig_ed, sig_dili) =
         sign_e2e_payload(self_v, &target_id, &from_x_pub, &hdr_unsigned_bytes, plaintext)?;
 
-    let hdr_plain = serde_json::to_vec(&json!({
-        "v": 1, "mode": mode, "ts_ms": ts_ms, "msg_id": msg_id,
-        "kind": kind, "step": step, "mbox_gen": mailbox_gen,
-        "mailbox": {
-            "sender_cur_x_pub": mailbox_sender_cur_x_pub,
-            "sender_next_x_pub": mailbox_sender_next_x_pub
-        },
-        "reply": {
-            "id": reply_id.to_hex().expose(),
-            "x_pub": rx_x_pub_hex.expose(),
-            "k_pub": rx_k_pub_hex.expose()
-        },
-        "prekeys": prekeys_advertise,
-        "auth": { "sig_ed": sig_ed, "sig_dili": sig_dili }
-    }))
+    let hdr_plain = serde_json::to_vec(&SignedHeaderWire {
+        header,
+        auth: Auth { sig_ed, sig_dili },
+    })
     .map_err(LithiumError::json_parse)?;
 
     let wire = kyberbox::encrypt(

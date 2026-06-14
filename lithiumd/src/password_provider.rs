@@ -21,6 +21,7 @@ pub struct PasswordFileMkProvider {
     path: PathBuf,
     pass: SecretString,
     server_dek: Option<Byte32>,
+    password_root_cache: std::sync::Mutex<Option<Byte32>>,
 }
 
 impl PasswordFileMkProvider {
@@ -29,6 +30,7 @@ impl PasswordFileMkProvider {
             path,
             pass,
             server_dek: None,
+            password_root_cache: std::sync::Mutex::new(None),
         }
     }
 
@@ -82,8 +84,17 @@ impl PasswordFileMkProvider {
     }
 
     fn derive_password_root(&self) -> Result<Byte32> {
+        let mut guard = self
+            .password_root_cache
+            .lock()
+            .map_err(|_| LithiumError::internal())?;
+        if let Some(cached) = guard.as_ref() {
+            return Ok(cached.clone());
+        }
         let root_salt = self.ensure_root_salt()?;
-        self.argon2_32(root_salt.as_slice())
+        let pr = self.argon2_32(root_salt.as_slice())?;
+        *guard = Some(pr.clone());
+        Ok(pr)
     }
 
     fn derive_combined_root(&self) -> Result<Byte32> {

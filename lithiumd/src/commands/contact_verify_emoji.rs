@@ -181,3 +181,91 @@ pub async fn handle(
         error: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lithium_core::crypto::keys;
+    use serde_json::Value;
+
+    fn hex32() -> String {
+        keys::random_32().unwrap().to_hex().expose().to_owned()
+    }
+
+    fn x_pair() -> (String, String) {
+        let (priv_fb, pub_fb) = keys::random_x25519_keypair().unwrap();
+        (
+            priv_fb.to_hex().expose().to_owned(),
+            pub_fb.to_hex().expose().to_owned(),
+        )
+    }
+
+    fn bundle(x_pub: &str) -> Value {
+        json!({
+            "cid": hex32(),
+            "x_pub": x_pub,
+            "ed_pub": hex32(),
+            "dili_pub": hex32(),
+            "k_pub": hex32(),
+            "mbox_in_pub": hex32(),
+            "mbox_out_cur_pub": hex32(),
+            "mbox_out_next_pub": hex32(),
+        })
+    }
+
+    fn self_view(x_priv: &str, b: &Value) -> SecretJson {
+        let mut v = b.clone();
+        v["x_priv"] = json!(x_priv);
+        SecretJson::from(v)
+    }
+
+    fn peer_view(b: &Value) -> SecretJson {
+        SecretJson::from(json!({ "peer": b }))
+    }
+
+    #[test]
+    fn both_parties_derive_identical_emojis() {
+        let (a_priv, a_pub) = x_pair();
+        let (b_priv, b_pub) = x_pair();
+        let alice = bundle(&a_pub);
+        let bob = bundle(&b_pub);
+
+        let alice_side =
+            compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&bob)).unwrap();
+        let bob_side =
+            compute_verify_emojis(&self_view(&b_priv, &bob), &peer_view(&alice)).unwrap();
+
+        assert_eq!(alice_side.len(), 6);
+        assert_eq!(
+            alice_side, bob_side,
+            "both sides must read the same SAS from the same key bundles"
+        );
+    }
+
+    #[test]
+    fn swapping_any_non_x_peer_key_changes_emojis() {
+        let (a_priv, a_pub) = x_pair();
+        let (_b_priv, b_pub) = x_pair();
+        let alice = bundle(&a_pub);
+        let bob = bundle(&b_pub);
+
+        let baseline =
+            compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&bob)).unwrap();
+
+        for field in [
+            "cid",
+            "ed_pub",
+            "dili_pub",
+            "k_pub",
+            "mbox_in_pub",
+            "mbox_out_cur_pub",
+            "mbox_out_next_pub",
+        ] {
+            let mut tampered = bob.clone();
+            tampered[field] = json!(hex32());
+            let got =
+                compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&tampered)).unwrap();
+            assert_ne!(baseline, got, "swapping peer.{field} must change the SAS");
+        }
+    }
+}

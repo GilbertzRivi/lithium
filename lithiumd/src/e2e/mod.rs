@@ -1,5 +1,6 @@
 pub mod wire;
 pub(crate) mod crypto;
+pub(crate) mod header;
 pub mod state_self;
 pub mod state_peer;
 pub mod prekeys;

@@ -3148,6 +3148,7 @@ dependencies = [
  "serde",
  "serde_json",
  "subtle",
+ "tempfile",
  "tokio",
  "tray-icon",
  "x25519-dalek",
