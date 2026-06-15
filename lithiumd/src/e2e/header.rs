@@ -4,6 +4,24 @@ use serde_json::Value;
 
 pub(crate) const SIGNED_HEADER_V: u8 = 1;
 
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum E2eMode {
+    Ratchet,
+    Bootstrap,
+    PrekeyRecover,
+}
+
+impl E2eMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            E2eMode::Ratchet => "ratchet",
+            E2eMode::Bootstrap => "bootstrap",
+            E2eMode::PrekeyRecover => "prekey_recover",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Mailbox {
     pub sender_cur_x_pub: String,
@@ -26,7 +44,7 @@ pub(crate) struct Auth {
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct SignedHeader {
     pub v: u8,
-    pub mode: String,
+    pub mode: E2eMode,
     pub ts_ms: u64,
     pub msg_id: String,
     pub kind: String,
@@ -60,7 +78,7 @@ mod tests {
     fn sample() -> SignedHeader {
         SignedHeader {
             v: SIGNED_HEADER_V,
-            mode: "ratchet".into(),
+            mode: E2eMode::Ratchet,
             ts_ms: 1_700_000_000_000,
             msg_id: "abcd".into(),
             kind: "text".into(),

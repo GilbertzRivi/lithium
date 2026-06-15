@@ -249,6 +249,7 @@ pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state_fields as sf;
     use lithium_core::{crypto::keys, secrets::SecretString};
 
     fn hex32() -> SecretString {
@@ -278,8 +279,6 @@ mod tests {
         }
     }
 
-    // ── encode / decode roundtrip ─────────────────────────────────────────
-
     #[test]
     fn invite_encode_decode_roundtrip() {
         let orig = make_invite();
@@ -306,7 +305,6 @@ mod tests {
     fn invite_decode_without_prefix_accepted() {
         let invite = make_invite();
         let code = encode_invite_code(&invite).unwrap();
-        // strip lci1:
         let hex_only = code.expose().strip_prefix("lci1:").unwrap().to_owned();
         let code_no_prefix = SecretString::new(hex_only);
         let decoded = decode_invite_code(&code_no_prefix).unwrap();
@@ -320,8 +318,6 @@ mod tests {
         assert!(decode_invite_code(&padded).is_ok());
     }
 
-    // ── error cases ───────────────────────────────────────────────────────
-
     #[test]
     fn invite_decode_empty_fails() {
         let err = decode_invite_code(&SecretString::new(String::new()));
@@ -331,7 +327,6 @@ mod tests {
     #[test]
     fn invite_decode_truncated_fails() {
         let code = encode_invite_code(&make_invite()).unwrap();
-        // Take only first 40 chars of the hex part
         let short = &code.expose()["lci1:".len()..][..40];
         let s = SecretString::new(format!("lci1:{}", short));
         assert!(decode_invite_code(&s).is_err());
@@ -343,7 +338,6 @@ mod tests {
         let code = encode_invite_code(&invite).unwrap();
         let hex_part = code.expose().strip_prefix("lci1:").unwrap();
         let mut bytes = hex::decode(hex_part).unwrap();
-        // Corrupt the magic bytes
         bytes[0] = 0xFF;
         let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
         assert!(decode_invite_code(&bad).is_err());
@@ -355,7 +349,6 @@ mod tests {
         let code = encode_invite_code(&invite).unwrap();
         let hex_part = code.expose().strip_prefix("lci1:").unwrap();
         let mut bytes = hex::decode(hex_part).unwrap();
-        // Byte 4 is the version
         bytes[4] = bytes[4].wrapping_add(1);
         let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
         assert!(decode_invite_code(&bad).is_err());
@@ -367,13 +360,10 @@ mod tests {
         let code = encode_invite_code(&invite).unwrap();
         let hex_part = code.expose().strip_prefix("lci1:").unwrap();
         let mut bytes = hex::decode(hex_part).unwrap();
-        // Add an extra byte
         bytes.push(0xAA);
         let bad = SecretString::new(format!("lci1:{}", hex::encode(&bytes)));
         assert!(decode_invite_code(&bad).is_err());
     }
-
-    // ── gen_self_state ────────────────────────────────────────────────────
 
     #[test]
     fn gen_self_state_returns_32_byte_cid() {
@@ -385,11 +375,11 @@ mod tests {
     fn gen_self_state_has_all_required_fields() {
         let (_cid, sj) = gen_self_state().unwrap();
         for field in &[
-            "cid", "x_priv", "x_pub", "k_priv", "k_pub",
-            "ed_priv", "ed_pub", "dili_priv", "dili_pub",
-            "mbox_in_priv", "mbox_in_pub",
-            "mbox_out_cur_priv", "mbox_out_cur_pub",
-            "mbox_out_next_priv", "mbox_out_next_pub",
+            sf::CID, sf::X_PRIV, sf::X_PUB, sf::K_PRIV, sf::K_PUB,
+            sf::ED_PRIV, sf::ED_PUB, sf::DILI_PRIV, sf::DILI_PUB,
+            sf::MBOX_IN_PRIV, sf::MBOX_IN_PUB,
+            sf::MBOX_OUT_CUR_PRIV, sf::MBOX_OUT_CUR_PUB,
+            sf::MBOX_OUT_NEXT_PRIV, sf::MBOX_OUT_NEXT_PUB,
         ] {
             sj.get_string(field).unwrap_or_else(|_| panic!("missing field: {field}"));
         }
@@ -406,21 +396,19 @@ mod tests {
     fn gen_self_state_can_encode_as_invite() {
         let (_cid, sj) = gen_self_state().unwrap();
         let invite = InvitePublic {
-            cid_hex:              sj.get_string("cid").unwrap(),
-            x_pub_hex:            sj.get_string("x_pub").unwrap(),
-            k_pub_hex:            sj.get_string("k_pub").unwrap(),
-            ed_pub_hex:           sj.get_string("ed_pub").unwrap(),
-            dili_pub_hex:         sj.get_string("dili_pub").unwrap(),
-            mbox_in_pub_hex:      sj.get_string("mbox_in_pub").unwrap(),
-            mbox_out_cur_pub_hex: sj.get_string("mbox_out_cur_pub").unwrap(),
-            mbox_out_next_pub_hex: sj.get_string("mbox_out_next_pub").unwrap(),
+            cid_hex:              sj.get_string(sf::CID).unwrap(),
+            x_pub_hex:            sj.get_string(sf::X_PUB).unwrap(),
+            k_pub_hex:            sj.get_string(sf::K_PUB).unwrap(),
+            ed_pub_hex:           sj.get_string(sf::ED_PUB).unwrap(),
+            dili_pub_hex:         sj.get_string(sf::DILI_PUB).unwrap(),
+            mbox_in_pub_hex:      sj.get_string(sf::MBOX_IN_PUB).unwrap(),
+            mbox_out_cur_pub_hex: sj.get_string(sf::MBOX_OUT_CUR_PUB).unwrap(),
+            mbox_out_next_pub_hex: sj.get_string(sf::MBOX_OUT_NEXT_PUB).unwrap(),
         };
         let code = encode_invite_code(&invite).unwrap();
         let decoded = decode_invite_code(&code).unwrap();
         assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());
     }
-
-    // ── decode_contact_id_hex ─────────────────────────────────────────────
 
     #[test]
     fn decode_contact_id_hex_valid() {
@@ -431,7 +419,7 @@ mod tests {
 
     #[test]
     fn decode_contact_id_hex_wrong_length_fails() {
-        let hex = SecretString::new("deadbeef".to_owned()); // 4 bytes, not 32
+        let hex = SecretString::new("deadbeef".to_owned());
         assert!(decode_contact_id_hex(&hex).is_err());
     }
 
@@ -439,5 +427,39 @@ mod tests {
     fn decode_contact_id_hex_invalid_chars_fails() {
         let hex = SecretString::new("zz".repeat(32));
         assert!(decode_contact_id_hex(&hex).is_err());
+    }
+
+    #[test]
+    fn invite_code_layout_is_pinned() {
+        let invite = InvitePublic {
+            cid_hex: SecretString::new("aa".repeat(32)),
+            x_pub_hex: SecretString::new("bb".repeat(32)),
+            k_pub_hex: SecretString::new("cc".repeat(MLKEM1024_PUBLIC_KEY_LEN)),
+            ed_pub_hex: SecretString::new("dd".repeat(32)),
+            dili_pub_hex: SecretString::new("ee".repeat(MLDSA87_PUBLIC_KEY_LEN)),
+            mbox_in_pub_hex: SecretString::new("11".repeat(32)),
+            mbox_out_cur_pub_hex: SecretString::new("22".repeat(32)),
+            mbox_out_next_pub_hex: SecretString::new("33".repeat(32)),
+        };
+
+        let code = encode_invite_code(&invite).unwrap();
+        let expected = format!(
+            "lci1:4c43493101{}{}0620{}{}0a20{}{}{}{}",
+            "aa".repeat(32),
+            "bb".repeat(32),
+            "cc".repeat(MLKEM1024_PUBLIC_KEY_LEN),
+            "dd".repeat(32),
+            "ee".repeat(MLDSA87_PUBLIC_KEY_LEN),
+            "11".repeat(32),
+            "22".repeat(32),
+            "33".repeat(32),
+        );
+        assert_eq!(code.expose(), expected);
+
+        let decoded = decode_invite_code(&code).unwrap();
+        assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());
+        assert_eq!(decoded.k_pub_hex.expose(), invite.k_pub_hex.expose());
+        assert_eq!(decoded.dili_pub_hex.expose(), invite.dili_pub_hex.expose());
+        assert_eq!(decoded.mbox_out_next_pub_hex.expose(), invite.mbox_out_next_pub_hex.expose());
     }
 }

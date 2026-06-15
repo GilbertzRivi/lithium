@@ -2,6 +2,7 @@ use poem::{handler, Body, Response};
 use poem::http::StatusCode;
 use serde_json::json;
 
+use lithium_core::contract::protocol::field;
 use lithium_core::passwords::passwords::verify_password_phc;
 use lithium_core::secrets::bytes::SecretBytes;
 
@@ -32,9 +33,9 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
             .clone()
             .ok_or(AppError::bad_request("missing key-dili"))?;
 
-        let handler = ctx.body.take_string("handler")?;
-        let password = ctx.body.take_string("password")?;
-        let dek_hex = ctx.body.take_string("dek")?;
+        let handler = ctx.body.take_string(field::HANDLER)?;
+        let password = ctx.body.take_string(field::PASSWORD)?;
+        let dek_hex = ctx.body.take_string(field::DEK)?;
 
         (ctx.state.clone(), handler, password, dek_hex, ed_key, dili_key)
     };
@@ -67,8 +68,8 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
 
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
-        "msg": "Ok",
-        "capability": capability.expose(),
+        field::MSG: "Ok",
+        field::CAPABILITY: capability.expose(),
     }))
         .await
 }
@@ -78,8 +79,8 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
     let (state, handler, password, user) = {
         let mut ctx = req.lock().await;
 
-        let handler = ctx.body.take_string("handler")?;
-        let password = ctx.body.take_string("password")?;
+        let handler = ctx.body.take_string(field::HANDLER)?;
+        let password = ctx.body.take_string(field::PASSWORD)?;
 
         let user = ctx
             .user
@@ -110,8 +111,8 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
     ctx.reply_ok_authed(
         120,
         json!({
-            "msg": "Ok",
-            "dek": dek.expose(),
+            field::MSG: "Ok",
+            field::DEK: dek.expose(),
         }),
     )
         .await
@@ -121,7 +122,7 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
 pub async fn revoke(req: CryptoReq) -> Result<Response, AppError> {
     let (state, capability) = {
         let mut ctx = req.lock().await;
-        let capability = ctx.body.take_string("capability")?;
+        let capability = ctx.body.take_string(field::CAPABILITY)?;
         (ctx.state.clone(), capability)
     };
 
@@ -150,7 +151,7 @@ pub async fn delete(req: CryptoReq) -> Result<Response, AppError> {
 
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
-        "msg": "Ok"
+        field::MSG: "Ok"
     }))
         .await
 }

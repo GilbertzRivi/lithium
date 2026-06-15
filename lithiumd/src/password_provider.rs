@@ -198,3 +198,22 @@ impl MkProvider for PasswordFileMkProvider {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mkfile_record_layout_is_pinned() {
+        let salt = Byte32::from_slice(&[0xABu8; 32]).unwrap();
+        let blob = SecretBytes::from_slice(&[0xCDu8; 48]);
+
+        let encoded = PasswordFileMkProvider::encode_file(&salt, &blob);
+        let expected = format!("4c4d4b3120{}30000000{}", "ab".repeat(32), "cd".repeat(48));
+        assert_eq!(hex::encode(encoded.expose_as_slice()), expected);
+
+        let (salt_back, blob_back) = PasswordFileMkProvider::decode_file(&encoded).unwrap();
+        assert_eq!(salt_back.as_slice(), salt.as_slice());
+        assert_eq!(blob_back.expose_as_slice(), blob.expose_as_slice());
+    }
+}

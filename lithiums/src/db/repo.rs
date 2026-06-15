@@ -46,12 +46,9 @@ async fn uuid5_from_handler<P: MkProvider + Send + Sync + 'static>(
     Ok(Uuid::new_v5(&ns, handler.trim().to_lowercase().as_bytes()))
 }
 
-// NOTE:
-// User IDs are encrypted deterministically on purpose so we can perform
-// stable lookups by derived UUID without storing plaintext identifiers.
-// This leaks equality of the encrypted user ID across rows / snapshots:
-// the same logical user always maps to the same ciphertext under the same DEK.
-// We accept this trade-off for indexed lookup semantics.
+// Nonce is derived from the UUID, not random, so each user ID encrypts to a
+// stable blob we can index and look up by without storing plaintext. Worst case
+// an observer learns whether some user exists (one row per nick), never who.
 async fn id_enc_from_uuid<P: MkProvider + Send + Sync + 'static>(
     dm: &DataManager<P>,
     id: &Uuid,
@@ -448,5 +445,26 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
             .await
             .map_err(LithiumError::io)?;
         Ok(res.rows_affected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sealed_msg_blob_opens_to_pinned_plaintext() {
+        let key = Byte32::from_slice(&[0x42u8; 32]).unwrap();
+        let aad = b"golden-msg-aad-v1";
+        let blob = hex::decode(
+            "010d3e014253dc83a3747a3538582da0365d79ce1b9f37bad1af3f5f9f4713f322096aff782f866a8ebebbb272721214db551e5d",
+        )
+        .unwrap();
+
+        assert_eq!(blob[0], MSG_VER);
+        assert_eq!(blob.len(), 1 + 12 + b"golden-msg-plaintext-v1".len() + 16);
+
+        let pt = open_msg(&blob, &key, aad).unwrap();
+        assert_eq!(pt.expose_as_slice(), b"golden-msg-plaintext-v1");
     }
 }

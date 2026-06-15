@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod contract;
 pub mod crypto;
 pub mod db;
 pub mod error;

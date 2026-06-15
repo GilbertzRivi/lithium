@@ -7,10 +7,6 @@ fn sb(data: &[u8]) -> SecretBytes {
     SecretBytes::from_slice(data)
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// EphemeralStoreManager
-// ════════════════════════════════════════════════════════════════════════════
-
 #[tokio::test]
 async fn store_set_and_peek() {
     let store = EphemeralStoreManager::new().unwrap();

@@ -8,6 +8,7 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
+use crate::state_fields as sf;
 use crate::{
     commands::invite_codec::{decode_contact_id_hex, encode_invite_code, gen_self_state, InvitePublic},
     db::repo::DaemonDbExt,
@@ -53,7 +54,7 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
-        let cid_hex = match self_json.get_string("cid") {
+        let cid_hex = match self_json.get_string(sf::CID) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
@@ -65,11 +66,11 @@ pub async fn handle(
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
-        let ed_pub = match self_json.get_string("ed_pub") {
+        let ed_pub = match self_json.get_string(sf::ED_PUB) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
-        let dili_pub = match self_json.get_string("dili_pub") {
+        let dili_pub = match self_json.get_string(sf::DILI_PUB) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
@@ -162,7 +163,7 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let cid_hex = match self_json.get_string("cid") {
+    let cid_hex = match self_json.get_string(sf::CID) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
@@ -174,11 +175,11 @@ pub async fn handle(
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let ed_pub = match self_json.get_string("ed_pub") {
+    let ed_pub = match self_json.get_string(sf::ED_PUB) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let dili_pub = match self_json.get_string("dili_pub") {
+    let dili_pub = match self_json.get_string(sf::DILI_PUB) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };

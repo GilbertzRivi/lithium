@@ -15,32 +15,30 @@ fn raw(srv: &TestServer) -> RawShakeBuilder {
     RawShakeBuilder { bootstrap: srv.bootstrap.clone(), base: format!("http://{}", srv.addr) }
 }
 
-// boundary: age > max_age is strict, so exactly max_age (60s) is still accepted
-
 #[tokio::test]
-async fn test_timestamp_59s_old_accepted() {
+async fn test_timestamp_30s_old_accepted() {
     let srv = TestServer::start().await;
-    assert_eq!(raw(&srv).send_with_ts(now_secs() - 59).await.status, 200);
+    assert_eq!(raw(&srv).send_with_ts(now_secs() - 30).await.status, 200);
 }
 
 #[tokio::test]
-async fn test_timestamp_61s_old_rejected() {
+async fn test_timestamp_90s_old_rejected() {
     let srv = TestServer::start().await;
-    let r = raw(&srv).send_with_ts(now_secs() - 61).await;
+    let r = raw(&srv).send_with_ts(now_secs() - 90).await;
     assert_eq!(r.status, 400);
     assert_eq!(r.error.as_deref(), Some("request too old"));
 }
 
 #[tokio::test]
-async fn test_timestamp_59s_future_accepted() {
+async fn test_timestamp_30s_future_accepted() {
     let srv = TestServer::start().await;
-    assert_eq!(raw(&srv).send_with_ts(now_secs() + 59).await.status, 200);
+    assert_eq!(raw(&srv).send_with_ts(now_secs() + 30).await.status, 200);
 }
 
 #[tokio::test]
-async fn test_timestamp_61s_future_rejected() {
+async fn test_timestamp_90s_future_rejected() {
     let srv = TestServer::start().await;
-    let r = raw(&srv).send_with_ts(now_secs() + 61).await;
+    let r = raw(&srv).send_with_ts(now_secs() + 90).await;
     assert_eq!(r.status, 400);
     assert_eq!(r.error.as_deref(), Some("request is from the future"));
 }

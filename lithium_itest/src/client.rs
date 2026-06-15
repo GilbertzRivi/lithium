@@ -2,6 +2,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lithium_core::{
+    contract::protocol::{self, ctx, field, header, path},
     crypto::{keys, kyberbox, sign},
     secrets::{Byte32, SecretString, bytes::SecretBytes},
     utils::store::EphemeralStoreManager,
@@ -49,30 +50,30 @@ enum Ep {
 impl Ep {
     fn path(self) -> &'static str {
         match self {
-            Ep::Shake => "/shake",
-            Ep::Register => "/user/register",
-            Ep::Login => "/user/login",
-            Ep::RemoteDelete => "/user/revoke",
-            Ep::Delete => "/user/delete",
-            Ep::MsgSend => "/msg/send",
-            Ep::MsgFetch => "/msg/fetch",
+            Ep::Shake => path::SHAKE,
+            Ep::Register => path::REGISTER,
+            Ep::Login => path::LOGIN,
+            Ep::RemoteDelete => path::REVOKE,
+            Ep::Delete => path::DELETE,
+            Ep::MsgSend => path::MSG_SEND,
+            Ep::MsgFetch => path::MSG_FETCH,
         }
     }
 
     fn ctx_base(self) -> &'static str {
         match self {
-            Ep::Shake => "shake",
-            Ep::Register => "register",
-            Ep::Login => "login",
-            Ep::RemoteDelete => "revoke",
-            Ep::Delete => "delete",
-            Ep::MsgSend => "msg_send",
-            Ep::MsgFetch => "msg_fetch",
+            Ep::Shake => ctx::SHAKE,
+            Ep::Register => ctx::REGISTER,
+            Ep::Login => ctx::LOGIN,
+            Ep::RemoteDelete => ctx::REVOKE,
+            Ep::Delete => ctx::DELETE,
+            Ep::MsgSend => ctx::MSG_SEND,
+            Ep::MsgFetch => ctx::MSG_FETCH,
         }
     }
 
-    fn ctx_req(self) -> String { format!("{}-req", self.ctx_base()) }
-    fn ctx_resp(self) -> String { format!("{}-resp", self.ctx_base()) }
+    fn ctx_req(self) -> String { protocol::ctx_req(self.ctx_base()) }
+    fn ctx_resp(self) -> String { protocol::ctx_resp(self.ctx_base()) }
     fn requires_session(self) -> bool { !matches!(self, Ep::Shake) }
     fn returns_204(self) -> bool { matches!(self, Ep::RemoteDelete) }
     fn sign_ephemeral(self) -> bool {
@@ -145,43 +146,43 @@ impl TestLithiumClient {
 
     pub async fn register(&mut self, handler: &str, password: &str, dek_hex: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body = json!({ "handler": handler, "password": password, "dek": dek_hex });
+        let body = json!({ field::HANDLER: handler, field::PASSWORD: password, field::DEK: dek_hex });
         self.send(Ep::Register, body).await.expect("register failed")
     }
 
     pub async fn login(&mut self, handler: &str, password: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body = json!({ "handler": handler, "password": password });
+        let body = json!({ field::HANDLER: handler, field::PASSWORD: password });
         self.send(Ep::Login, body).await.expect("login failed")
     }
 
     pub async fn delete(&mut self) -> TestResponse {
         let tok = self.st_take_str(ST_JWT).await.expect("JWT must be present; call login() first");
-        let body = json!({ "token": tok.expose() });
+        let body = json!({ field::TOKEN: tok.expose() });
         self.send(Ep::Delete, body).await.expect("delete failed")
     }
 
     pub async fn revoke(&mut self, capability_hex: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body = json!({ "capability": capability_hex });
+        let body = json!({ field::CAPABILITY: capability_hex });
         self.send(Ep::RemoteDelete, body).await.unwrap_or(TestResponse { body: json!({}), headers: json!({}) })
     }
 
     pub async fn send_message(&mut self, mailbox_hex: &str, content_hex: &str) -> TestResponse {
         let tok = self.st_take_str(ST_JWT).await.expect("JWT must be present; call login() first");
-        let body = json!({ "token": tok.expose(), "mailbox": mailbox_hex, "content": content_hex });
+        let body = json!({ field::TOKEN: tok.expose(), field::MAILBOX: mailbox_hex, field::CONTENT: content_hex });
         self.send(Ep::MsgSend, body).await.expect("send_message failed")
     }
 
     pub async fn fetch_messages(&mut self, mailbox_hex: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body = json!({ "mailbox": mailbox_hex });
+        let body = json!({ field::MAILBOX: mailbox_hex });
         self.send(Ep::MsgFetch, body).await.expect("fetch_messages failed")
     }
 
     pub async fn register_raw(&mut self, handler: &str, password: &str, dek_hex: &str) -> RawResponse {
         self.ensure_shake().await;
-        let body = json!({ "handler": handler, "password": password, "dek": dek_hex });
+        let body = json!({ field::HANDLER: handler, field::PASSWORD: password, field::DEK: dek_hex });
         match self.send(Ep::Register, body).await {
             Ok(_) => RawResponse { status: 200, error: None },
             Err(r) => r,
@@ -190,7 +191,7 @@ impl TestLithiumClient {
 
     pub async fn login_raw(&mut self, handler: &str, password: &str) -> RawResponse {
         self.ensure_shake().await;
-        let body = json!({ "handler": handler, "password": password });
+        let body = json!({ field::HANDLER: handler, field::PASSWORD: password });
         match self.send(Ep::Login, body).await {
             Ok(_) => RawResponse { status: 200, error: None },
             Err(r) => r,
@@ -201,7 +202,7 @@ impl TestLithiumClient {
         match self.st_take_str(ST_JWT).await {
             None => RawResponse { status: 401, error: Some("no_jwt".to_owned()) },
             Some(tok) => {
-                let body = json!({ "token": tok.expose() });
+                let body = json!({ field::TOKEN: tok.expose() });
                 match self.send(Ep::Delete, body).await {
                     Ok(_) => RawResponse { status: 200, error: None },
                     Err(r) => r,
@@ -219,7 +220,7 @@ impl TestLithiumClient {
             None => RawResponse { status: 401, error: Some("no_jwt".to_owned()) },
             Some(tok) => {
                 let body =
-                    json!({ "token": tok.expose(), "mailbox": mailbox_hex, "content": content_hex });
+                    json!({ field::TOKEN: tok.expose(), field::MAILBOX: mailbox_hex, field::CONTENT: content_hex });
                 match self.send(Ep::MsgSend, body).await {
                     Ok(_) => RawResponse { status: 200, error: None },
                     Err(r) => r,
@@ -230,7 +231,7 @@ impl TestLithiumClient {
 
     pub async fn fetch_messages_raw(&mut self, mailbox_hex: &str) -> RawResponse {
         self.ensure_shake().await;
-        let body = json!({ "mailbox": mailbox_hex });
+        let body = json!({ field::MAILBOX: mailbox_hex });
         match self.send(Ep::MsgFetch, body).await {
             Ok(_) => RawResponse { status: 200, error: None },
             Err(r) => r,
@@ -246,10 +247,10 @@ impl TestLithiumClient {
 
     async fn do_shake(&mut self) -> TestResponse {
         let r = self.send(Ep::Shake, json!({})).await.expect("shake failed");
-        if let Some(sx) = r.headers.get("ses-x").and_then(|v| v.as_str()) {
+        if let Some(sx) = r.headers.get(header::SES_X).and_then(|v| v.as_str()) {
             self.store_str(ST_SES_X, sx, SESSION_TTL).await;
         }
-        if let Some(sk) = r.headers.get("ses-k").and_then(|v| v.as_str()) {
+        if let Some(sk) = r.headers.get(header::SES_K).and_then(|v| v.as_str()) {
             self.store_str(ST_SES_K, sk, SESSION_TTL).await;
         }
         r
@@ -257,7 +258,7 @@ impl TestLithiumClient {
 
     async fn send(&mut self, ep: Ep, mut body: Value) -> Result<TestResponse, RawResponse> {
         let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-        body["timestamp"] = Value::String(format!("{:016x}", ts));
+        body[field::TIMESTAMP] = Value::String(protocol::format_timestamp(ts));
 
         let body_bytes = serde_json::to_vec(&body).expect("serialize body");
 
@@ -268,24 +269,24 @@ impl TestLithiumClient {
             let sig_ed = sign::sign_message(&body_bytes, &ed_priv).expect("sign ed");
             let sig_dili = sign::sign_message_dili(&body_bytes, &dili_priv).expect("sign dili");
             if ep.include_identity_keys() {
-                app_headers["key-ed"] = Value::String(ed_pub.to_hex().expose().to_string());
-                app_headers["key-dili"] = Value::String(dili_pub.to_hex().expose().to_string());
+                app_headers[header::KEY_ED] = Value::String(ed_pub.to_hex().expose().to_string());
+                app_headers[header::KEY_DILI] = Value::String(dili_pub.to_hex().expose().to_string());
             }
-            app_headers["sig-ed"] = Value::String(sig_ed.to_hex().expose().to_string());
-            app_headers["sig-dili"] = Value::String(sig_dili.to_hex().expose().to_string());
+            app_headers[header::SIG_ED] = Value::String(sig_ed.to_hex().expose().to_string());
+            app_headers[header::SIG_DILI] = Value::String(sig_dili.to_hex().expose().to_string());
         } else {
             let ed_priv = self.user_ed_priv.as_ref().expect("call generate_user_keys() first");
             let dili_priv = self.user_dili_priv.as_ref().expect("call generate_user_keys() first");
             let sig_ed = sign::sign_message(&body_bytes, ed_priv).expect("sign ed");
             let sig_dili = sign::sign_message_dili(&body_bytes, dili_priv).expect("sign dili");
             if ep.include_identity_keys() {
-                app_headers["key-ed"] =
+                app_headers[header::KEY_ED] =
                     Value::String(self.user_ed_pub.as_ref().unwrap().to_hex().expose().to_string());
-                app_headers["key-dili"] =
+                app_headers[header::KEY_DILI] =
                     Value::String(self.user_dili_pub.as_ref().unwrap().to_hex().expose().to_string());
             }
-            app_headers["sig-ed"] = Value::String(sig_ed.to_hex().expose().to_string());
-            app_headers["sig-dili"] = Value::String(sig_dili.to_hex().expose().to_string());
+            app_headers[header::SIG_ED] = Value::String(sig_ed.to_hex().expose().to_string());
+            app_headers[header::SIG_DILI] = Value::String(sig_dili.to_hex().expose().to_string());
         }
 
         let headers_bytes = serde_json::to_vec(&app_headers).expect("serialize headers");
@@ -322,16 +323,16 @@ impl TestLithiumClient {
         .expect("kyberbox encrypt");
 
         let mut h = HeaderMap::new();
-        h.insert("key-x", hv(hex::encode(req_pub_x.as_slice())));
-        h.insert("key-k", hv(hex::encode(req_pub_k.expose_as_slice())));
-        h.insert("seed", hv(hex::encode(wire.seed_enc.expose_as_slice())));
-        h.insert("data", hv(hex::encode(wire.enc_headers.expose_as_slice())));
+        h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
+        h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
+        h.insert(header::SEED, hv(hex::encode(wire.seed_enc.expose_as_slice())));
+        h.insert(header::DATA, hv(hex::encode(wire.enc_headers.expose_as_slice())));
 
         if ep.requires_session() {
             let sx = ses_x_id.expect("ses-x missing");
             let sk = ses_k_id.expect("ses-k missing");
-            h.insert("ses-x", hv(sx.expose()));
-            h.insert("ses-k", hv(sk.expose()));
+            h.insert(header::SES_X, hv(sx.expose()));
+            h.insert(header::SES_K, hv(sk.expose()));
             h.insert(
                 reqwest::header::CONTENT_TYPE,
                 reqwest::header::HeaderValue::from_static("application/octet-stream"),
@@ -365,10 +366,10 @@ impl TestLithiumClient {
         let rh = resp.headers().clone();
         let resp_bytes = resp.bytes().await.expect("read body").to_vec();
 
-        let resp_peer_x = Byte32::from_hex(&hdr(&rh, "key-x")).expect("key-x parse");
-        let resp_peer_k = hex::decode(hdr(&rh, "key-k")).expect("key-k hex");
-        let resp_seed = hex::decode(hdr(&rh, "seed")).expect("seed hex");
-        let resp_data = hex::decode(hdr(&rh, "data")).expect("data hex");
+        let resp_peer_x = Byte32::from_hex(&hdr(&rh, header::KEY_X)).expect("key-x parse");
+        let resp_peer_k = hex::decode(hdr(&rh, header::KEY_K)).expect("key-k hex");
+        let resp_seed = hex::decode(hdr(&rh, header::SEED)).expect("seed hex");
+        let resp_data = hex::decode(hdr(&rh, header::DATA)).expect("data hex");
 
         let (mut dec_body, mut dec_headers) = kyberbox::decrypt(
             &ep.ctx_resp(),
@@ -386,8 +387,8 @@ impl TestLithiumClient {
         unpad(dec_body.expose_as_mut_vec()).expect("body unpad");
         unpad(dec_headers.expose_as_mut_vec()).expect("headers unpad");
 
-        let sig_ed = hex::decode(hdr(&rh, "sig-ed")).expect("sig-ed hex");
-        let sig_dili = hex::decode(hdr(&rh, "sig-dili")).expect("sig-dili hex");
+        let sig_ed = hex::decode(hdr(&rh, header::SIG_ED)).expect("sig-ed hex");
+        let sig_dili = hex::decode(hdr(&rh, header::SIG_DILI)).expect("sig-dili hex");
         assert!(
             sign::verify_signature(dec_body.expose_as_slice(), &sig_ed, &self.bootstrap.server_sig_ed),
             "server Ed25519 signature invalid"
@@ -408,13 +409,13 @@ impl TestLithiumClient {
         self.st_set(ST_PEER_X, SecretBytes::from_slice(resp_peer_x.as_slice()), SESSION_TTL).await;
         self.st_set(ST_PEER_K, SecretBytes::new(resp_peer_k), SESSION_TTL).await;
 
-        if let Some(sx) = headers_val.get("ses-x").and_then(|v| v.as_str()) {
+        if let Some(sx) = headers_val.get(header::SES_X).and_then(|v| v.as_str()) {
             self.store_str(ST_SES_X, sx, SESSION_TTL).await;
         }
-        if let Some(sk) = headers_val.get("ses-k").and_then(|v| v.as_str()) {
+        if let Some(sk) = headers_val.get(header::SES_K).and_then(|v| v.as_str()) {
             self.store_str(ST_SES_K, sk, SESSION_TTL).await;
         }
-        if let Some(tok) = body_val.get("tok").and_then(|v| v.as_str()) {
+        if let Some(tok) = body_val.get(field::TOK).and_then(|v| v.as_str()) {
             self.store_str(ST_JWT, tok, JWT_TTL).await;
         }
 
@@ -486,7 +487,7 @@ pub struct RawShakeBuilder {
 
 impl RawShakeBuilder {
     pub async fn send_with_ts(&self, ts_secs: u64) -> RawResponse {
-        let body_json = json!({ "timestamp": format!("{:016x}", ts_secs) });
+        let body_json = json!({ field::TIMESTAMP: protocol::format_timestamp(ts_secs) });
         let body_bytes = serde_json::to_vec(&body_json).unwrap();
 
         let (ed_priv, ed_pub) = keys::random_ed25519_keypair().unwrap();
@@ -495,10 +496,10 @@ impl RawShakeBuilder {
         let sig_dili = sign::sign_message_dili(&body_bytes, &dili_priv).unwrap();
 
         let app_headers = json!({
-            "key-ed": ed_pub.to_hex().expose().to_string(),
-            "key-dili": dili_pub.to_hex().expose().to_string(),
-            "sig-ed": sig_ed.to_hex().expose().to_string(),
-            "sig-dili": sig_dili.to_hex().expose().to_string(),
+            header::KEY_ED: ed_pub.to_hex().expose().to_string(),
+            header::KEY_DILI: dili_pub.to_hex().expose().to_string(),
+            header::SIG_ED: sig_ed.to_hex().expose().to_string(),
+            header::SIG_DILI: sig_dili.to_hex().expose().to_string(),
         });
         let headers_bytes = serde_json::to_vec(&app_headers).unwrap();
 
@@ -511,7 +512,7 @@ impl RawShakeBuilder {
         pad_headers(&mut hp);
 
         let wire = kyberbox::encrypt(
-            "shake-req",
+            &protocol::ctx_req(ctx::SHAKE),
             &req_priv_x,
             &self.bootstrap.shake_pub_x,
             &self.bootstrap.shake_pub_k,
@@ -521,14 +522,14 @@ impl RawShakeBuilder {
         .unwrap();
 
         let mut h = HeaderMap::new();
-        h.insert("key-x", hv(hex::encode(req_pub_x.as_slice())));
-        h.insert("key-k", hv(hex::encode(req_pub_k.expose_as_slice())));
-        h.insert("seed", hv(hex::encode(wire.seed_enc.expose_as_slice())));
-        h.insert("data", hv(hex::encode(wire.enc_headers.expose_as_slice())));
+        h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
+        h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
+        h.insert(header::SEED, hv(hex::encode(wire.seed_enc.expose_as_slice())));
+        h.insert(header::DATA, hv(hex::encode(wire.enc_headers.expose_as_slice())));
 
         let http = Client::new();
         let resp = http
-            .post(format!("{}/shake", self.base))
+            .post(format!("{}{}", self.base, path::SHAKE))
             .headers(h)
             .body(wire.enc_body.expose_as_slice().to_vec())
             .send()
@@ -544,7 +545,7 @@ impl RawShakeBuilder {
     pub async fn send_duplicate_body(&self) -> RawResponse {
         let body_bytes = {
             let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            let body = json!({ "timestamp": format!("{:016x}", ts) });
+            let body = json!({ field::TIMESTAMP: protocol::format_timestamp(ts) });
             serde_json::to_vec(&body).unwrap()
         };
 
@@ -554,10 +555,10 @@ impl RawShakeBuilder {
         let sig_dili = sign::sign_message_dili(&body_bytes, &dili_priv).unwrap();
 
         let app_headers = json!({
-            "key-ed": ed_pub.to_hex().expose().to_string(),
-            "key-dili": dili_pub.to_hex().expose().to_string(),
-            "sig-ed": sig_ed.to_hex().expose().to_string(),
-            "sig-dili": sig_dili.to_hex().expose().to_string(),
+            header::KEY_ED: ed_pub.to_hex().expose().to_string(),
+            header::KEY_DILI: dili_pub.to_hex().expose().to_string(),
+            header::SIG_ED: sig_ed.to_hex().expose().to_string(),
+            header::SIG_DILI: sig_dili.to_hex().expose().to_string(),
         });
         let headers_bytes = serde_json::to_vec(&app_headers).unwrap();
 
@@ -570,7 +571,7 @@ impl RawShakeBuilder {
         pad_headers(&mut hp);
 
         let wire = kyberbox::encrypt(
-            "shake-req",
+            &protocol::ctx_req(ctx::SHAKE),
             &req_priv_x,
             &self.bootstrap.shake_pub_x,
             &self.bootstrap.shake_pub_k,
@@ -581,15 +582,15 @@ impl RawShakeBuilder {
 
         let make_headers = || {
             let mut h = HeaderMap::new();
-            h.insert("key-x", hv(hex::encode(req_pub_x.as_slice())));
-            h.insert("key-k", hv(hex::encode(req_pub_k.expose_as_slice())));
-            h.insert("seed", hv(hex::encode(wire.seed_enc.expose_as_slice())));
-            h.insert("data", hv(hex::encode(wire.enc_headers.expose_as_slice())));
+            h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
+            h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
+            h.insert(header::SEED, hv(hex::encode(wire.seed_enc.expose_as_slice())));
+            h.insert(header::DATA, hv(hex::encode(wire.enc_headers.expose_as_slice())));
             h
         };
 
         let enc_body = wire.enc_body.expose_as_slice().to_vec();
-        let url = format!("{}/shake", self.base);
+        let url = format!("{}{}", self.base, path::SHAKE);
         let http = Client::new();
 
         // First request must succeed.

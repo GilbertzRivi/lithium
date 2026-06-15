@@ -21,6 +21,7 @@ mod invite_accept;
 pub(crate) mod invite_codec;
 pub(crate) mod contact_mailbox;
 mod contact_list;
+pub(crate) mod stored_message;
 mod contact_send;
 mod contact_fetch;
 mod contact_forget;

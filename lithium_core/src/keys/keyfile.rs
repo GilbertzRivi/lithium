@@ -53,8 +53,7 @@ pub fn write_secure(path: &Path, data: &[u8]) -> Result<()> {
 
     fs::rename(&tmp, path).map_err(LithiumError::io)?;
 
-    // fsync the directory so the rename itself survives a crash, not just the file bytes.
-    // Best-effort: a failing directory fsync must not turn a successful write into an error.
+    // fsync the dir too or the rename can vanish on a crash; best-effort, ignore errors
     #[cfg(unix)]
     if let Some(parent) = path.parent() {
         let _ = fs::File::open(parent).and_then(|dir| dir.sync_all());
@@ -432,4 +431,40 @@ pub fn rewrap_keyfile_dek(
 ) -> Result<()> {
     let out = rewrap_keyfile_dek_to_bytes(path, old_mk, new_mk, key_type)?;
     write_secure(path, out.expose_as_slice())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyfile_record_layout_is_pinned() {
+        let salt = [0x33u8; 32];
+        let nonce_wrap = [0x44u8; 12];
+        let ct_wrap = [0x55u8; 48];
+        let nonce_payload = [0x66u8; 12];
+        let ct_payload = [0x77u8; 40];
+
+        let rec = build_record(
+            KEYFILE_VERSION,
+            ALG_ID_AES256_GCM_SIV,
+            DEK_LEN,
+            &salt,
+            &nonce_wrap,
+            &ct_wrap,
+            &nonce_payload,
+            &ct_payload,
+        );
+        assert_eq!(hex::encode(&rec), "4b4559460101002000203333333333333333333333333333333333333333333333333333333333333333000c4444444444444444444444440030555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555000c6666666666666666666666660000002877777777777777777777777777777777777777777777777777777777777777777777777777777777");
+
+        let (v, alg, dl, s, nw, cw, np, cp) = parse_keyfile(&SecretBytes::new(rec)).unwrap();
+        assert_eq!(v, KEYFILE_VERSION);
+        assert_eq!(alg, ALG_ID_AES256_GCM_SIV);
+        assert_eq!(dl, DEK_LEN);
+        assert_eq!(s, salt);
+        assert_eq!(nw, nonce_wrap);
+        assert_eq!(cw, ct_wrap.to_vec());
+        assert_eq!(np, nonce_payload);
+        assert_eq!(cp, ct_payload.to_vec());
+    }
 }

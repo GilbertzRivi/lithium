@@ -248,16 +248,15 @@ fn keys_ed25519_keypair_sizes() {
 #[test]
 fn keys_kyber_keypair_sizes() {
     let (sk, pk) = keys::random_kyber_mlkem1024_keypair().unwrap();
-    // ML-KEM-1024: sk ~3168 bytes, pk ~1568 bytes
-    assert!(!sk.expose_as_slice().is_empty());
-    assert!(!pk.expose_as_slice().is_empty());
+    assert_eq!(sk.expose_as_slice().len(), 3168);
+    assert_eq!(pk.expose_as_slice().len(), 1568);
 }
 
 #[test]
 fn keys_dilithium_keypair_sizes() {
     let (sk, pk) = keys::random_dilithium_mldsa87_keypair().unwrap();
-    assert!(!sk.expose_as_slice().is_empty());
-    assert!(!pk.expose_as_slice().is_empty());
+    assert_eq!(sk.expose_as_slice().len(), 4896);
+    assert_eq!(pk.expose_as_slice().len(), 2592);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

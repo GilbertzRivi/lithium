@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use serde::Serialize;
 use serde_json::{json, Value};
 
 use lithium_core::{
+    contract::protocol::field,
     secrets::{Byte32, SecretJson, SecretString},
     secrets::bytes::SecretBytes,
 };
@@ -16,6 +16,7 @@ use crate::{
         mark_outbound_message_sent,
         self_tx_generation,
     },
+    commands::stored_message,
     e2e::{
         encrypt_for_peer,
         ensure_self_keyring,
@@ -36,43 +37,6 @@ use crate::{
 };
 
 const PREKEY_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
-
-fn build_stored_message(
-    text: &SecretString,
-    ui_meta: &Value,
-    mailbox_hex: &str,
-    mailbox_gen: u64,
-) -> Result<SecretBytes, serde_json::Error> {
-    #[derive(Serialize)]
-    struct Transport<'a> {
-        mailbox: &'a str,
-        mailbox_gen: u64,
-    }
-
-    #[derive(Serialize)]
-    struct StoredMessage<'a> {
-        v: u8,
-        kind: &'a str,
-        text: &'a str,
-        ui: &'a Value,
-        transport: Transport<'a>,
-    }
-
-    let payload = StoredMessage {
-        v: 1,
-        kind: "text/utf8",
-        text: text.expose(),
-        ui: ui_meta,
-        transport: Transport {
-            mailbox: mailbox_hex,
-            mailbox_gen,
-        },
-    };
-
-    let mut out = SecretBytes::new(Vec::new());
-    serde_json::to_writer(out.expose_as_mut_vec(), &payload)?;
-    Ok(out)
-}
 
 async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 'static>(
     dm: &lithium_core::db::manager::DataManager<P>,
@@ -199,7 +163,7 @@ pub async fn handle(
         &mut self_v,
         &mut peer_v,
         plaintext.expose().as_bytes(),
-        "text/utf8",
+        stored_message::KIND_TEXT,
         &advertise,
         use_recovery,
         mailbox_gen,
@@ -211,8 +175,8 @@ pub async fn handle(
     let content_hex = hex::encode(pack_wire(&wire));
 
     let body = json!({
-        "mailbox": mailbox_hex,
-        "content": content_hex
+        field::MAILBOX: mailbox_hex,
+        field::CONTENT: content_hex
     });
 
     if proto.send(Endpoint::MsgSend, body, json!({})).await.is_err() {
@@ -263,7 +227,7 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let stored = match build_stored_message(&plaintext, &ui_meta, &mailbox_hex, mailbox_gen) {
+    let stored = match stored_message::encode(plaintext.expose(), &ui_meta, &mailbox_hex, mailbox_gen) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };

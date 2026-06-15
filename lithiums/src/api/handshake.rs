@@ -1,6 +1,8 @@
 use poem::{handler, Response};
 use serde_json::json;
 
+use lithium_core::contract::protocol::field;
+
 use crate::error::AppError;
 use crate::transport::CryptoReq;
 
@@ -8,7 +10,7 @@ use crate::transport::CryptoReq;
 pub async fn handshake(req: CryptoReq) -> Result<Response, AppError> {
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
-        "msg": "Ok",
+        field::MSG: "Ok",
     }))
     .await
 }

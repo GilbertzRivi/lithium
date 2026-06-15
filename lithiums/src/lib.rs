@@ -20,6 +20,8 @@ use poem::http::StatusCode;
 use poem::Response;
 use serde_json::json;
 
+use lithium_core::contract::protocol::{ctx, path};
+
 use crate::middleware::crypto::CryptoMiddleware;
 use crate::middleware::guard::GuardMiddleware;
 use crate::transport::{AuthMode, CryptoCfg};
@@ -62,52 +64,52 @@ pub fn build_app(state: state::SharedState) -> impl Endpoint {
         .at("/", get(root))
         .at("/health", get(health_check.data(state.clone())))
         .at(
-            "/shake",
+            path::SHAKE,
             post(api::handshake::handshake).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::shake("shake").auth(AuthMode::KeysInHeaders),
+                CryptoCfg::shake(ctx::SHAKE).auth(AuthMode::KeysInHeaders),
             )),
         )
         .at(
-            "/user/register",
+            path::REGISTER,
             post(api::user::register).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("register").auth(AuthMode::KeysInHeaders),
+                CryptoCfg::session(ctx::REGISTER).auth(AuthMode::KeysInHeaders),
             )),
         )
         .at(
-            "/user/login",
+            path::LOGIN,
             post(api::user::login).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("login").auth(AuthMode::LoginByHandler),
+                CryptoCfg::session(ctx::LOGIN).auth(AuthMode::LoginByHandler),
             )),
         )
         .at(
-            "/user/revoke",
+            path::REVOKE,
             post(api::user::revoke).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("revoke").auth(AuthMode::KeysInHeaders),
+                CryptoCfg::session(ctx::REVOKE).auth(AuthMode::KeysInHeaders),
             )),
         )
         .at(
-            "/user/delete",
+            path::DELETE,
             post(api::user::delete).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("delete").auth(AuthMode::JwtUser),
+                CryptoCfg::session(ctx::DELETE).auth(AuthMode::JwtUser),
             )),
         )
         .at(
-            "/msg/send",
+            path::MSG_SEND,
             post(api::messages::send).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("msg_send").auth(AuthMode::JwtUser),
+                CryptoCfg::session(ctx::MSG_SEND).auth(AuthMode::JwtUser),
             )),
         )
         .at(
-            "/msg/fetch",
+            path::MSG_FETCH,
             post(api::messages::fetch).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session("msg_fetch").auth(AuthMode::KeysInHeaders),
+                CryptoCfg::session(ctx::MSG_FETCH).auth(AuthMode::KeysInHeaders),
             )),
         )
         .with(GuardMiddleware::new(state))

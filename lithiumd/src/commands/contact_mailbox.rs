@@ -8,6 +8,7 @@ use serde_json::{json, Map, Value};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::labels::LABEL_MAILBOX;
+use crate::state_fields as sf;
 
 pub const MAILBOX_ROTATE_EVERY_DEFAULT: u64 = 32;
 pub const MAILBOX_FETCH_PAST_GENS: u64 = 2;
@@ -20,7 +21,7 @@ fn get_str<'a>(v: &'a Value, key: &'static str) -> Result<&'a str> {
 }
 
 fn peer_obj(peer_v: &Value) -> Option<&Value> {
-    let peer = peer_v.get("peer")?;
+    let peer = peer_v.get(sf::PEER)?;
     if peer.is_null() {
         return None;
     }
@@ -28,7 +29,7 @@ fn peer_obj(peer_v: &Value) -> Option<&Value> {
 }
 
 fn peer_obj_mut(peer_v: &mut Value) -> Option<&mut Value> {
-    let peer = peer_v.get_mut("peer")?;
+    let peer = peer_v.get_mut(sf::PEER)?;
     if peer.is_null() {
         return None;
     }
@@ -37,15 +38,15 @@ fn peer_obj_mut(peer_v: &mut Value) -> Option<&mut Value> {
 
 fn sender_pub_map(peer_v: &Value) -> Option<&Map<String, Value>> {
     peer_v
-        .get("mailbox")
-        .and_then(|v| v.get("sender_pubs"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::SENDER_PUBS))
         .and_then(|v| v.as_object())
 }
 
 fn sender_pub_map_mut(peer_v: &mut Value) -> Option<&mut Map<String, Value>> {
     peer_v
-        .get_mut("mailbox")
-        .and_then(|v| v.get_mut("sender_pubs"))
+        .get_mut(sf::MAILBOX)
+        .and_then(|v| v.get_mut(sf::SENDER_PUBS))
         .and_then(|v| v.as_object_mut())
 }
 
@@ -93,8 +94,8 @@ fn peer_sender_pub_for_generation(peer_v: &Value, generation: u64) -> Result<Byt
 }
 
 pub fn current_outbound_mailbox_pubs(self_v: &Value) -> Option<(String, String)> {
-    let cur = self_v.get("mbox_out_cur_pub")?.as_str()?.to_owned();
-    let next = self_v.get("mbox_out_next_pub")?.as_str()?.to_owned();
+    let cur = self_v.get(sf::MBOX_OUT_CUR_PUB)?.as_str()?.to_owned();
+    let next = self_v.get(sf::MBOX_OUT_NEXT_PUB)?.as_str()?.to_owned();
     Some((cur, next))
 }
 
@@ -104,11 +105,11 @@ pub fn peer_store_mailbox_sender_keys(
     cur_pub_hex: &str,
     next_pub_hex: &str,
 ) {
-    if peer_v.get("mailbox").is_none() || !peer_v["mailbox"].is_object() {
-        peer_v["mailbox"] = json!({});
+    if peer_v.get(sf::MAILBOX).is_none() || !peer_v[sf::MAILBOX].is_object() {
+        peer_v[sf::MAILBOX] = json!({});
     }
-    if peer_v["mailbox"].get("sender_pubs").is_none() || !peer_v["mailbox"]["sender_pubs"].is_object() {
-        peer_v["mailbox"]["sender_pubs"] = json!({});
+    if peer_v[sf::MAILBOX].get(sf::SENDER_PUBS).is_none() || !peer_v[sf::MAILBOX][sf::SENDER_PUBS].is_object() {
+        peer_v[sf::MAILBOX][sf::SENDER_PUBS] = json!({});
     }
 
     if let Some(map) = sender_pub_map_mut(peer_v) {
@@ -117,106 +118,106 @@ pub fn peer_store_mailbox_sender_keys(
     }
 
     if let Some(peer) = peer_obj_mut(peer_v) {
-        peer["mbox_out_cur_pub"] = json!(cur_pub_hex);
-        peer["mbox_out_next_pub"] = json!(next_pub_hex);
+        peer[sf::MBOX_OUT_CUR_PUB] = json!(cur_pub_hex);
+        peer[sf::MBOX_OUT_NEXT_PUB] = json!(next_pub_hex);
     }
 }
 
 pub fn ensure_mailbox_state(self_v: &mut Value, peer_v: &mut Value) -> Result<()> {
-    if self_v.get("mailbox").is_none() || !self_v["mailbox"].is_object() {
-        self_v["mailbox"] = json!({});
+    if self_v.get(sf::MAILBOX).is_none() || !self_v[sf::MAILBOX].is_object() {
+        self_v[sf::MAILBOX] = json!({});
     }
-    if self_v["mailbox"].get("tx_gen").is_none() {
-        self_v["mailbox"]["tx_gen"] = json!(0u64);
+    if self_v[sf::MAILBOX].get(sf::TX_GEN).is_none() {
+        self_v[sf::MAILBOX][sf::TX_GEN] = json!(0u64);
     }
-    if self_v["mailbox"].get("tx_sent").is_none() {
-        self_v["mailbox"]["tx_sent"] = json!(0u64);
+    if self_v[sf::MAILBOX].get(sf::TX_SENT).is_none() {
+        self_v[sf::MAILBOX][sf::TX_SENT] = json!(0u64);
     }
-    if self_v["mailbox"].get("rotate_every").is_none() {
-        self_v["mailbox"]["rotate_every"] = json!(MAILBOX_ROTATE_EVERY_DEFAULT);
+    if self_v[sf::MAILBOX].get(sf::ROTATE_EVERY).is_none() {
+        self_v[sf::MAILBOX][sf::ROTATE_EVERY] = json!(MAILBOX_ROTATE_EVERY_DEFAULT);
     }
 
-    if peer_v.get("mailbox").is_none() || !peer_v["mailbox"].is_object() {
-        peer_v["mailbox"] = json!({});
+    if peer_v.get(sf::MAILBOX).is_none() || !peer_v[sf::MAILBOX].is_object() {
+        peer_v[sf::MAILBOX] = json!({});
     }
-    if peer_v["mailbox"].get("peer_tx_gen_seen").is_none() {
-        peer_v["mailbox"]["peer_tx_gen_seen"] = json!(0u64);
+    if peer_v[sf::MAILBOX].get(sf::PEER_TX_GEN_SEEN).is_none() {
+        peer_v[sf::MAILBOX][sf::PEER_TX_GEN_SEEN] = json!(0u64);
     }
-    if peer_v["mailbox"].get("sender_pubs").is_none()
-        || !peer_v["mailbox"]["sender_pubs"].is_object()
+    if peer_v[sf::MAILBOX].get(sf::SENDER_PUBS).is_none()
+        || !peer_v[sf::MAILBOX][sf::SENDER_PUBS].is_object()
     {
-        peer_v["mailbox"]["sender_pubs"] = json!({});
+        peer_v[sf::MAILBOX][sf::SENDER_PUBS] = json!({});
     }
 
     // self stable receiver
-    if self_v.get("mbox_in_priv").is_none() {
+    if self_v.get(sf::MBOX_IN_PRIV).is_none() {
         let legacy = get_str(self_v, "x_priv")?.to_owned();
-        self_v["mbox_in_priv"] = json!(legacy);
+        self_v[sf::MBOX_IN_PRIV] = json!(legacy);
     }
-    if self_v.get("mbox_in_pub").is_none() {
+    if self_v.get(sf::MBOX_IN_PUB).is_none() {
         let legacy = get_str(self_v, "x_pub")?.to_owned();
-        self_v["mbox_in_pub"] = json!(legacy);
+        self_v[sf::MBOX_IN_PUB] = json!(legacy);
     }
 
     // self rotating sender current
-    if self_v.get("mbox_out_cur_priv").is_none() {
+    if self_v.get(sf::MBOX_OUT_CUR_PRIV).is_none() {
         let legacy = get_str(self_v, "x_priv")?.to_owned();
-        self_v["mbox_out_cur_priv"] = json!(legacy);
+        self_v[sf::MBOX_OUT_CUR_PRIV] = json!(legacy);
     }
-    if self_v.get("mbox_out_cur_pub").is_none() {
+    if self_v.get(sf::MBOX_OUT_CUR_PUB).is_none() {
         let legacy = get_str(self_v, "x_pub")?.to_owned();
-        self_v["mbox_out_cur_pub"] = json!(legacy);
+        self_v[sf::MBOX_OUT_CUR_PUB] = json!(legacy);
     }
 
     // self rotating sender next
-    if self_v.get("mbox_out_next_priv").is_none() || self_v.get("mbox_out_next_pub").is_none() {
+    if self_v.get(sf::MBOX_OUT_NEXT_PRIV).is_none() || self_v.get(sf::MBOX_OUT_NEXT_PUB).is_none() {
         let (priv_fb, pub_fb) = keys::random_x25519_keypair()?;
         let priv_hex = priv_fb.to_hex();
         let pub_hex = pub_fb.to_hex();
 
-        self_v["mbox_out_next_priv"] = json!(priv_hex.expose());
-        self_v["mbox_out_next_pub"] = json!(pub_hex.expose());
+        self_v[sf::MBOX_OUT_NEXT_PRIV] = json!(priv_hex.expose());
+        self_v[sf::MBOX_OUT_NEXT_PUB] = json!(pub_hex.expose());
     }
 
     // najpierw odczyt peer danych bez trzymania mutable borrow
     let peer_legacy_x = peer_v
-        .get("peer")
-        .and_then(|v| v.get("x_pub"))
+        .get(sf::PEER)
+        .and_then(|v| v.get(sf::X_PUB))
         .and_then(|v| v.as_str())
         .ok_or_else(|| LithiumError::json_missing_field("peer.x_pub"))?
         .to_owned();
 
     let peer_in_pub = peer_v
-        .get("peer")
-        .and_then(|v| v.get("mbox_in_pub"))
+        .get(sf::PEER)
+        .and_then(|v| v.get(sf::MBOX_IN_PUB))
         .and_then(|v| v.as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| peer_legacy_x.clone());
 
     let peer_out_cur_pub = peer_v
-        .get("peer")
-        .and_then(|v| v.get("mbox_out_cur_pub"))
+        .get(sf::PEER)
+        .and_then(|v| v.get(sf::MBOX_OUT_CUR_PUB))
         .and_then(|v| v.as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| peer_legacy_x.clone());
 
     let peer_out_next_pub = peer_v
-        .get("peer")
-        .and_then(|v| v.get("mbox_out_next_pub"))
+        .get(sf::PEER)
+        .and_then(|v| v.get(sf::MBOX_OUT_NEXT_PUB))
         .and_then(|v| v.as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| peer_out_cur_pub.clone());
 
     // teraz osobno mutujemy peer
     if let Some(peer) = peer_obj_mut(peer_v) {
-        if peer.get("mbox_in_pub").is_none() {
-            peer["mbox_in_pub"] = json!(peer_in_pub.clone());
+        if peer.get(sf::MBOX_IN_PUB).is_none() {
+            peer[sf::MBOX_IN_PUB] = json!(peer_in_pub.clone());
         }
-        if peer.get("mbox_out_cur_pub").is_none() {
-            peer["mbox_out_cur_pub"] = json!(peer_out_cur_pub.clone());
+        if peer.get(sf::MBOX_OUT_CUR_PUB).is_none() {
+            peer[sf::MBOX_OUT_CUR_PUB] = json!(peer_out_cur_pub.clone());
         }
-        if peer.get("mbox_out_next_pub").is_none() {
-            peer["mbox_out_next_pub"] = json!(peer_out_next_pub.clone());
+        if peer.get(sf::MBOX_OUT_NEXT_PUB).is_none() {
+            peer[sf::MBOX_OUT_NEXT_PUB] = json!(peer_out_next_pub.clone());
         }
     }
 
@@ -235,8 +236,8 @@ pub fn ensure_mailbox_state(self_v: &mut Value, peer_v: &mut Value) -> Result<()
 
 pub fn self_tx_generation(self_v: &Value) -> u64 {
     self_v
-        .get("mailbox")
-        .and_then(|v| v.get("tx_gen"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::TX_GEN))
         .and_then(|v| v.as_u64())
         .unwrap_or(0)
 }
@@ -263,16 +264,16 @@ pub fn derive_mailboxes_for_generation_from_values(
 
 pub fn mark_outbound_message_sent(self_v: &mut Value) -> Result<u64> {
     let rotate_every = self_v
-        .get("mailbox")
-        .and_then(|v| v.get("rotate_every"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::ROTATE_EVERY))
         .and_then(|v| v.as_u64())
         .unwrap_or(MAILBOX_ROTATE_EVERY_DEFAULT)
         .clamp(1, 4096);
 
     let tx_gen = self_tx_generation(self_v);
     let tx_sent = self_v
-        .get("mailbox")
-        .and_then(|v| v.get("tx_sent"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::TX_SENT))
         .and_then(|v| v.as_u64())
         .unwrap_or(0)
         .saturating_add(1);
@@ -284,25 +285,25 @@ pub fn mark_outbound_message_sent(self_v: &mut Value) -> Result<u64> {
         let (new_next_priv, new_next_pub) = keys::random_x25519_keypair()?;
 
         let next_gen = tx_gen.saturating_add(1);
-        self_v["mailbox"]["tx_gen"] = json!(next_gen);
-        self_v["mailbox"]["tx_sent"] = json!(0u64);
+        self_v[sf::MAILBOX][sf::TX_GEN] = json!(next_gen);
+        self_v[sf::MAILBOX][sf::TX_SENT] = json!(0u64);
 
-        self_v["mbox_out_cur_priv"] = json!(next_cur_priv);
-        self_v["mbox_out_cur_pub"] = json!(next_cur_pub);
-        self_v["mbox_out_next_priv"] = json!(new_next_priv.to_hex().expose());
-        self_v["mbox_out_next_pub"] = json!(new_next_pub.to_hex().expose());
+        self_v[sf::MBOX_OUT_CUR_PRIV] = json!(next_cur_priv);
+        self_v[sf::MBOX_OUT_CUR_PUB] = json!(next_cur_pub);
+        self_v[sf::MBOX_OUT_NEXT_PRIV] = json!(new_next_priv.to_hex().expose());
+        self_v[sf::MBOX_OUT_NEXT_PUB] = json!(new_next_pub.to_hex().expose());
 
         Ok(next_gen)
     } else {
-        self_v["mailbox"]["tx_sent"] = json!(tx_sent);
+        self_v[sf::MAILBOX][sf::TX_SENT] = json!(tx_sent);
         Ok(tx_gen)
     }
 }
 
 pub fn note_inbound_generation_seen(peer_v: &mut Value, generation: u64) {
     let cur = peer_v
-        .get("mailbox")
-        .and_then(|v| v.get("peer_tx_gen_seen"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::PEER_TX_GEN_SEEN))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
 
@@ -322,21 +323,21 @@ pub fn note_inbound_generation_seen(peer_v: &mut Value, generation: u64) {
 
         if let Some(peer) = peer_obj_mut(peer_v) {
             if let Some(cur_pub) = cur_pub {
-                peer["mbox_out_cur_pub"] = json!(cur_pub);
+                peer[sf::MBOX_OUT_CUR_PUB] = json!(cur_pub);
             }
             if let Some(next_pub) = next_pub {
-                peer["mbox_out_next_pub"] = json!(next_pub);
+                peer[sf::MBOX_OUT_NEXT_PUB] = json!(next_pub);
             }
         }
 
-        peer_v["mailbox"]["peer_tx_gen_seen"] = json!(generation);
+        peer_v[sf::MAILBOX][sf::PEER_TX_GEN_SEEN] = json!(generation);
     }
 }
 
 pub fn inbound_fetch_generations(peer_v: &Value) -> Vec<u64> {
     let seen = peer_v
-        .get("mailbox")
-        .and_then(|v| v.get("peer_tx_gen_seen"))
+        .get(sf::MAILBOX)
+        .and_then(|v| v.get(sf::PEER_TX_GEN_SEEN))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
 
@@ -362,15 +363,15 @@ mod tests {
         let x_pub  = x_pub_fb.to_hex().expose().to_owned();
         let (mbox_out_next_priv, mbox_out_next_pub) = keys::random_x25519_keypair().unwrap();
         json!({
-            "cid": hex32(),
-            "x_priv": x_priv,
-            "x_pub": x_pub,
-            "mbox_in_priv": x_priv.clone(),
-            "mbox_in_pub": x_pub.clone(),
-            "mbox_out_cur_priv": x_priv,
-            "mbox_out_cur_pub": x_pub,
-            "mbox_out_next_priv": mbox_out_next_priv.to_hex().expose(),
-            "mbox_out_next_pub": mbox_out_next_pub.to_hex().expose(),
+            sf::CID: hex32(),
+            sf::X_PRIV: x_priv,
+            sf::X_PUB: x_pub,
+            sf::MBOX_IN_PRIV: x_priv.clone(),
+            sf::MBOX_IN_PUB: x_pub.clone(),
+            sf::MBOX_OUT_CUR_PRIV: x_priv,
+            sf::MBOX_OUT_CUR_PUB: x_pub,
+            sf::MBOX_OUT_NEXT_PRIV: mbox_out_next_priv.to_hex().expose(),
+            sf::MBOX_OUT_NEXT_PUB: mbox_out_next_pub.to_hex().expose(),
         })
     }
 
@@ -380,12 +381,12 @@ mod tests {
         let x_pub = x_pub_fb.to_hex().expose().to_owned();
         let (_, mbox_out_next_pub) = keys::random_x25519_keypair().unwrap();
         json!({
-            "peer": {
-                "cid": hex32(),
-                "x_pub": x_pub.clone(),
-                "mbox_in_pub": x_pub.clone(),
-                "mbox_out_cur_pub": x_pub.clone(),
-                "mbox_out_next_pub": mbox_out_next_pub.to_hex().expose()
+            sf::PEER: {
+                sf::CID: hex32(),
+                sf::X_PUB: x_pub.clone(),
+                sf::MBOX_IN_PUB: x_pub.clone(),
+                sf::MBOX_OUT_CUR_PUB: x_pub.clone(),
+                sf::MBOX_OUT_NEXT_PUB: mbox_out_next_pub.to_hex().expose()
             }
         })
     }
@@ -398,10 +399,10 @@ mod tests {
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), Some(0));
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(0));
         assert_eq!(
-            sv["mailbox"]["rotate_every"].as_u64(),
+            sv[sf::MAILBOX][sf::ROTATE_EVERY].as_u64(),
             Some(MAILBOX_ROTATE_EVERY_DEFAULT)
         );
     }
@@ -412,8 +413,8 @@ mod tests {
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
-        assert!(pv["mailbox"]["peer_tx_gen_seen"].as_u64().is_some());
-        assert!(pv["mailbox"]["sender_pubs"].is_object());
+        assert!(pv[sf::MAILBOX][sf::PEER_TX_GEN_SEEN].as_u64().is_some());
+        assert!(pv[sf::MAILBOX][sf::SENDER_PUBS].is_object());
     }
 
     #[test]
@@ -421,15 +422,15 @@ mod tests {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        let tx_gen_before = sv["mailbox"]["tx_gen"].as_u64();
+        let tx_gen_before = sv[sf::MAILBOX][sf::TX_GEN].as_u64();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), tx_gen_before);
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), tx_gen_before);
     }
 
     #[test]
     fn ensure_mailbox_state_fails_without_peer_x_pub() {
         let mut sv = make_self_v();
-        let mut bad_peer_v = json!({ "peer": {} }); // missing x_pub
+        let mut bad_peer_v = json!({ sf::PEER: {} }); // missing x_pub
         let result = ensure_mailbox_state(&mut sv, &mut bad_peer_v);
         assert!(result.is_err());
     }
@@ -471,7 +472,7 @@ mod tests {
 
         let mbox_gen = mark_outbound_message_sent(&mut sv).unwrap();
         assert_eq!(mbox_gen, 0, "generation should still be 0 before rotate");
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(1));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(1));
     }
 
     #[test]
@@ -481,13 +482,13 @@ mod tests {
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
         // Set rotate_every = 2 to trigger rotation quickly
-        sv["mailbox"]["rotate_every"] = json!(2u64);
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(2u64);
         let _ = mark_outbound_message_sent(&mut sv).unwrap(); // tx_sent = 1
         let mbox_gen = mark_outbound_message_sent(&mut sv).unwrap(); // tx_sent >= 2 → rotate
 
         assert_eq!(mbox_gen, 1, "generation should advance to 1 after rotation");
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), Some(1));
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), Some(1));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(0));
     }
 
     #[test]
@@ -496,11 +497,11 @@ mod tests {
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
-        let next_pub_before = sv["mbox_out_next_pub"].as_str().unwrap().to_owned();
-        sv["mailbox"]["rotate_every"] = json!(1u64);
+        let next_pub_before = sv[sf::MBOX_OUT_NEXT_PUB].as_str().unwrap().to_owned();
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(1u64);
         mark_outbound_message_sent(&mut sv).unwrap();
 
-        let cur_pub_after = sv["mbox_out_cur_pub"].as_str().unwrap().to_owned();
+        let cur_pub_after = sv[sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned();
         assert_eq!(cur_pub_after, next_pub_before, "next becomes cur after rotation");
     }
 
@@ -509,26 +510,26 @@ mod tests {
     #[test]
     fn note_inbound_generation_seen_updates_peer_seen() {
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!({ "peer_tx_gen_seen": 0u64, "sender_pubs": {} });
+        pv[sf::MAILBOX] = json!({ sf::PEER_TX_GEN_SEEN: 0u64, sf::SENDER_PUBS: {} });
 
         note_inbound_generation_seen(&mut pv, 3);
-        assert_eq!(pv["mailbox"]["peer_tx_gen_seen"].as_u64(), Some(3));
+        assert_eq!(pv[sf::MAILBOX][sf::PEER_TX_GEN_SEEN].as_u64(), Some(3));
     }
 
     #[test]
     fn note_inbound_generation_seen_ignores_older_generation() {
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!({ "peer_tx_gen_seen": 5u64, "sender_pubs": {} });
+        pv[sf::MAILBOX] = json!({ sf::PEER_TX_GEN_SEEN: 5u64, sf::SENDER_PUBS: {} });
 
         note_inbound_generation_seen(&mut pv, 2); // older than 5
-        assert_eq!(pv["mailbox"]["peer_tx_gen_seen"].as_u64(), Some(5));
+        assert_eq!(pv[sf::MAILBOX][sf::PEER_TX_GEN_SEEN].as_u64(), Some(5));
     }
 
     // ── inbound_fetch_generations ─────────────────────────────────────────
 
     #[test]
     fn inbound_fetch_generations_initial_state() {
-        let pv = json!({ "mailbox": { "peer_tx_gen_seen": 0u64 } });
+        let pv = json!({ sf::MAILBOX: { sf::PEER_TX_GEN_SEEN: 0u64 } });
         let gens = inbound_fetch_generations(&pv);
         // seen=0 → start=max(0,0-2)=0, end=0+1=1 → [0,1]
         assert_eq!(gens, vec![0, 1]);
@@ -536,7 +537,7 @@ mod tests {
 
     #[test]
     fn inbound_fetch_generations_with_seen() {
-        let pv = json!({ "mailbox": { "peer_tx_gen_seen": 5u64 } });
+        let pv = json!({ sf::MAILBOX: { sf::PEER_TX_GEN_SEEN: 5u64 } });
         let gens = inbound_fetch_generations(&pv);
         // start=5-2=3, end=5+1=6 → [3,4,5,6]
         assert_eq!(gens, vec![3, 4, 5, 6]);
@@ -544,7 +545,7 @@ mod tests {
 
     #[test]
     fn inbound_fetch_generations_no_underflow() {
-        let pv = json!({ "mailbox": { "peer_tx_gen_seen": 1u64 } });
+        let pv = json!({ sf::MAILBOX: { sf::PEER_TX_GEN_SEEN: 1u64 } });
         let gens = inbound_fetch_generations(&pv);
         // start=max(0,1-2)=0, end=1+1=2 → [0,1,2]
         assert_eq!(gens, vec![0, 1, 2]);
@@ -555,13 +556,13 @@ mod tests {
     #[test]
     fn peer_store_mailbox_sender_keys_stores_both() {
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!({ "sender_pubs": {} });
+        pv[sf::MAILBOX] = json!({ sf::SENDER_PUBS: {} });
 
         let cur = hex32();
         let next = hex32();
         peer_store_mailbox_sender_keys(&mut pv, 2, &cur, &next);
 
-        let map = pv["mailbox"]["sender_pubs"].as_object().unwrap();
+        let map = pv[sf::MAILBOX][sf::SENDER_PUBS].as_object().unwrap();
         assert_eq!(map["2"].as_str(), Some(cur.as_str()));
         assert_eq!(map["3"].as_str(), Some(next.as_str()));
     }
@@ -575,7 +576,7 @@ mod tests {
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
         // rotate_every=1: every message triggers rotation
-        sv["mailbox"]["rotate_every"] = json!(1u64);
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(1u64);
 
         let g0 = mark_outbound_message_sent(&mut sv).unwrap(); // rotation: gen → 1
         assert_eq!(g0, 1);
@@ -584,8 +585,8 @@ mod tests {
         let g2 = mark_outbound_message_sent(&mut sv).unwrap(); // gen → 3
         assert_eq!(g2, 3);
 
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), Some(3));
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), Some(3));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(0));
     }
 
     #[test]
@@ -593,15 +594,15 @@ mod tests {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        sv["mailbox"]["rotate_every"] = json!(1u64);
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(1u64);
 
-        let pub_before_1 = sv["mbox_out_cur_pub"].as_str().unwrap().to_owned();
+        let pub_before_1 = sv[sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned();
         mark_outbound_message_sent(&mut sv).unwrap();
-        let pub_after_1 = sv["mbox_out_cur_pub"].as_str().unwrap().to_owned();
+        let pub_after_1 = sv[sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned();
 
         let pub_before_2 = pub_after_1.clone();
         mark_outbound_message_sent(&mut sv).unwrap();
-        let pub_after_2 = sv["mbox_out_cur_pub"].as_str().unwrap().to_owned();
+        let pub_after_2 = sv[sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned();
 
         assert_ne!(pub_before_1, pub_after_1, "key must change on rotation 1");
         assert_ne!(pub_before_2, pub_after_2, "key must change on rotation 2");
@@ -613,13 +614,13 @@ mod tests {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        sv["mailbox"]["rotate_every"] = json!(1u64);
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(1u64);
 
-        let next_pub_0 = sv["mbox_out_next_pub"].as_str().unwrap().to_owned();
+        let next_pub_0 = sv[sf::MBOX_OUT_NEXT_PUB].as_str().unwrap().to_owned();
         mark_outbound_message_sent(&mut sv).unwrap();
-        let next_pub_1 = sv["mbox_out_next_pub"].as_str().unwrap().to_owned();
+        let next_pub_1 = sv[sf::MBOX_OUT_NEXT_PUB].as_str().unwrap().to_owned();
         mark_outbound_message_sent(&mut sv).unwrap();
-        let next_pub_2 = sv["mbox_out_next_pub"].as_str().unwrap().to_owned();
+        let next_pub_2 = sv[sf::MBOX_OUT_NEXT_PUB].as_str().unwrap().to_owned();
 
         // every rotation generates a fresh next key
         assert_ne!(next_pub_0, next_pub_1);
@@ -635,11 +636,11 @@ mod tests {
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
-        sv["mailbox"]["tx_sent"] = json!("not_a_number");
+        sv[sf::MAILBOX][sf::TX_SENT] = json!("not_a_number");
         // Should not panic; saturating_add(1) from 0 default = tx_sent becomes 1
         let result = mark_outbound_message_sent(&mut sv);
         assert!(result.is_ok());
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(1));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(1));
     }
 
     #[test]
@@ -647,7 +648,7 @@ mod tests {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        sv["mailbox"]["rotate_every"] = json!(1u64);
+        sv[sf::MAILBOX][sf::ROTATE_EVERY] = json!(1u64);
 
         // remove mbox_out_next_priv so rotation cannot proceed
         sv.as_object_mut().unwrap().remove("mbox_out_next_priv");
@@ -662,35 +663,35 @@ mod tests {
         let mut pv = make_peer_v();
 
         // Partially initialized mailbox — only tx_gen set
-        sv["mailbox"] = json!({ "tx_gen": 7u64 });
+        sv[sf::MAILBOX] = json!({ sf::TX_GEN: 7u64 });
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
 
         // tx_gen preserved
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), Some(7));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), Some(7));
         // missing fields filled in
-        assert_eq!(sv["mailbox"]["tx_sent"].as_u64(), Some(0));
-        assert_eq!(sv["mailbox"]["rotate_every"].as_u64(), Some(MAILBOX_ROTATE_EVERY_DEFAULT));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_SENT].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::ROTATE_EVERY].as_u64(), Some(MAILBOX_ROTATE_EVERY_DEFAULT));
     }
 
     #[test]
     fn ensure_mailbox_state_mailbox_is_null_reinitializes() {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
-        sv["mailbox"] = json!(null);
+        sv[sf::MAILBOX] = json!(null);
 
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        assert_eq!(sv["mailbox"]["tx_gen"].as_u64(), Some(0));
+        assert_eq!(sv[sf::MAILBOX][sf::TX_GEN].as_u64(), Some(0));
     }
 
     #[test]
     fn ensure_mailbox_state_peer_mailbox_is_null_reinitializes() {
         let mut sv = make_self_v();
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!(null);
+        pv[sf::MAILBOX] = json!(null);
 
         ensure_mailbox_state(&mut sv, &mut pv).unwrap();
-        assert_eq!(pv["mailbox"]["peer_tx_gen_seen"].as_u64(), Some(0));
-        assert!(pv["mailbox"]["sender_pubs"].is_object());
+        assert_eq!(pv[sf::MAILBOX][sf::PEER_TX_GEN_SEEN].as_u64(), Some(0));
+        assert!(pv[sf::MAILBOX][sf::SENDER_PUBS].is_object());
     }
 
     // ── note_inbound_generation_seen updates peer keys ────────────────────
@@ -701,9 +702,9 @@ mod tests {
         let gen3_pub = hex32();
         let gen4_pub = hex32();
 
-        pv["mailbox"] = json!({
-            "peer_tx_gen_seen": 0u64,
-            "sender_pubs": {
+        pv[sf::MAILBOX] = json!({
+            sf::PEER_TX_GEN_SEEN: 0u64,
+            sf::SENDER_PUBS: {
                 "3": gen3_pub,
                 "4": gen4_pub
             }
@@ -712,27 +713,27 @@ mod tests {
         note_inbound_generation_seen(&mut pv, 3);
 
         // peer.mbox_out_cur_pub and mbox_out_next_pub should be updated from sender_pubs
-        let cur = pv["peer"]["mbox_out_cur_pub"].as_str().unwrap();
-        let next = pv["peer"]["mbox_out_next_pub"].as_str().unwrap();
+        let cur = pv[sf::PEER][sf::MBOX_OUT_CUR_PUB].as_str().unwrap();
+        let next = pv[sf::PEER][sf::MBOX_OUT_NEXT_PUB].as_str().unwrap();
         assert_eq!(cur, gen3_pub, "cur_pub must be updated to gen3 key");
         assert_eq!(next, gen4_pub, "next_pub must be updated to gen4 key");
-        assert_eq!(pv["mailbox"]["peer_tx_gen_seen"].as_u64(), Some(3));
+        assert_eq!(pv[sf::MAILBOX][sf::PEER_TX_GEN_SEEN].as_u64(), Some(3));
     }
 
     #[test]
     fn note_inbound_does_not_regress_peer_keys() {
         // Seen = 5, call with gen=3 (lower) → no update
         let mut pv = make_peer_v();
-        let original_pub = pv["peer"]["mbox_out_cur_pub"].as_str().unwrap().to_owned();
+        let original_pub = pv[sf::PEER][sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned();
 
-        pv["mailbox"] = json!({
-            "peer_tx_gen_seen": 5u64,
-            "sender_pubs": { "3": hex32(), "4": hex32() }
+        pv[sf::MAILBOX] = json!({
+            sf::PEER_TX_GEN_SEEN: 5u64,
+            sf::SENDER_PUBS: { "3": hex32(), "4": hex32() }
         });
 
         note_inbound_generation_seen(&mut pv, 3);
 
-        let cur = pv["peer"]["mbox_out_cur_pub"].as_str().unwrap();
+        let cur = pv[sf::PEER][sf::MBOX_OUT_CUR_PUB].as_str().unwrap();
         assert_eq!(cur, original_pub, "keys must not regress to lower generation");
     }
 
@@ -779,7 +780,7 @@ mod tests {
 
     #[test]
     fn inbound_fetch_generations_seen_large_value() {
-        let pv = json!({ "mailbox": { "peer_tx_gen_seen": 100u64 } });
+        let pv = json!({ sf::MAILBOX: { sf::PEER_TX_GEN_SEEN: 100u64 } });
         let gens = inbound_fetch_generations(&pv);
         // start=100-2=98, end=100+1=101 → [98,99,100,101]
         assert_eq!(gens, vec![98, 99, 100, 101]);
@@ -798,13 +799,13 @@ mod tests {
     #[test]
     fn peer_store_mailbox_sender_keys_overwrites_existing_generation() {
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!({ "sender_pubs": { "5": "old_pub" } });
+        pv[sf::MAILBOX] = json!({ sf::SENDER_PUBS: { "5": "old_pub" } });
 
         let new_cur = hex32();
         let new_next = hex32();
         peer_store_mailbox_sender_keys(&mut pv, 5, &new_cur, &new_next);
 
-        let map = pv["mailbox"]["sender_pubs"].as_object().unwrap();
+        let map = pv[sf::MAILBOX][sf::SENDER_PUBS].as_object().unwrap();
         assert_eq!(map["5"].as_str(), Some(new_cur.as_str()), "gen 5 must be overwritten");
         assert_eq!(map["6"].as_str(), Some(new_next.as_str()), "gen 6 = next must be stored");
     }
@@ -812,14 +813,14 @@ mod tests {
     #[test]
     fn peer_store_mailbox_sender_keys_also_updates_peer_object() {
         let mut pv = make_peer_v();
-        pv["mailbox"] = json!({ "sender_pubs": {} });
+        pv[sf::MAILBOX] = json!({ sf::SENDER_PUBS: {} });
 
         let cur = hex32();
         let next = hex32();
         peer_store_mailbox_sender_keys(&mut pv, 0, &cur, &next);
 
         // peer sub-object must also be updated
-        assert_eq!(pv["peer"]["mbox_out_cur_pub"].as_str(), Some(cur.as_str()));
-        assert_eq!(pv["peer"]["mbox_out_next_pub"].as_str(), Some(next.as_str()));
+        assert_eq!(pv[sf::PEER][sf::MBOX_OUT_CUR_PUB].as_str(), Some(cur.as_str()));
+        assert_eq!(pv[sf::PEER][sf::MBOX_OUT_NEXT_PUB].as_str(), Some(next.as_str()));
     }
 }

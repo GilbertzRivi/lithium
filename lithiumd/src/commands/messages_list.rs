@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::{
+    commands::stored_message,
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, storage_err, IpcResponse},
     state::DaemonState,
@@ -47,24 +48,14 @@ pub async fn handle(
     let mut out = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let parsed: Value = match serde_json::from_slice(row.content.expose_as_slice()) {
-            Ok(v) => v,
-            Err(_) => {
-                out.push(json!({
-                    "id": row.id,
-                    "direction": if row.direction == 1 { "out" } else { "in" },
-                    "kind": "unknown",
-                    "text": null,
-                    "ui": {},
-                    "created_at": row.created_at.to_rfc3339()
-                }));
-                continue;
-            }
+        let (kind, text, ui) = match stored_message::decode(row.content.expose_as_slice()) {
+            Some(d) => (
+                d.kind.unwrap_or_else(|| "unknown".to_string()),
+                d.text,
+                if d.ui.is_null() { json!({}) } else { d.ui },
+            ),
+            None => ("unknown".to_string(), None, json!({})),
         };
-
-        let kind = parsed.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
-        let text = parsed.get("text").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let ui = parsed.get("ui").cloned().unwrap_or_else(|| json!({}));
 
         out.push(json!({
             "id": row.id,

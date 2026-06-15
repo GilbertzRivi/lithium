@@ -6,10 +6,8 @@ use serde_json::{Map, Value};
 
 use crate::labels::{E2E_WIRE_MAGIC, E2E_WIRE_VER};
 
-// How many old receive-key slots to keep for out-of-order delivery.
 pub const DEFAULT_WINDOW: u64 = 32;
 
-// How many remote prekeys to keep per peer.
 pub const PREKEY_TARGET: usize = 5;
 
 pub(crate) fn now_ms() -> u64 {
@@ -26,14 +24,6 @@ pub(crate) fn drop_removed_json_key(map: &mut Map<String, Value>, key: &str) {
     }
 }
 
-/// Binary framing for an E2E message on the wire (LM1 v1 format).
-///
-/// ```text
-/// [LM1:3][VER:1][to_id:32][from_x_pub:32]
-/// [seed_len:u16][seed]
-/// [hdr_len:u32][enc_headers]
-/// [body_len:u32][enc_body]
-/// ```
 #[derive(Clone)]
 pub struct WireV1 {
     pub to_id: [u8; 32],
@@ -189,5 +179,24 @@ mod tests {
         assert!(decoded.seed.is_empty());
         assert!(decoded.enc_headers.is_empty());
         assert!(decoded.enc_body.is_empty());
+    }
+
+    #[test]
+    fn wire_packed_layout_is_pinned() {
+        let packed = pack_wire(&wire_fixture());
+        let expected = format!(
+            "4c4d3101{}{}0040{}00000080{}00000100{}",
+            "bb".repeat(32),
+            "cc".repeat(32),
+            "11".repeat(64),
+            "22".repeat(128),
+            "33".repeat(256),
+        );
+        assert_eq!(hex::encode(&packed), expected);
+
+        let decoded = unpack_wire(&packed).unwrap();
+        assert_eq!(decoded.seed.len(), 64);
+        assert_eq!(decoded.enc_headers.len(), 128);
+        assert_eq!(decoded.enc_body.len(), 256);
     }
 }

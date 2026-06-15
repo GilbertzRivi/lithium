@@ -5,6 +5,7 @@ use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
 use crate::transport::CryptoReq;
 
+use lithium_core::contract::protocol::field;
 use lithium_core::secrets::bytes::SecretBytes;
 
 fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
@@ -22,8 +23,8 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
 
         let _user = ctx.user.clone().ok_or(AppError::unauthorized("unauthorized"))?;
 
-        let mailbox_hex = ctx.body.take_string("mailbox")?;
-        let content_hex = ctx.body.take_string("content")?;
+        let mailbox_hex = ctx.body.take_string(field::MAILBOX)?;
+        let content_hex = ctx.body.take_string(field::CONTENT)?;
 
         (ctx.state.clone(), mailbox_hex, content_hex)
     };
@@ -46,7 +47,7 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     ctx.reply_ok_authed(
         120,
         json!({
-            "msg": "Message sent"
+            field::MSG: "Message sent"
         }),
     )
         .await
@@ -57,7 +58,7 @@ pub async fn fetch(req: CryptoReq) -> Result<Response, AppError> {
     let (state, mailbox_hex) = {
         let mut ctx = req.lock().await;
 
-        let mailbox_hex = ctx.body.take_string("mailbox")?;
+        let mailbox_hex = ctx.body.take_string(field::MAILBOX)?;
         (ctx.state.clone(), mailbox_hex)
     };
 
@@ -73,8 +74,8 @@ pub async fn fetch(req: CryptoReq) -> Result<Response, AppError> {
 
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
-        "msg": "Ok",
-        "data": data,
+        field::MSG: "Ok",
+        field::DATA: data,
     }))
         .await
 }

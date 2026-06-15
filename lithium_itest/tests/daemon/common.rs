@@ -139,26 +139,14 @@ impl IpcClient {
     }
 }
 
-// Binary format: [8] magic "LITHIUPK" | [1] version 0x01 | [1] entry_count
-// Entry: [1] tag_len | [N] tag | [2 LE] data_len | [M] data
 pub fn build_server_identity(bs: &ServerBootstrap) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(b"LITHIUPK");
-    out.push(0x01);
-    out.push(4u8);
-
-    let mut add = |tag: &str, data: &[u8]| {
-        out.push(tag.len() as u8);
-        out.extend_from_slice(tag.as_bytes());
-        out.extend_from_slice(&(data.len() as u16).to_le_bytes());
-        out.extend_from_slice(data);
-    };
-
-    add("x25519",    bs.shake_pub_x.as_slice());
-    add("ed25519",   bs.server_sig_ed.as_slice());
-    add("mlkem1024", bs.shake_pub_k.expose_as_slice());
-    add("mldsa87",   bs.server_sig_dili.expose_as_slice());
-    out
+    use lithium_core::contract::identity_file::{encode, ServerIdentityKeys};
+    encode(&ServerIdentityKeys {
+        x25519: bs.shake_pub_x.as_slice().to_vec(),
+        ed25519: bs.server_sig_ed.as_slice().to_vec(),
+        mlkem1024: bs.shake_pub_k.expose_as_slice().to_vec(),
+        mldsa87: bs.server_sig_dili.expose_as_slice().to_vec(),
+    })
 }
 
 pub const DATA_PASS: &str = "DataPass1!";

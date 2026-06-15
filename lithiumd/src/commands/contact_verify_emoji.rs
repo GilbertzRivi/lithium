@@ -10,6 +10,7 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
+use crate::state_fields as sf;
 use crate::{
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
@@ -74,19 +75,19 @@ fn compute_verify_emojis(
 ) -> Result<Vec<&'static str>, LithiumError> {
     let self_x_priv = Byte32::from_hex(self_field(self_v, "x_priv")?.trim())?;
 
-    let self_cid = decode_hex_field(&self_field(self_v, "cid")?)?;
+    let self_cid = decode_hex_field(&self_field(self_v, sf::CID)?)?;
     let self_x_pub = decode_hex_field(&self_field(self_v, "x_pub")?)?;
-    let self_ed_pub = decode_hex_field(&self_field(self_v, "ed_pub")?)?;
-    let self_dili_pub = decode_hex_field(&self_field(self_v, "dili_pub")?)?;
+    let self_ed_pub = decode_hex_field(&self_field(self_v, sf::ED_PUB)?)?;
+    let self_dili_pub = decode_hex_field(&self_field(self_v, sf::DILI_PUB)?)?;
     let self_k_pub = decode_hex_field(&self_field(self_v, "k_pub")?)?;
     let self_mbox_in_pub = decode_hex_field(&self_field(self_v, "mbox_in_pub")?)?;
     let self_mbox_out_cur_pub = decode_hex_field(&self_field(self_v, "mbox_out_cur_pub")?)?;
     let self_mbox_out_next_pub = decode_hex_field(&self_field(self_v, "mbox_out_next_pub")?)?;
 
     let peer_x_pub_bytes = decode_hex_field(&peer_field(peer_v, "x_pub")?)?;
-    let peer_cid = decode_hex_field(&peer_field(peer_v, "cid")?)?;
-    let peer_ed_pub = decode_hex_field(&peer_field(peer_v, "ed_pub")?)?;
-    let peer_dili_pub = decode_hex_field(&peer_field(peer_v, "dili_pub")?)?;
+    let peer_cid = decode_hex_field(&peer_field(peer_v, sf::CID)?)?;
+    let peer_ed_pub = decode_hex_field(&peer_field(peer_v, sf::ED_PUB)?)?;
+    let peer_dili_pub = decode_hex_field(&peer_field(peer_v, sf::DILI_PUB)?)?;
     let peer_k_pub = decode_hex_field(&peer_field(peer_v, "k_pub")?)?;
     let peer_mbox_in_pub = decode_hex_field(&peer_field(peer_v, "mbox_in_pub")?)?;
     let peer_mbox_out_cur_pub = decode_hex_field(&peer_field(peer_v, "mbox_out_cur_pub")?)?;

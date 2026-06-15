@@ -5,6 +5,8 @@ use lithium_core::{
 };
 use serde_json::Value;
 
+use crate::state_fields as sf;
+
 use crate::labels::{E2E_SIG_LABEL, KID_LABEL};
 
 pub(crate) fn id_from_peer_pubs(peer_x_pub_hex: &str, peer_k_pub_hex: &str) -> Result<[u8; 32]> {
@@ -35,12 +37,12 @@ pub(crate) fn json_get_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 pub(crate) fn get_self_identity_privs(self_v: &SecretJson) -> Result<(Byte32, SecretBytes)> {
     self_v.with_exposed(|self_v| {
         let ed_priv_hex = self_v
-            .get("ed_priv")
+            .get(sf::ED_PRIV)
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("ed_priv"))?;
 
         let dili_priv_hex = self_v
-            .get("dili_priv")
+            .get(sf::DILI_PRIV)
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("dili_priv"))?;
 
@@ -52,7 +54,7 @@ pub(crate) fn get_self_identity_privs(self_v: &SecretJson) -> Result<(Byte32, Se
 }
 
 pub(crate) fn get_peer_identity_pubs(peer_v: &Value) -> Result<(Byte32, SecretBytes)> {
-    let peer_obj = peer_v.get("peer").filter(|v| v.is_object()).unwrap_or(peer_v);
+    let peer_obj = peer_v.get(sf::PEER).filter(|v| v.is_object()).unwrap_or(peer_v);
 
     let ed_pub_hex = json_get_str(peer_obj, "ed_pub")
         .ok_or_else(|| LithiumError::json_missing_field("ed_pub"))?;

@@ -4,24 +4,26 @@ use lithium_core::{
 };
 use serde_json::json;
 
+use crate::state_fields as sf;
+
 use super::{
     crypto::id_from_peer_pubs,
     wire::{drop_removed_json_key, now_ms, DEFAULT_WINDOW},
 };
 
 pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &SecretJson) {
-    let peer_established = peer_v.with_exposed(|peer_v| peer_v.get("e2e_peer").is_some());
+    let peer_established = peer_v.with_exposed(|peer_v| peer_v.get(sf::E2E_PEER).is_some());
 
     let retire_ok = self_v.with_exposed(|self_v| {
         let ack_seq = self_v
-            .get("e2e_rx")
-            .and_then(|v| v.get("ack_seq"))
+            .get(sf::E2E_RX)
+            .and_then(|v| v.get(sf::ACK_SEQ))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
         let marked = self_v
-            .get("bootstrap")
-            .and_then(|v| v.get("retire_ok"))
+            .get(sf::BOOTSTRAP)
+            .and_then(|v| v.get(sf::RETIRE_OK))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
@@ -33,8 +35,8 @@ pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &S
     }
 
     self_v.with_exposed_mut(|self_v| {
-        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
-            self_v["bootstrap"] = json!({});
+        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
+            self_v[sf::BOOTSTRAP] = json!({});
         }
 
         if let Some(obj) = self_v.as_object_mut() {
@@ -42,71 +44,71 @@ pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &S
             drop_removed_json_key(obj, "k_priv");
         }
 
-        self_v["bootstrap"]["rx_used"] = json!(true);
-        self_v["bootstrap"]["retire_ok"] = json!(true);
-        self_v["bootstrap"]["retired_at_ms"] = json!(now_ms());
+        self_v[sf::BOOTSTRAP][sf::RX_USED] = json!(true);
+        self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(true);
+        self_v[sf::BOOTSTRAP][sf::RETIRED_AT_MS] = json!(now_ms());
     });
 }
 
 pub fn mark_bootstrap_retire_ready(self_v: &mut SecretJson) {
     self_v.with_exposed_mut(|self_v| {
-        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
-            self_v["bootstrap"] = json!({});
+        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
+            self_v[sf::BOOTSTRAP] = json!({});
         }
-        self_v["bootstrap"]["retire_ok"] = json!(true);
+        self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(true);
     });
 }
 
 pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
     self_v.with_exposed_mut(|self_v| {
-        if self_v.get("e2e_tx").is_none() {
-            self_v["e2e_tx"] = json!({ "step": 0u64 });
+        if self_v.get(sf::E2E_TX).is_none() {
+            self_v[sf::E2E_TX] = json!({ sf::STEP: 0u64 });
         }
 
-        if self_v.get("bootstrap").is_none() || !self_v["bootstrap"].is_object() {
-            self_v["bootstrap"] = json!({ "rx_used": false, "retire_ok": false });
+        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
+            self_v[sf::BOOTSTRAP] = json!({ sf::RX_USED: false, sf::RETIRE_OK: false });
         } else {
-            if self_v["bootstrap"].get("rx_used").is_none() {
-                self_v["bootstrap"]["rx_used"] = json!(false);
+            if self_v[sf::BOOTSTRAP].get(sf::RX_USED).is_none() {
+                self_v[sf::BOOTSTRAP][sf::RX_USED] = json!(false);
             }
-            if self_v["bootstrap"].get("retire_ok").is_none() {
-                self_v["bootstrap"]["retire_ok"] = json!(false);
+            if self_v[sf::BOOTSTRAP].get(sf::RETIRE_OK).is_none() {
+                self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(false);
             }
         }
 
-        if self_v.get("e2e_rx").is_some() {
-            if self_v["e2e_rx"].get("window").is_none() {
-                self_v["e2e_rx"]["window"] = json!(DEFAULT_WINDOW);
+        if self_v.get(sf::E2E_RX).is_some() {
+            if self_v[sf::E2E_RX].get(sf::WINDOW).is_none() {
+                self_v[sf::E2E_RX][sf::WINDOW] = json!(DEFAULT_WINDOW);
             }
-            if self_v["e2e_rx"].get("ack_seq").is_none() {
-                self_v["e2e_rx"]["ack_seq"] = json!(0u64);
+            if self_v[sf::E2E_RX].get(sf::ACK_SEQ).is_none() {
+                self_v[sf::E2E_RX][sf::ACK_SEQ] = json!(0u64);
             }
-            if self_v["e2e_rx"].get("next_seq").is_none() {
-                self_v["e2e_rx"]["next_seq"] = json!(1u64);
+            if self_v[sf::E2E_RX].get(sf::NEXT_SEQ).is_none() {
+                self_v[sf::E2E_RX][sf::NEXT_SEQ] = json!(1u64);
             }
-            if self_v["e2e_rx"].get("keys").is_none() {
-                self_v["e2e_rx"]["keys"] = json!({});
+            if self_v[sf::E2E_RX].get(sf::KEYS).is_none() {
+                self_v[sf::E2E_RX][sf::KEYS] = json!({});
             }
-            if self_v["e2e_rx"].get("active").is_none() {
-                self_v["e2e_rx"]["active"] = json!("");
+            if self_v[sf::E2E_RX].get(sf::ACTIVE).is_none() {
+                self_v[sf::E2E_RX][sf::ACTIVE] = json!("");
             }
         } else {
-            self_v["e2e_rx"] = json!({
-                "active": "",
-                "ack_seq": 0u64,
-                "next_seq": 1u64,
-                "window": DEFAULT_WINDOW,
-                "keys": {}
+            self_v[sf::E2E_RX] = json!({
+                sf::ACTIVE: "",
+                sf::ACK_SEQ: 0u64,
+                sf::NEXT_SEQ: 1u64,
+                sf::WINDOW: DEFAULT_WINDOW,
+                sf::KEYS: {}
             });
         }
 
         let x_pub = self_v
-            .get("x_pub")
+            .get(sf::X_PUB)
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("x_pub"))?
             .to_string();
         let k_pub = self_v
-            .get("k_pub")
+            .get(sf::K_PUB)
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("k_pub"))?
             .to_string();
@@ -114,10 +116,10 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
         let bootstrap_id_hex = hex::encode(id_from_peer_pubs(&x_pub, &k_pub)?);
 
         // Remove any stale seq=0 bootstrap slot from the ratchet key map.
-        if let Some(keys) = self_v["e2e_rx"].get_mut("keys").and_then(|v| v.as_object_mut()) {
+        if let Some(keys) = self_v[sf::E2E_RX].get_mut(sf::KEYS).and_then(|v| v.as_object_mut()) {
             let remove_bootstrap = keys
                 .get(&bootstrap_id_hex)
-                .and_then(|v| v.get("seq"))
+                .and_then(|v| v.get(sf::SEQ))
                 .and_then(|v| v.as_u64())
                 == Some(0);
 
@@ -126,19 +128,19 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
             }
         }
 
-        if self_v["e2e_rx"]
-            .get("active")
+        if self_v[sf::E2E_RX]
+            .get(sf::ACTIVE)
             .and_then(|v| v.as_str())
             == Some(bootstrap_id_hex.as_str())
         {
-            self_v["e2e_rx"]["active"] = json!("");
+            self_v[sf::E2E_RX][sf::ACTIVE] = json!("");
         }
 
-        if self_v.get("prekeys_local_public").is_none() {
-            self_v["prekeys_local_public"] = json!([]);
+        if self_v.get(sf::PREKEYS_LOCAL_PUBLIC).is_none() {
+            self_v[sf::PREKEYS_LOCAL_PUBLIC] = json!([]);
         }
-        if self_v.get("prekeys_advertised").is_none() {
-            self_v["prekeys_advertised"] = json!(false);
+        if self_v.get(sf::PREKEYS_ADVERTISED).is_none() {
+            self_v[sf::PREKEYS_ADVERTISED] = json!(false);
         }
 
         Ok(())
@@ -150,16 +152,16 @@ pub(crate) fn self_bootstrap_rx_privs(
     to_id: &[u8; 32],
 ) -> Option<(Byte32, SecretBytes)> {
     self_v.with_exposed(|self_v| {
-        let x_pub_hex = self_v.get("x_pub")?.as_str()?;
-        let k_pub_hex = self_v.get("k_pub")?.as_str()?;
+        let x_pub_hex = self_v.get(sf::X_PUB)?.as_str()?;
+        let k_pub_hex = self_v.get(sf::K_PUB)?.as_str()?;
         let bootstrap_id = id_from_peer_pubs(x_pub_hex, k_pub_hex).ok()?;
 
         if &bootstrap_id != to_id {
             return None;
         }
 
-        let x_priv_hex = self_v.get("x_priv")?.as_str()?;
-        let k_priv_hex = self_v.get("k_priv")?.as_str()?;
+        let x_priv_hex = self_v.get(sf::X_PRIV)?.as_str()?;
+        let k_priv_hex = self_v.get(sf::K_PRIV)?.as_str()?;
 
         let x_priv = Byte32::from_hex(x_priv_hex.trim()).ok()?;
         let k_priv = SecretBytes::from_hex(k_priv_hex.trim()).ok()?;
@@ -170,8 +172,8 @@ pub(crate) fn self_bootstrap_rx_privs(
 
 pub(crate) fn self_next_seq(self_v: &mut SecretJson) -> u64 {
     self_v.with_exposed_mut(|self_v| {
-        let n = self_v["e2e_rx"]["next_seq"].as_u64().unwrap_or(1);
-        self_v["e2e_rx"]["next_seq"] = json!(n + 1);
+        let n = self_v[sf::E2E_RX][sf::NEXT_SEQ].as_u64().unwrap_or(1);
+        self_v[sf::E2E_RX][sf::NEXT_SEQ] = json!(n + 1);
         n
     })
 }
@@ -179,20 +181,20 @@ pub(crate) fn self_next_seq(self_v: &mut SecretJson) -> u64 {
 pub(crate) fn self_find_seq(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<u64> {
     self_v.with_exposed(|self_v| {
         let id_hex = hex::encode(to_id);
-        let keys = self_v.get("e2e_rx")?.get("keys")?.as_object()?;
+        let keys = self_v.get(sf::E2E_RX)?.get(sf::KEYS)?.as_object()?;
         let item = keys.get(&id_hex)?.as_object()?;
-        item.get("seq")?.as_u64()
+        item.get(sf::SEQ)?.as_u64()
     })
 }
 
 pub(crate) fn self_get_rx_privs(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<(Byte32, SecretBytes)> {
     self_v.with_exposed(|self_v| {
         let id_hex = hex::encode(to_id);
-        let keys = self_v.get("e2e_rx")?.get("keys")?.as_object()?;
+        let keys = self_v.get(sf::E2E_RX)?.get(sf::KEYS)?.as_object()?;
         let item = keys.get(&id_hex)?.as_object()?;
 
-        let x_priv_hex = item.get("x_priv")?.as_str()?;
-        let k_priv_hex = item.get("k_priv")?.as_str()?;
+        let x_priv_hex = item.get(sf::X_PRIV)?.as_str()?;
+        let k_priv_hex = item.get(sf::K_PRIV)?.as_str()?;
 
         Some((
             Byte32::from_hex(x_priv_hex.trim()).ok()?,
@@ -203,15 +205,15 @@ pub(crate) fn self_get_rx_privs(self_v: &SecretJson, to_id: &[u8; 32]) -> Option
 
 pub(crate) fn gc_after_ack(self_v: &mut SecretJson) {
     self_v.with_exposed_mut(|self_v| {
-        let window = self_v["e2e_rx"]["window"].as_u64().unwrap_or(DEFAULT_WINDOW);
-        let ack = self_v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0);
+        let window = self_v[sf::E2E_RX][sf::WINDOW].as_u64().unwrap_or(DEFAULT_WINDOW);
+        let ack = self_v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0);
         let min_keep_seq = ack.saturating_sub(window);
 
         let mut remove: Vec<String> = Vec::new();
 
-        if let Some(keys) = self_v["e2e_rx"]["keys"].as_object() {
+        if let Some(keys) = self_v[sf::E2E_RX][sf::KEYS].as_object() {
             for (k, v) in keys.iter() {
-                let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
+                let seq = v.get(sf::SEQ).and_then(|x| x.as_u64()).unwrap_or(0);
                 if seq == 0 {
                     continue;
                 }
@@ -221,7 +223,7 @@ pub(crate) fn gc_after_ack(self_v: &mut SecretJson) {
             }
         }
 
-        if let Some(keys) = self_v["e2e_rx"]["keys"].as_object_mut() {
+        if let Some(keys) = self_v[sf::E2E_RX][sf::KEYS].as_object_mut() {
             for k in remove {
                 drop_removed_json_key(keys, &k);
             }
@@ -231,8 +233,8 @@ pub(crate) fn gc_after_ack(self_v: &mut SecretJson) {
 
 pub(crate) fn next_tx_step(self_v: &mut SecretJson) -> u64 {
     self_v.with_exposed_mut(|self_v| {
-        let step = self_v["e2e_tx"]["step"].as_u64().unwrap_or(0) + 1;
-        self_v["e2e_tx"]["step"] = json!(step);
+        let step = self_v[sf::E2E_TX][sf::STEP].as_u64().unwrap_or(0) + 1;
+        self_v[sf::E2E_TX][sf::STEP] = json!(step);
         step
     })
 }
@@ -248,13 +250,13 @@ mod tests {
         ensure_self_keyring(&mut sj).unwrap();
 
         sj.with_exposed(|v| {
-            assert!(v.get("e2e_tx").is_some(), "e2e_tx must be initialized");
-            assert!(v.get("e2e_rx").is_some(), "e2e_rx must be initialized");
-            assert!(v.get("bootstrap").is_some(), "bootstrap must be initialized");
-            assert!(v["e2e_rx"]["active"].is_string());
-            assert_eq!(v["e2e_rx"]["ack_seq"].as_u64(), Some(0));
-            assert_eq!(v["e2e_rx"]["next_seq"].as_u64(), Some(1));
-            assert_eq!(v["e2e_rx"]["window"].as_u64(), Some(DEFAULT_WINDOW));
+            assert!(v.get(sf::E2E_TX).is_some(), "e2e_tx must be initialized");
+            assert!(v.get(sf::E2E_RX).is_some(), "e2e_rx must be initialized");
+            assert!(v.get(sf::BOOTSTRAP).is_some(), "bootstrap must be initialized");
+            assert!(v[sf::E2E_RX][sf::ACTIVE].is_string());
+            assert_eq!(v[sf::E2E_RX][sf::ACK_SEQ].as_u64(), Some(0));
+            assert_eq!(v[sf::E2E_RX][sf::NEXT_SEQ].as_u64(), Some(1));
+            assert_eq!(v[sf::E2E_RX][sf::WINDOW].as_u64(), Some(DEFAULT_WINDOW));
         });
     }
 
@@ -262,9 +264,9 @@ mod tests {
     fn ensure_self_keyring_idempotent() {
         let (_cid, mut sj) = gen_self_state().unwrap();
         ensure_self_keyring(&mut sj).unwrap();
-        let ack_before = sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64());
+        let ack_before = sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64());
         ensure_self_keyring(&mut sj).unwrap();
-        let ack_after = sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64());
+        let ack_after = sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64());
         assert_eq!(ack_before, ack_after);
     }
 
@@ -275,8 +277,8 @@ mod tests {
         mark_bootstrap_retire_ready(&mut sj);
 
         let flag = sj.with_exposed(|v| {
-            v.get("bootstrap")
-                .and_then(|b| b.get("retire_ok"))
+            v.get(sf::BOOTSTRAP)
+                .and_then(|b| b.get(sf::RETIRE_OK))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
         });

@@ -7,10 +7,11 @@ use serde_json::{Value, json};
 
 use crate::commands::contact_mailbox::{current_outbound_mailbox_pubs, peer_store_mailbox_sender_keys};
 use crate::labels::E2E_LABEL;
+use crate::state_fields as sf;
 
 use super::{
     crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
-    header::{Auth, Mailbox, Reply, SignedHeader, SignedHeaderWire, SIGNED_HEADER_V},
+    header::{Auth, E2eMode, Mailbox, Reply, SignedHeader, SignedHeaderWire, SIGNED_HEADER_V},
     prekeys::prekey_blob_to_privs,
     state_peer::{
         ensure_peer_e2e, merge_remote_prekeys_into_peer, peer_bootstrap_target,
@@ -75,26 +76,26 @@ fn decrypt_with_privs(
         &hdr.mailbox.sender_next_x_pub,
     );
 
-    let peer_step_cur = peer_v["e2e_peer"]["step"].as_u64().unwrap_or(0);
+    let peer_step_cur = peer_v[sf::E2E_PEER][sf::STEP].as_u64().unwrap_or(0);
 
     if step_in > peer_step_cur {
         let reply_id = Byte32::from_hex(hdr.reply.id.trim())?;
-        peer_v["e2e_peer"] = json!({
-            "id": reply_id.to_hex().expose(),
-            "x_pub": hdr.reply.x_pub.as_str(),
-            "k_pub": hdr.reply.k_pub.as_str(),
-            "step": step_in,
-            "updated_at_ms": super::wire::now_ms()
+        peer_v[sf::E2E_PEER] = json!({
+            sf::ID: reply_id.to_hex().expose(),
+            sf::X_PUB: hdr.reply.x_pub.as_str(),
+            sf::K_PUB: hdr.reply.k_pub.as_str(),
+            sf::STEP: step_in,
+            sf::UPDATED_AT_MS: super::wire::now_ms()
         });
     }
 
-    peer_v["need_recover"] = json!(false);
+    peer_v[sf::NEED_RECOVER] = json!(false);
 
     Ok((
         pt_body.expose_as_slice().to_vec(),
         json!({
-            "ts_ms": hdr.ts_ms, "msg_id": hdr.msg_id.as_str(), "kind": hdr.kind.as_str(),
-            "step": step_in, "mode": hdr.mode.as_str(), "mailbox_gen": mailbox_gen
+            sf::TS_MS: hdr.ts_ms, sf::MSG_ID: hdr.msg_id.as_str(), sf::KIND: hdr.kind.as_str(),
+            sf::STEP: step_in, sf::MODE: hdr.mode.as_str(), sf::MAILBOX_GEN: mailbox_gen
         }),
     ))
 }
@@ -117,11 +118,11 @@ pub fn encrypt_for_peer(
             return Err(LithiumError::invalid_credentials("no_remote_prekey"));
         };
         let id = Byte32::from_hex(id_hex.trim())?;
-        (*id.as_array(), x_pub, k_pub, "prekey_recover")
+        (*id.as_array(), x_pub, k_pub, E2eMode::PrekeyRecover)
     } else if let Ok((id, x_pub, k_pub, _st)) = ensure_peer_e2e(peer_v) {
-        (id, x_pub, k_pub, "ratchet")
+        (id, x_pub, k_pub, E2eMode::Ratchet)
     } else if let Some((id, x_pub, k_pub)) = peer_bootstrap_target(peer_v) {
-        (id, x_pub, k_pub, "bootstrap")
+        (id, x_pub, k_pub, E2eMode::Bootstrap)
     } else {
         return Err(LithiumError::invalid_credentials("need_reply_or_prekey"));
     };
@@ -140,33 +141,33 @@ pub fn encrypt_for_peer(
 
     let seq = self_next_seq(self_v);
     self_v.with_exposed_mut(|self_v| -> Result<()> {
-        if self_v.get("e2e_rx").is_none() {
-            self_v["e2e_rx"] = json!({
-                "active": "",
-                "ack_seq": 0u64,
-                "next_seq": 1u64,
-                "window": DEFAULT_WINDOW,
-                "keys": {}
+        if self_v.get(sf::E2E_RX).is_none() {
+            self_v[sf::E2E_RX] = json!({
+                sf::ACTIVE: "",
+                sf::ACK_SEQ: 0u64,
+                sf::NEXT_SEQ: 1u64,
+                sf::WINDOW: DEFAULT_WINDOW,
+                sf::KEYS: {}
             });
         }
 
         let id_hex = reply_id.to_hex();
-        self_v["e2e_rx"]["active"] = Value::String(id_hex.expose().to_owned());
+        self_v[sf::E2E_RX][sf::ACTIVE] = Value::String(id_hex.expose().to_owned());
 
-        let keys = self_v["e2e_rx"]
-            .get_mut("keys")
+        let keys = self_v[sf::E2E_RX]
+            .get_mut(sf::KEYS)
             .and_then(|v| v.as_object_mut())
             .ok_or_else(|| LithiumError::json_missing_field("e2e_rx.keys"))?;
 
         keys.insert(
             id_hex.expose().to_owned(),
             json!({
-                "x_priv": rx_x_priv_hex.expose(),
-                "x_pub": rx_x_pub_hex.expose(),
-                "k_priv": rx_k_priv_hex.expose(),
-                "k_pub": rx_k_pub_hex.expose(),
-                "seq": seq,
-                "created_at_ms": super::wire::now_ms()
+                sf::X_PRIV: rx_x_priv_hex.expose(),
+                sf::X_PUB: rx_x_pub_hex.expose(),
+                sf::K_PRIV: rx_k_priv_hex.expose(),
+                sf::K_PUB: rx_k_pub_hex.expose(),
+                sf::SEQ: seq,
+                sf::CREATED_AT_MS: super::wire::now_ms()
             }),
         );
 
@@ -186,7 +187,7 @@ pub fn encrypt_for_peer(
 
     let header = SignedHeader {
         v: SIGNED_HEADER_V,
-        mode: mode.to_owned(),
+        mode,
         ts_ms,
         msg_id: msg_id.clone(),
         kind: kind.to_owned(),
@@ -235,8 +236,8 @@ pub fn encrypt_for_peer(
             enc_body: wire.enc_body.expose_as_slice().to_vec(),
         },
         json!({
-            "ts_ms": ts_ms, "msg_id": msg_id,
-            "step": step, "mode": mode, "mailbox_gen": mailbox_gen
+            sf::TS_MS: ts_ms, sf::MSG_ID: msg_id,
+            sf::STEP: step, sf::MODE: mode.as_str(), sf::MAILBOX_GEN: mailbox_gen
         }),
     ))
 }
@@ -261,9 +262,9 @@ pub fn decrypt_for_us(
 
     if let Some(seq) = self_find_seq(self_v, &w.to_id) {
         self_v.with_exposed_mut(|self_v| {
-            let ack = self_v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0);
+            let ack = self_v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0);
             if seq > ack {
-                self_v["e2e_rx"]["ack_seq"] = json!(seq);
+                self_v[sf::E2E_RX][sf::ACK_SEQ] = json!(seq);
             }
         });
         gc_after_ack(self_v);
@@ -301,15 +302,15 @@ mod tests {
         let cid_hex = hex::encode(cid_bytes);
         state_sj.with_exposed(|v| {
             SecretJson::from(json!({
-                "peer": {
-                    "cid":      cid_hex,
-                    "x_pub":    v.get("x_pub").unwrap(),
-                    "k_pub":    v.get("k_pub").unwrap(),
-                    "ed_pub":   v.get("ed_pub").unwrap(),
-                    "dili_pub": v.get("dili_pub").unwrap(),
-                    "mbox_in_pub":       v.get("mbox_in_pub").unwrap_or(v.get("x_pub").unwrap()),
-                    "mbox_out_cur_pub":  v.get("mbox_out_cur_pub").unwrap_or(v.get("x_pub").unwrap()),
-                    "mbox_out_next_pub": v.get("mbox_out_next_pub").unwrap_or(v.get("x_pub").unwrap()),
+                sf::PEER: {
+                    sf::CID:      cid_hex,
+                    sf::X_PUB:    v.get(sf::X_PUB).unwrap(),
+                    sf::K_PUB:    v.get(sf::K_PUB).unwrap(),
+                    sf::ED_PUB:   v.get(sf::ED_PUB).unwrap(),
+                    sf::DILI_PUB: v.get(sf::DILI_PUB).unwrap(),
+                    sf::MBOX_IN_PUB:       v.get(sf::MBOX_IN_PUB).unwrap_or(v.get(sf::X_PUB).unwrap()),
+                    sf::MBOX_OUT_CUR_PUB:  v.get(sf::MBOX_OUT_CUR_PUB).unwrap_or(v.get(sf::X_PUB).unwrap()),
+                    sf::MBOX_OUT_NEXT_PUB: v.get(sf::MBOX_OUT_NEXT_PUB).unwrap_or(v.get(sf::X_PUB).unwrap()),
                 }
             }))
         })
@@ -341,7 +342,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            meta.get("mode").and_then(|v| v.as_str()),
+            meta.get(sf::MODE).and_then(|v| v.as_str()),
             Some("bootstrap"),
             "first message must use bootstrap mode"
         );
@@ -396,23 +397,23 @@ mod tests {
     fn e2e_prekey_roundtrip() {
         let (alice_cid, mut alice_self_sj) = gen_self_state().unwrap();
         let (_prekey_id, prekey_blob, pub_item) = gen_local_prekey_material().unwrap();
-        let pk_x_pub = pub_item.get("x_pub").unwrap().as_str().unwrap().to_owned();
-        let pk_k_pub = pub_item.get("k_pub").unwrap().as_str().unwrap().to_owned();
-        let pk_id = pub_item.get("id").unwrap().as_str().unwrap().to_owned();
+        let pk_x_pub = pub_item.get(sf::X_PUB).unwrap().as_str().unwrap().to_owned();
+        let pk_k_pub = pub_item.get(sf::K_PUB).unwrap().as_str().unwrap().to_owned();
+        let pk_id = pub_item.get(sf::ID).unwrap().as_str().unwrap().to_owned();
 
         let (bob_cid, bob_self_sj) = gen_self_state().unwrap();
         let mut bob_peer_v = SecretJson::from(json!({
-            "peer": {
-                "cid": hex::encode(&bob_cid),
-                "x_pub": bob_self_sj.with_exposed(|v| v["x_pub"].as_str().unwrap().to_owned()),
-                "k_pub": bob_self_sj.with_exposed(|v| v["k_pub"].as_str().unwrap().to_owned()),
-                "ed_pub": bob_self_sj.with_exposed(|v| v["ed_pub"].as_str().unwrap().to_owned()),
-                "dili_pub": bob_self_sj.with_exposed(|v| v["dili_pub"].as_str().unwrap().to_owned()),
-                "mbox_in_pub": bob_self_sj.with_exposed(|v| v["mbox_in_pub"].as_str().unwrap().to_owned()),
-                "mbox_out_cur_pub": bob_self_sj.with_exposed(|v| v["mbox_out_cur_pub"].as_str().unwrap().to_owned()),
-                "mbox_out_next_pub": bob_self_sj.with_exposed(|v| v["mbox_out_next_pub"].as_str().unwrap().to_owned()),
+            sf::PEER: {
+                sf::CID: hex::encode(&bob_cid),
+                sf::X_PUB: bob_self_sj.with_exposed(|v| v[sf::X_PUB].as_str().unwrap().to_owned()),
+                sf::K_PUB: bob_self_sj.with_exposed(|v| v[sf::K_PUB].as_str().unwrap().to_owned()),
+                sf::ED_PUB: bob_self_sj.with_exposed(|v| v[sf::ED_PUB].as_str().unwrap().to_owned()),
+                sf::DILI_PUB: bob_self_sj.with_exposed(|v| v[sf::DILI_PUB].as_str().unwrap().to_owned()),
+                sf::MBOX_IN_PUB: bob_self_sj.with_exposed(|v| v[sf::MBOX_IN_PUB].as_str().unwrap().to_owned()),
+                sf::MBOX_OUT_CUR_PUB: bob_self_sj.with_exposed(|v| v[sf::MBOX_OUT_CUR_PUB].as_str().unwrap().to_owned()),
+                sf::MBOX_OUT_NEXT_PUB: bob_self_sj.with_exposed(|v| v[sf::MBOX_OUT_NEXT_PUB].as_str().unwrap().to_owned()),
             },
-            "prekeys_remote": [{"id": pk_id, "x_pub": pk_x_pub, "k_pub": pk_k_pub}]
+            sf::PREKEYS_REMOTE: [{sf::ID: pk_id, sf::X_PUB: pk_x_pub, sf::K_PUB: pk_k_pub}]
         }));
 
         let (wire, meta) = encrypt_for_peer(
@@ -420,7 +421,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(meta.get("mode").and_then(|v| v.as_str()), Some("prekey_recover"));
+        assert_eq!(meta.get(sf::MODE).and_then(|v| v.as_str()), Some("prekey_recover"));
 
         let mut alice_peer_v_correct = build_peer_v_from_state(&alice_self_sj, &alice_cid);
         let (decrypted, _ui) =
@@ -607,9 +608,9 @@ mod tests {
         let (_, m2) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"msg2", "text", &[], false, 0).unwrap();
         let (_, m3) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"msg3", "text", &[], false, 0).unwrap();
 
-        assert_eq!(m1["step"].as_u64(), Some(1));
-        assert_eq!(m2["step"].as_u64(), Some(2));
-        assert_eq!(m3["step"].as_u64(), Some(3));
+        assert_eq!(m1[sf::STEP].as_u64(), Some(1));
+        assert_eq!(m2[sf::STEP].as_u64(), Some(2));
+        assert_eq!(m3[sf::STEP].as_u64(), Some(3));
     }
 
     #[test]
@@ -622,8 +623,8 @@ mod tests {
         let (wire1, m1) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"first", "text", &[], false, 0).unwrap();
         let (wire2, m2) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"second", "text", &[], false, 0).unwrap();
 
-        assert_eq!(m1["mode"].as_str(), Some("bootstrap"));
-        assert_eq!(m2["mode"].as_str(), Some("bootstrap"));
+        assert_eq!(m1[sf::MODE].as_str(), Some("bootstrap"));
+        assert_eq!(m2[sf::MODE].as_str(), Some("bootstrap"));
 
         let (pt1, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire1).unwrap();
         let (pt2, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire2).unwrap();
@@ -648,7 +649,7 @@ mod tests {
         let (wire_b, meta_b) = encrypt_for_peer(
             &mut bob_sj, &mut alice_pv_for_bob, b"ratchet-reply", "text", &[], false, 0,
         ).unwrap();
-        assert_eq!(meta_b["mode"].as_str(), Some("ratchet"),
+        assert_eq!(meta_b[sf::MODE].as_str(), Some("ratchet"),
             "after receiving bootstrap, next send must be ratchet");
 
         let mut bob_pv_for_alice2 = build_peer_v_from_state(&bob_sj, &bob_cid);
@@ -672,10 +673,10 @@ mod tests {
             &mut bob_sj, &mut alice_pv_for_bob, b"reply", "text", &[], false, 0,
         ).unwrap();
 
-        let ack_before = alice_sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0));
+        let ack_before = alice_sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0));
         let mut bob_pv2 = build_peer_v_from_state(&bob_sj, &bob_cid);
         decrypt_for_us(&mut alice_sj, &mut bob_pv2, &wire_b).unwrap();
-        let ack_after = alice_sj.with_exposed(|v| v["e2e_rx"]["ack_seq"].as_u64().unwrap_or(0));
+        let ack_after = alice_sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0));
 
         assert!(ack_after > ack_before,
             "ack_seq must advance: {ack_before} → {ack_after}");
@@ -687,7 +688,7 @@ mod tests {
         let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
 
         ensure_self_keyring(&mut alice_sj).unwrap();
-        alice_sj.with_exposed_mut(|v| { v["e2e_rx"]["window"] = json!(1u64); });
+        alice_sj.with_exposed_mut(|v| { v[sf::E2E_RX][sf::WINDOW] = json!(1u64); });
 
         let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
         let mut alice_pv_for_bob = build_peer_v_from_state(&alice_sj, &alice_cid);
@@ -724,7 +725,7 @@ mod tests {
     #[test]
     fn e2e_decrypt_without_no_remote_prekey_fails() {
         let (_cid, mut sj) = gen_self_state().unwrap();
-        let mut peer_v = SecretJson::from(json!({ "prekeys_remote": [] }));
+        let mut peer_v = SecretJson::from(json!({ sf::PREKEYS_REMOTE: [] }));
         let result = encrypt_for_peer(&mut sj, &mut peer_v, b"x", "text", &[], true, 0);
         assert!(result.is_err(), "encrypt with use_recovery=true and no prekeys must fail");
     }

@@ -22,6 +22,7 @@ use sha2::Sha256;
 use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroize;
 
+use lithium_core::contract::protocol::{self, field, header as hdr};
 use lithium_core::crypto::{keys, kyberbox, sign};
 use lithium_core::crypto::kyberbox::WirePayload;
 use lithium_core::db::manager::DataManager;
@@ -406,23 +407,34 @@ pub async fn build_crypto_context(
     cipher_body: SecretBytes,
 ) -> Result<CryptoReq, AppError> {
     match cfg.mode {
-        CryptoMode::Shake => verify_headers(headers_map, &["key-x", "key-k", "seed", "data"])?,
-        CryptoMode::Session => {
-            verify_headers(headers_map, &["data", "key-x", "ses-x", "key-k", "ses-k", "seed"])?
-        }
+        CryptoMode::Shake => verify_headers(
+            headers_map,
+            &[hdr::KEY_X, hdr::KEY_K, hdr::SEED, hdr::DATA],
+        )?,
+        CryptoMode::Session => verify_headers(
+            headers_map,
+            &[
+                hdr::DATA,
+                hdr::KEY_X,
+                hdr::SES_X,
+                hdr::KEY_K,
+                hdr::SES_K,
+                hdr::SEED,
+            ],
+        )?,
     }
 
     let mut user: Option<UserRecord> = None;
 
-    let peer_key_x_arr = header_hex::<32>(headers_map, "key-x")?;
+    let peer_key_x_arr = header_hex::<32>(headers_map, hdr::KEY_X)?;
     let peer_key_x = Byte32::from_slice(peer_key_x_arr.as_slice())?;
 
-    let peer_key_k = header_hex_bytes(headers_map, "key-k")?;
-    let enc_headers_z = header_hex_bytes(headers_map, "data")?;
-    let seed_enc_z = header_hex_bytes(headers_map, "seed")?;
+    let peer_key_k = header_hex_bytes(headers_map, hdr::KEY_K)?;
+    let enc_headers_z = header_hex_bytes(headers_map, hdr::DATA)?;
+    let seed_enc_z = header_hex_bytes(headers_map, hdr::SEED)?;
 
-    let req_label = format!("{}-req", cfg.endpoint);
-    let resp_label = format!("{}-resp", cfg.endpoint);
+    let req_label = protocol::ctx_req(cfg.endpoint);
+    let resp_label = protocol::ctx_resp(cfg.endpoint);
 
     let (mut dec_body, mut dec_headers) = match cfg.mode {
         CryptoMode::Shake => {
@@ -444,8 +456,8 @@ pub async fn build_crypto_context(
             }
         }
         CryptoMode::Session => {
-            let ses_x_id = header_str(headers_map, "ses-x")?;
-            let ses_k_id = header_str(headers_map, "ses-k")?;
+            let ses_x_id = header_str(headers_map, hdr::SES_X)?;
+            let ses_k_id = header_str(headers_map, hdr::SES_K)?;
 
             let x_priv = state
                 .store
@@ -485,7 +497,7 @@ pub async fn build_crypto_context(
     let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
     let headers_json = SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
 
-    let ts = body_json.get_string("timestamp").map_err(AppError::from)?;
+    let ts = body_json.get_string(field::TIMESTAMP).map_err(AppError::from)?;
     validate_timestamp(ts.expose(), cfg.ts_skew, cfg.ts_skew)?;
 
     let mut client_ed_key: Option<Byte32> = None;
@@ -493,8 +505,8 @@ pub async fn build_crypto_context(
 
     match cfg.auth {
         AuthMode::KeysInHeaders => {
-            let key_ed_raw = headers_json.get_string("key-ed")?;
-            let key_dili_raw = headers_json.get_string("key-dili")?;
+            let key_ed_raw = headers_json.get_string(hdr::KEY_ED)?;
+            let key_dili_raw = headers_json.get_string(hdr::KEY_DILI)?;
 
             let peer_key_ed = Byte32::from_hex(key_ed_raw.expose())
                 .map_err(|_| AppError::bad_request("invalid_key_ed"))?;
@@ -508,7 +520,7 @@ pub async fn build_crypto_context(
         }
 
         AuthMode::LoginByHandler => {
-            let handler = body_json.get_string("handler")?;
+            let handler = body_json.get_string(field::HANDLER)?;
             let handler_norm = normalize_login_handler(handler.expose());
 
             login_rate_limit_check(&state, &handler_norm).await?;
@@ -530,7 +542,7 @@ pub async fn build_crypto_context(
         }
 
         AuthMode::JwtUser => {
-            let token_hex = body_json.get_string("token")?;
+            let token_hex = body_json.get_string(field::TOKEN)?;
 
             let token_bytes = SecretBytes::from_hex(token_hex.expose())
                 .map_err(|_| AppError::unauthorized("invalid jwt"))?;
@@ -566,8 +578,8 @@ impl CryptoContext {
             .duration_since(UNIX_EPOCH)
             .map_err(|_| AppError::internal("system clock error"))?
             .as_secs();
-        if body.get("timestamp").is_none() {
-            body["timestamp"] = Value::String(format!("{:016x}", now));
+        if body.get(field::TIMESTAMP).is_none() {
+            body[field::TIMESTAMP] = Value::String(protocol::format_timestamp(now));
         }
 
         let (session_priv_x, session_pub_x) = keys::random_x25519_keypair()?;
@@ -593,8 +605,8 @@ impl CryptoContext {
             .await?;
 
         let response_headers = json!({
-            "ses-x": session_x_id.expose(),
-            "ses-k": session_k_id.expose(),
+            hdr::SES_X: session_x_id.expose(),
+            hdr::SES_K: session_k_id.expose(),
         });
 
         let response_body_s = SecretString::new(serde_json::to_string(&body)?);
@@ -627,12 +639,12 @@ impl CryptoContext {
         )?;
 
         let clear_headers = json!({
-            "sig-ed": hex::encode(resp_sig_ed.expose_as_slice()),
-            "sig-dili": hex::encode(resp_sig_dili.expose_as_slice()),
-            "data": hex::encode(encrypted.enc_headers.expose_as_slice()),
-            "seed": hex::encode(encrypted.seed_enc.expose_as_slice()),
-            "key-x": hex::encode(session_pub_x.as_slice()),
-            "key-k": hex::encode(session_pub_k.expose_as_slice()),
+            hdr::SIG_ED: hex::encode(resp_sig_ed.expose_as_slice()),
+            hdr::SIG_DILI: hex::encode(resp_sig_dili.expose_as_slice()),
+            hdr::DATA: hex::encode(encrypted.enc_headers.expose_as_slice()),
+            hdr::SEED: hex::encode(encrypted.seed_enc.expose_as_slice()),
+            hdr::KEY_X: hex::encode(session_pub_x.as_slice()),
+            hdr::KEY_K: hex::encode(session_pub_k.expose_as_slice()),
         });
 
         Ok(api_success(encrypted.enc_body, clear_headers))
@@ -652,7 +664,7 @@ impl CryptoContext {
         let tok = create_token_for_user(user, ttl_seconds, &jwt_secret, &self.state.store).await?;
 
         let tok_hex = SecretBytes::from_slice(tok.expose().as_bytes()).to_hex();
-        body["tok"] = Value::String(tok_hex.expose().to_owned());
+        body[field::TOK] = Value::String(tok_hex.expose().to_owned());
 
         self.reply_ok(body).await
     }
@@ -706,10 +718,10 @@ pub fn verify_signature(
     peer_pub_ed_key: &Byte32,
     peer_pub_dili_key: &SecretBytes,
 ) -> Result<(), AppError> {
-    let sig_ed = Byte64::from_hex(headers_json.get_string("sig-ed")?.expose())
+    let sig_ed = Byte64::from_hex(headers_json.get_string(hdr::SIG_ED)?.expose())
         .map_err(|_| AppError::bad_request("invalid_sig_ed"))?;
 
-    let sig_dili = SecretBytes::from_hex(headers_json.get_string("sig-dili")?.expose())
+    let sig_dili = SecretBytes::from_hex(headers_json.get_string(hdr::SIG_DILI)?.expose())
         .map_err(|_| AppError::bad_request("invalid_sig_dili"))?;
 
     let raw_json = body_json

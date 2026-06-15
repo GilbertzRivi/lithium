@@ -6,6 +6,8 @@ use lithium_core::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::state_fields as sf;
+
 use super::wire::now_ms;
 
 #[derive(Serialize)]
@@ -52,10 +54,10 @@ pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, Value)> {
     };
 
     let public_item = json!({
-        "id": id_hex.expose(),
-        "x_pub": x_pub_hex.expose(),
-        "k_pub": k_pub_hex.expose(),
-        "created_at_ms": created_at_ms
+        sf::ID: id_hex.expose(),
+        sf::X_PUB: x_pub_hex.expose(),
+        sf::K_PUB: k_pub_hex.expose(),
+        sf::CREATED_AT_MS: created_at_ms
     });
 
     Ok((id_hex.expose().to_owned(), priv_blob, public_item))
@@ -66,11 +68,11 @@ pub fn prekey_blob_to_privs(blob: &SecretBytes) -> Result<(Byte32, SecretBytes)>
 
     v.with_exposed(|v| -> Result<(Byte32, SecretBytes)> {
         let x_priv_hex = v
-            .get("x_priv")
+            .get(sf::X_PRIV)
             .and_then(|x| x.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("x_priv"))?;
         let k_priv_hex = v
-            .get("k_priv")
+            .get(sf::K_PRIV)
             .and_then(|x| x.as_str())
             .ok_or_else(|| LithiumError::json_missing_field("k_priv"))?;
 
@@ -84,7 +86,7 @@ pub fn prekey_blob_to_privs(blob: &SecretBytes) -> Result<(Byte32, SecretBytes)>
 pub fn prekeys_should_advertise(self_v: &SecretJson) -> bool {
     self_v.with_exposed(|self_v| {
         !self_v
-            .get("prekeys_advertised")
+            .get(sf::PREKEYS_ADVERTISED)
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     })
@@ -92,14 +94,14 @@ pub fn prekeys_should_advertise(self_v: &SecretJson) -> bool {
 
 pub fn prekeys_mark_advertised(self_v: &mut SecretJson) {
     self_v.with_exposed_mut(|self_v| {
-        self_v["prekeys_advertised"] = json!(true);
+        self_v[sf::PREKEYS_ADVERTISED] = json!(true);
     });
 }
 
 pub fn local_public_prekeys(self_v: &SecretJson) -> Vec<Value> {
     self_v.with_exposed(|self_v| {
         self_v
-            .get("prekeys_local_public")
+            .get(sf::PREKEYS_LOCAL_PUBLIC)
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default()
@@ -109,13 +111,13 @@ pub fn local_public_prekeys(self_v: &SecretJson) -> Vec<Value> {
 pub fn local_remove_public_prekey(self_v: &mut SecretJson, id_hex: &str) {
     self_v.with_exposed_mut(|self_v| {
         let Some(arr) = self_v
-            .get_mut("prekeys_local_public")
+            .get_mut(sf::PREKEYS_LOCAL_PUBLIC)
             .and_then(|v| v.as_array_mut())
         else {
             return;
         };
-        arr.retain(|v| v.get("id").and_then(|x| x.as_str()) != Some(id_hex));
-        self_v["prekeys_advertised"] = json!(false);
+        arr.retain(|v| v.get(sf::ID).and_then(|x| x.as_str()) != Some(id_hex));
+        self_v[sf::PREKEYS_ADVERTISED] = json!(false);
     });
 }
 
@@ -130,7 +132,7 @@ mod tests {
         let (id_hex, blob, pub_item) = gen_local_prekey_material().unwrap();
         assert_eq!(id_hex.len(), 64, "id hex must be 64 chars (32 bytes)");
         assert!(!blob.expose_as_slice().is_empty());
-        assert_eq!(pub_item.get("id").and_then(|v| v.as_str()), Some(id_hex.as_str()));
+        assert_eq!(pub_item.get(sf::ID).and_then(|v| v.as_str()), Some(id_hex.as_str()));
     }
 
     #[test]

@@ -22,6 +22,7 @@ mod labels;
 mod password_provider;
 mod protocol_manager;
 mod state;
+mod state_fields;
 mod tray;
 mod util;
 

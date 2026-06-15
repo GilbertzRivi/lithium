@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
-use lithium_core::{secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, CryptoErrorKind};
+use lithium_core::{contract::protocol::field, secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, CryptoErrorKind};
 
 use crate::{
     commands::contact_mailbox::{
@@ -11,6 +11,7 @@ use crate::{
         inbound_fetch_generations,
         note_inbound_generation_seen,
     },
+    commands::stored_message,
     e2e::{
         decrypt_for_prekey,
         decrypt_for_us,
@@ -26,28 +27,6 @@ use crate::{
     state::DaemonState,
 };
 use crate::e2e::mark_bootstrap_retire_ready;
-
-fn build_stored_message(
-    text: &str,
-    ui_meta: &Value,
-    mailbox_hex: &str,
-    mailbox_gen: u64,
-) -> Result<SecretBytes, serde_json::Error> {
-    let v = json!({
-        "v": 1,
-        "kind": "text/utf8",
-        "text": text,
-        "ui": ui_meta,
-        "transport": {
-            "mailbox": mailbox_hex,
-            "mailbox_gen": mailbox_gen
-        }
-    });
-
-    let mut out = SecretBytes::new(Vec::new());
-    serde_json::to_writer(out.expose_as_mut_vec(), &v)?;
-    Ok(out)
-}
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
     let Some(dm) = state.local_db.lock().await.clone() else {
@@ -145,14 +124,14 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         let mailbox_hex = hex::encode(mbox_in);
 
         let resp = match proto
-            .send(Endpoint::MsgFetch, json!({ "mailbox": mailbox_hex }), json!({}))
+            .send(Endpoint::MsgFetch, json!({ field::MAILBOX: mailbox_hex }), json!({}))
             .await
         {
             Ok(v) => v,
             Err(_) => return protocol_err(id),
         };
 
-        if let Some(arr) = resp.body.get("data").and_then(|v| v.as_array()) {
+        if let Some(arr) = resp.body.get(field::DATA).and_then(|v| v.as_array()) {
             for it in arr {
                 let Some(h) = it.as_str() else {
                     continue;
@@ -205,7 +184,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             }
                         };
 
-                        let stored = match build_stored_message(
+                        let stored = match stored_message::encode(
                             text.expose(),
                             &ui,
                             &mailbox_hex,
@@ -317,7 +296,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     }
                                 };
 
-                                let stored = match build_stored_message(
+                                let stored = match stored_message::encode(
                                     text.expose(),
                                     &ui,
                                     &mailbox_hex,
