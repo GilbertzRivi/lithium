@@ -9,6 +9,7 @@ pub mod mk_rotator;
 pub mod msg_reaper;
 pub mod provider;
 pub mod state;
+pub(crate) mod store_keys;
 pub mod transport;
 
 #[cfg(feature = "tpm")]

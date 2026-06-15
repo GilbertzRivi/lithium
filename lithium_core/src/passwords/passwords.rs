@@ -1,10 +1,9 @@
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Algorithm, Argon2, Params, Version,
+use argon2::password_hash::{
+    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
 };
 
 use crate::{
-    crypto::{aead, keys},
+    crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
     labels::{DEK_WRAP_AAD, DEK_WRAP_SALT_LEN, DEK_WRAP_VER},
     secrets::{Byte32, SecretString},
@@ -34,12 +33,6 @@ impl Default for PasswordPolicy {
             allow_whitespace: false,
         }
     }
-}
-
-fn argon2_std() -> Result<Argon2<'static>> {
-    let params = Params::new(64 * 1024, 3, 1, Some(32))
-        .map_err(|_| LithiumError::internal())?;
-    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
 pub fn validate_password(password: &SecretString, pol: PasswordPolicy) -> Result<()> {
@@ -99,7 +92,7 @@ pub fn validate_passwords_distinct(a: &SecretString, b: &SecretString) -> Result
 }
 
 pub fn hash_password_phc(password: &SecretString) -> Result<String> {
-    let argon2 = argon2_std()?;
+    let argon2 = kdf::argon2id()?;
     let salt = SaltString::generate(&mut OsRng);
 
     let phc = argon2
@@ -113,7 +106,7 @@ pub fn verify_password_phc(phc: &str, password: &SecretString) -> Result<bool> {
     let parsed = PasswordHash::new(phc)
         .map_err(|_| LithiumError::invalid_credentials("bad_password_hash"))?;
 
-    let argon2 = argon2_std()?;
+    let argon2 = kdf::argon2id()?;
     Ok(argon2
         .verify_password(password.expose().as_bytes(), &parsed)
         .is_ok())
@@ -124,9 +117,7 @@ pub fn generate_dek() -> Result<Byte32> {
 }
 
 fn derive_wrap_key(data_password: &SecretString, salt: &[u8]) -> Result<Byte32> {
-    let params = Params::new(64 * 1024, 3, 1, Some(32))
-        .map_err(|_| LithiumError::internal())?;
-    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let argon2 = kdf::argon2id()?;
 
     let mut out = Byte32::new_zeroed();
     argon2

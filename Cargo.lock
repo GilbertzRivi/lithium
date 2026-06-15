@@ -3136,7 +3136,6 @@ dependencies = [
 name = "lithiumd"
 version = "0.1.0"
 dependencies = [
- "argon2",
  "chrono",
  "gtk",
  "hex",

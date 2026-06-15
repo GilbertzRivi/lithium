@@ -23,6 +23,11 @@ pub(crate) const DEK_WRAP_VER: u8 = 1;
 pub(crate) const DEK_WRAP_AAD: &[u8] = b"lithium/dek-wrap/v1";
 pub(crate) const DEK_WRAP_SALT_LEN: usize = 32;
 
+pub(crate) const ARGON2_M_COST: u32 = 64 * 1024;
+pub(crate) const ARGON2_T_COST: u32 = 3;
+pub(crate) const ARGON2_P_COST: u32 = 1;
+pub(crate) const ARGON2_OUT_LEN: usize = 32;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +58,10 @@ mod tests {
         assert_eq!(DEK_WRAP_VER, 1);
         assert_eq!(DEK_WRAP_AAD, b"lithium/dek-wrap/v1");
         assert_eq!(DEK_WRAP_SALT_LEN, 32);
+
+        assert_eq!(ARGON2_M_COST, 64 * 1024);
+        assert_eq!(ARGON2_T_COST, 3);
+        assert_eq!(ARGON2_P_COST, 1);
+        assert_eq!(ARGON2_OUT_LEN, 32);
     }
 }

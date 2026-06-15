@@ -7,6 +7,7 @@ use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::error::AppError;
 use crate::state::SharedState;
+use crate::store_keys;
 use crate::transport::parse_u32_ascii;
 
 #[derive(Clone)]
@@ -30,12 +31,12 @@ fn normalize_guard_remote(remote: &str) -> String {
 
 #[inline]
 fn pre_replay_fail_key(remote: &str) -> String {
-    format!("guard:pre-replay:fail:{}", normalize_guard_remote(remote))
+    store_keys::pre_replay_fail(&normalize_guard_remote(remote))
 }
 
 #[inline]
 fn pre_replay_lock_key(remote: &str) -> String {
-    format!("guard:pre-replay:lock:{}", normalize_guard_remote(remote))
+    store_keys::pre_replay_lock(&normalize_guard_remote(remote))
 }
 
 #[inline]
@@ -102,7 +103,7 @@ async fn pre_replay_rate_limit_hit(
 }
 
 async fn anti_replay_check(state: &SharedState, body: &[u8]) -> Result<(), AppError> {
-    let key = format!("replay:{}", hex::encode(Sha256::digest(body)));
+    let key = store_keys::replay(&hex::encode(Sha256::digest(body)));
 
     // Keep replay cache longer than request freshness window on purpose.
     // Requests are freshness-validated elsewhere (default ~60s), but we retain

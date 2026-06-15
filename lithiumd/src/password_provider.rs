@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use argon2::{Algorithm, Argon2, Params, Version};
-
 use lithium_core::{
     crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
@@ -64,10 +62,7 @@ impl PasswordFileMkProvider {
     }
 
     fn argon2_32(&self, salt: &[u8]) -> Result<Byte32> {
-        let params = Params::new(64 * 1024, 3, 1, Some(32))
-            .map_err(|_| LithiumError::internal())?;
-
-        let a2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        let a2 = kdf::argon2id()?;
 
         let mut out = Byte32::new_zeroed();
         a2.hash_password_into(self.pass.expose().as_bytes(), salt, out.as_mut_slice())

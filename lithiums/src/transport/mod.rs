@@ -36,6 +36,7 @@ use lithium_core::utils::store::EphemeralStoreManager;
 use crate::db::repo::{ServerDbExt, UserRecord};
 use crate::error::AppError;
 use crate::state::SharedState;
+use crate::store_keys;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -76,12 +77,12 @@ pub(crate) fn normalize_login_handler(handler: &str) -> String {
 
 #[inline]
 fn login_fail_key(handler: &str) -> String {
-    format!("auth:login:fail:{}", normalize_login_handler(handler))
+    store_keys::login_fail(&normalize_login_handler(handler))
 }
 
 #[inline]
 fn login_lock_key(handler: &str) -> String {
-    format!("auth:login:lock:{}", normalize_login_handler(handler))
+    store_keys::login_lock(&normalize_login_handler(handler))
 }
 
 #[inline]
@@ -166,12 +167,12 @@ pub async fn login_rate_limit_success(
 
 #[inline]
 fn register_fail_key(handler: &str) -> String {
-    format!("auth:register:fail:{}", normalize_login_handler(handler))
+    store_keys::register_fail(&normalize_login_handler(handler))
 }
 
 #[inline]
 fn register_lock_key(handler: &str) -> String {
-    format!("auth:register:lock:{}", normalize_login_handler(handler))
+    store_keys::register_lock(&normalize_login_handler(handler))
 }
 
 pub async fn register_rate_limit_check(
@@ -350,7 +351,7 @@ pub async fn create_token_for_user(
 
     store
         .set(
-            &format!("token:{token_string}"),
+            &store_keys::token(&token_string),
             &value,
             Duration::from_secs(ttl_seconds),
         )
@@ -376,7 +377,7 @@ pub async fn get_user_from_token(
         .map_err(|_| AppError::unauthorized("invalid jwt"))?;
 
     let value = store
-        .take(&format!("token:{token}"))
+        .take(&store_keys::token(token))
         .await?
         .ok_or(AppError::unauthorized("invalid jwt 2"))?;
 

@@ -14,7 +14,9 @@ Decyzja bazowa: **zostajemy przy `pqcrypto`** (brak alternatywy). Goldeny ML-KEM
    - §9 (nagłówki HTTP, ścieżki, pola body) + §7.5 (ctx `-req/-resp`) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji D.
 5. §7.2 (`StoredMessage` ×2) + §10 (enumy trybów) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji E.
 6. §8 (rejestr nazw pól JSON stanu jako stałe) — **RDZEŃ ZROBIONY** (pliki stanu E2E ratchet + odczyty kluczy tożsamości w invite/verify). Niezacommitowane. Szczegóły w sekcji F. Zostają pola warstwy IPC + StoredMessage-decode (świadomie odłożone, lista w F). §6/§7.3 (pełne otypowanie self/peer-state na structy) — wciąż nie zrobione.
-7. §4 (Argon2 dup), §11, §12, §13 — porządkowe, nie zrobione.
+7. §4 (Argon2 dup) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji G.
+8. §11 (przestrzenie nazw store serwera) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji G.
+9. §12, §13 — już stałe (`ST_*` w protocol_manager, layout keystore w manager.rs); zostaje tylko opcjonalne zebranie + `key_type`->enum (§13), niski priorytet, nie zrobione.
 
 ## Co zrobione W TEJ SESJI (niezacommitowane)
 
@@ -111,7 +113,20 @@ Cel: `self_v`/`peer_v` (`serde_json::Value` mutowane po stringach) -> typowane s
 - peer_state pola: `e2e_peer{id,x_pub,k_pub,step,updated_at_ms}`, `need_recover`, `bootstrap{tx_used}`, `prekeys_remote[...]`, `mailbox{sender_pubs,peer_tx_gen_seen}` — `state_peer.rs`, `session.rs`, `contact_mailbox.rs`.
 - §8 rejestr nazw pól JSON tożsamości/kluczy (`cid,x_pub,k_pub,ed_pub,...`) — `invite_codec.rs`, `state_self.rs`, `crypto.rs`, `contact_verify_emoji.rs`.
 Uwaga: to dotyka `SecretJson`/`with_exposed_mut` i jest najdelikatniejsze (ratchet). Robić małymi krokami z `cargo test -p lithiumd` + itest `ds_messaging` po każdym.
-Potem zostaje: §4 (Argon2 dup), §11 (store namespaces serwera), §12, §13 — porządkowe.
+Potem zostaje już tylko §13 (opcjonalny `key_type`->enum, niski priorytet).
+
+### G. §4 (Argon2 dup) + §11 (store namespaces serwera) (ta sesja, niezacommitowane)
+§4 — parametry Argon2id (`m=64*1024, t=3, p=1, out=32`) były zduplikowane w 3 miejscach (`passwords.rs::argon2_std`, `passwords.rs::derive_wrap_key`, `password_provider.rs::argon2_32`); muszą być identyczne, by odszyfrować.
+- `lithium_core/src/labels.rs` — nowe stałe `ARGON2_M_COST/T_COST/P_COST/OUT_LEN` + pin w `registry_values_are_pinned`.
+- `lithium_core/src/crypto/kdf.rs` — nowa `pub fn argon2id() -> Result<Argon2<'static>>` (jedyny konstruktor, czyta stałe).
+- `passwords.rs` — usunięty `argon2_std`, `hash_password_phc`/`verify_password_phc`/`derive_wrap_key` wołają `kdf::argon2id()`; usunięte importy `Algorithm/Argon2/Params/Version`.
+- `lithiumd/password_provider.rs::argon2_32` — woła `kdf::argon2id()`; usunięty `use argon2::*` i martwa zależność `argon2` z `lithiumd/Cargo.toml`.
+- Weryfikacja: core lib 9 ok, crypto_tests 93 ok, store_tests 14 ok (PHC + DEK wrap roundtrip), lithiumd 114 ok, itest `daemon_basic` 7 ok (realny unlock/lock/wipe przez `argon2_32`), clippy czysto.
+
+§11 — prefiksy store (`auth:`/`guard:`/`replay:`/`token:`) rozsiane po `format!` w guard.rs i transport/mod.rs.
+- NOWY `lithiums/src/store_keys.rs` — buildery `login_fail/login_lock/register_fail/register_lock/pre_replay_fail/pre_replay_lock/replay/token` (przyjmują już-znormalizowany id) + pin `store_key_namespaces_are_pinned`. `lib.rs`: `pub(crate) mod store_keys;`.
+- `guard.rs` (`pre_replay_*_key`, `anti_replay_check`) i `transport/mod.rs` (`login/register_*_key`, oba `token:`) wołają buildery. Normalizacja (`normalize_login_handler`/`normalize_guard_remote`) zostaje przy call-site (domenowa).
+- Weryfikacja: lithiums lib 3 ok (w tym pin), itest `server` 32 ok (login rate-limit/replay/token end-to-end), clippy czysto (jedyny warning to istniejący `picky-asn1`, nie nasz).
 
 ## Uwagi stylu (przypomniane przez usera)
 - Komentarze tylko „dlaczego", nigdy „co"; bez dekoracyjnych dividerów; bez znaków spoza klawiatury. (Patrz CLAUDE.md / pamięć `feedback_code_style`.)
