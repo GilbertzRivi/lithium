@@ -159,8 +159,7 @@ pub fn encrypt_for_peer(
     );
 
     let (mailbox_sender_cur_x_pub, mailbox_sender_next_x_pub) =
-        current_outbound_mailbox_pubs(self_st)
-            .ok_or_else(|| LithiumError::json_missing_field("mbox_out_cur_pub"))?;
+        current_outbound_mailbox_pubs(self_st);
 
     let (msg_x_priv, msg_x_pub) = keys::random_x25519_keypair()?;
     let mut from_x_pub = [0u8; 32];
@@ -285,7 +284,7 @@ mod tests {
     };
 
     fn build_peer_from_state(self_st: &SelfState, cid_bytes: &[u8]) -> PeerState {
-        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        let mut p = PeerState::empty();
         p.peer = Some(PeerIdentity {
             cid: hex::encode(cid_bytes),
             x_pub: self_st.x_pub.clone(),
@@ -489,7 +488,7 @@ mod tests {
     fn wire_corrupt_to_id_causes_to_id_unknown() {
         let (mut wire, _, mut bob_st, _) = make_real_wire();
         wire.to_id[0] ^= 0xFF;
-        let mut fake_peer = PeerState::from_bytes(b"{}").unwrap();
+        let mut fake_peer = PeerState::empty();
         let result = decrypt_for_us(&mut bob_st, &mut fake_peer, &wire);
         assert!(result.is_err());
     }
@@ -701,7 +700,7 @@ mod tests {
     #[test]
     fn e2e_decrypt_without_no_remote_prekey_fails() {
         let (_cid, mut st) = gen_self_state().unwrap();
-        let mut peer = PeerState::from_bytes(b"{}").unwrap();
+        let mut peer = PeerState::empty();
         let result = encrypt_for_peer(&mut st, &mut peer, b"x", "text", &[], true, 0);
         assert!(result.is_err(), "encrypt with use_recovery=true and no prekeys must fail");
     }
@@ -709,7 +708,7 @@ mod tests {
     #[test]
     fn e2e_encrypt_without_peer_keys_fails() {
         let (_cid, mut st) = gen_self_state().unwrap();
-        let mut peer = PeerState::from_bytes(b"{}").unwrap();
+        let mut peer = PeerState::empty();
         let result = encrypt_for_peer(&mut st, &mut peer, b"x", "text", &[], false, 0);
         assert!(result.is_err(), "encrypt without any peer key material must fail");
     }

@@ -6,6 +6,7 @@ use lithium_core::{
 };
 
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::Zeroize;
 
 use crate::e2e::state::{PeerState, SelfState};
 use crate::labels::LABEL_MAILBOX;
@@ -58,8 +59,8 @@ fn peer_sender_pub_for_generation(peer_st: &PeerState, generation: u64) -> Resul
     Err(LithiumError::invalid_credentials("missing_peer_mailbox_key"))
 }
 
-pub fn current_outbound_mailbox_pubs(self_st: &SelfState) -> Option<(String, String)> {
-    Some((self_st.mbox_out_cur_pub.clone(), self_st.mbox_out_next_pub.clone()))
+pub fn current_outbound_mailbox_pubs(self_st: &SelfState) -> (String, String) {
+    (self_st.mbox_out_cur_pub.clone(), self_st.mbox_out_next_pub.clone())
 }
 
 pub fn peer_store_mailbox_sender_keys(
@@ -127,16 +128,18 @@ pub fn mark_outbound_message_sent(self_st: &mut SelfState) -> Result<u64> {
     let tx_sent = self_st.mailbox.tx_sent.saturating_add(1);
 
     if tx_sent >= rotate_every {
-        let next_cur_priv = self_st.mbox_out_next_priv.clone();
-        let next_cur_pub = self_st.mbox_out_next_pub.clone();
-
         let (new_next_priv, new_next_pub) = keys::random_x25519_keypair()?;
 
         self_st.mailbox.tx_gen = self_st.mailbox.tx_gen.saturating_add(1);
         self_st.mailbox.tx_sent = 0;
 
-        self_st.mbox_out_cur_priv = next_cur_priv;
-        self_st.mbox_out_cur_pub = next_cur_pub;
+        let promoted_priv = std::mem::take(&mut self_st.mbox_out_next_priv);
+        let promoted_pub = std::mem::take(&mut self_st.mbox_out_next_pub);
+
+        let mut retired_priv = std::mem::replace(&mut self_st.mbox_out_cur_priv, promoted_priv);
+        retired_priv.zeroize();
+        self_st.mbox_out_cur_pub = promoted_pub;
+
         self_st.mbox_out_next_priv = new_next_priv.to_hex().expose().to_owned();
         self_st.mbox_out_next_pub = new_next_pub.to_hex().expose().to_owned();
 
@@ -198,7 +201,7 @@ mod tests {
     }
 
     fn make_peer() -> PeerState {
-        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        let mut p = PeerState::empty();
         p.peer = Some(PeerIdentity {
             cid: hex32(),
             x_pub: x_pub_hex(),
@@ -237,7 +240,7 @@ mod tests {
 
     #[test]
     fn ensure_mailbox_state_fails_without_peer() {
-        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        let mut p = PeerState::empty();
         assert!(ensure_mailbox_state(&mut p).is_err());
     }
 
@@ -250,7 +253,7 @@ mod tests {
     #[test]
     fn current_outbound_mailbox_pubs_returns_both_keys() {
         let st = make_self();
-        let (cur, next) = current_outbound_mailbox_pubs(&st).expect("must return Some");
+        let (cur, next) = current_outbound_mailbox_pubs(&st);
         assert!(!cur.is_empty());
         assert!(!next.is_empty());
         assert_ne!(cur, next);

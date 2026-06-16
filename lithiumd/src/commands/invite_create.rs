@@ -72,10 +72,7 @@ pub async fn handle(
         Err(_) => return internal_err(id),
     };
 
-    let peer_st = match PeerState::from_bytes(b"{}") {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
-    };
+    let peer_st = PeerState::empty();
 
     let self_bytes = match self_st.to_secret_bytes() {
         Ok(v) => v,

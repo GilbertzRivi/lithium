@@ -247,6 +247,19 @@ impl SelfState {
 }
 
 impl PeerState {
+    pub(crate) fn empty() -> Self {
+        Self {
+            v: default_doc_version(),
+            label: String::new(),
+            peer: None,
+            e2e_peer: None,
+            bootstrap: BootstrapState::default(),
+            prekeys_remote: Vec::new(),
+            need_recover: false,
+            mailbox: PeerMailbox::default(),
+        }
+    }
+
     pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self> {
         serde_json::from_slice(bytes).map_err(LithiumError::json_parse)
     }

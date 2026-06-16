@@ -94,7 +94,7 @@ mod tests {
     use serde_json::json;
 
     fn empty_peer() -> PeerState {
-        PeerState::from_bytes(b"{}").unwrap()
+        PeerState::empty()
     }
 
     fn peer_with_remote(items: &[(&str, &str, &str)]) -> PeerState {

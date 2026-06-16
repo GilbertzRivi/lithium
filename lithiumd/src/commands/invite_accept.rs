@@ -72,10 +72,7 @@ pub async fn handle(
         }
     };
 
-    let mut peer_st = match PeerState::from_bytes(b"{}") {
-        Ok(v) => v,
-        Err(_) => return internal_err(id),
-    };
+    let mut peer_st = PeerState::empty();
     peer_st.label = label;
     peer_st.peer = Some(PeerIdentity {
         cid: peer.cid_hex.expose().to_owned(),

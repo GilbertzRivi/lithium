@@ -192,7 +192,7 @@ mod tests {
     }
 
     fn peer_state_with(identity: PeerIdentity) -> PeerState {
-        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        let mut p = PeerState::empty();
         p.peer = Some(identity);
         p
     }
