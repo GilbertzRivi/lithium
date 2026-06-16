@@ -307,14 +307,13 @@ mod tests {
     }
 
     fn make_real_wire() -> (WireV1, SelfState, SelfState, Vec<u8>) {
-        let (alice_cid, mut alice_st) = gen_self_state().unwrap();
+        let (_alice_cid, mut alice_st) = gen_self_state().unwrap();
         let (bob_cid, bob_st) = gen_self_state().unwrap();
         let mut bob_pv = build_peer_from_state(&bob_st, &bob_cid);
         let (wire, _) = encrypt_for_peer(
             &mut alice_st, &mut bob_pv, b"mutation-test", "text", &[], false, 0,
         )
         .unwrap();
-        let _ = alice_cid;
         let packed = pack_wire(&wire);
         (wire, alice_st, bob_st, packed)
     }

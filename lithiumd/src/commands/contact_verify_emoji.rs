@@ -218,7 +218,7 @@ mod tests {
         let baseline =
             compute_verify_emojis(&alice, &peer_state_with(peer_identity_from(&bob))).unwrap();
 
-        let bogus = || gen_self_state().unwrap().1.cid.clone();
+        let bogus = || lithium_core::crypto::keys::random_32().unwrap().to_hex().expose().to_owned();
 
         let mutate: [fn(&mut PeerIdentity, String); 7] = [
             |p, v| p.cid = v,

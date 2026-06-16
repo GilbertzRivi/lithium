@@ -315,7 +315,7 @@ mod tests {
         let empty = PeerState::from_bytes(b"{}").unwrap();
         assert!(!empty.peer_is_set());
 
-        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        let mut p = PeerState::empty();
         p.label = "alice".into();
         p.peer = Some(PeerIdentity {
             cid: "aa".repeat(32),

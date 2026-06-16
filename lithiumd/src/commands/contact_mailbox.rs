@@ -271,7 +271,7 @@ mod tests {
     fn mark_outbound_message_sent_rotates_on_threshold() {
         let mut st = make_self();
         st.mailbox.rotate_every = 2;
-        let _ = mark_outbound_message_sent(&mut st).unwrap();
+        mark_outbound_message_sent(&mut st).unwrap();
         let mbox_gen = mark_outbound_message_sent(&mut st).unwrap();
         assert_eq!(mbox_gen, 1, "generation should advance to 1 after rotation");
         assert_eq!(st.mailbox.tx_gen, 1);
@@ -421,10 +421,9 @@ mod tests {
 
     #[test]
     fn derive_mailboxes_different_in_and_out() {
-        let mut st = make_self();
+        let st = make_self();
         let mut p = make_peer();
         ensure_mailbox_state(&mut p).unwrap();
-        let _ = &mut st;
         let (out, inn) = derive_mailboxes_for_generation_from_values(&st, &p, 0).unwrap();
         assert_ne!(out, inn);
     }
