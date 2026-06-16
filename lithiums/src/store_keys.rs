@@ -1,5 +1,4 @@
-// A counter and its lookup must build the identical string. Callers pass
-// already-normalized ids (lowercased handler, hashed remote, body-hash hex).
+// Callers pass already-normalized ids (lowercased handler, hashed remote, body-hash hex).
 
 pub(crate) fn login_fail(handler: &str) -> String {
     format!("auth:login:fail:{handler}")

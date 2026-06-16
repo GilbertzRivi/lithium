@@ -16,7 +16,9 @@ Decyzja bazowa: **zostajemy przy `pqcrypto`** (brak alternatywy). Goldeny ML-KEM
 6. §8 (rejestr nazw pól JSON stanu jako stałe) — **RDZEŃ ZROBIONY** (pliki stanu E2E ratchet + odczyty kluczy tożsamości w invite/verify). Niezacommitowane. Szczegóły w sekcji F. Zostają pola warstwy IPC + StoredMessage-decode (świadomie odłożone, lista w F). §6/§7.3 (pełne otypowanie self/peer-state na structy) — wciąż nie zrobione.
 7. §4 (Argon2 dup) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji G.
 8. §11 (przestrzenie nazw store serwera) — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji G.
-9. §12, §13 — już stałe (`ST_*` w protocol_manager, layout keystore w manager.rs); zostaje tylko opcjonalne zebranie + `key_type`->enum (§13), niski priorytet, nie zrobione.
+9. §7.3 read-half (dedup pakietu tożsamości) + domknięcie literałów §8 — **ZROBIONE** (ta sesja, niezacommitowane). Szczegóły w sekcji H.
+10. §6 (self_v/peer_v Value -> structy serde) — **NIEZROBIONE**, największy refaktor (patrz NASTĘPNY KROK).
+11. §12, §13 — już stałe (`ST_*` w protocol_manager, layout keystore w manager.rs); zostaje tylko opcjonalne zebranie + `key_type`->enum (§13), niski priorytet, nie zrobione.
 
 ## Co zrobione W TEJ SESJI (niezacommitowane)
 
@@ -127,6 +129,60 @@ Potem zostaje już tylko §13 (opcjonalny `key_type`->enum, niski priorytet).
 - NOWY `lithiums/src/store_keys.rs` — buildery `login_fail/login_lock/register_fail/register_lock/pre_replay_fail/pre_replay_lock/replay/token` (przyjmują już-znormalizowany id) + pin `store_key_namespaces_are_pinned`. `lib.rs`: `pub(crate) mod store_keys;`.
 - `guard.rs` (`pre_replay_*_key`, `anti_replay_check`) i `transport/mod.rs` (`login/register_*_key`, oba `token:`) wołają buildery. Normalizacja (`normalize_login_handler`/`normalize_guard_remote`) zostaje przy call-site (domenowa).
 - Weryfikacja: lithiums lib 3 ok (w tym pin), itest `server` 32 ok (login rate-limit/replay/token end-to-end), clippy czysto (jedyny warning to istniejący `picky-asn1`, nie nasz).
+
+### H. §7.3 (read-half pakietu tożsamości) + domknięcie §8 literałów (ta sesja, niezacommitowane)
+§7.3 — blok „czytaj publiczne pola tożsamości z self_state do `InvitePublic`" był zduplikowany 3× (invite_create ×2, invite_accept ×1), ~45 linii `match get_string` każdy, w dodatku z surowymi literałami `"x_pub"/"k_pub"/"mbox_*"` (niedokończone §8).
+- `commands/invite_codec.rs` — NOWA `pub fn invite_public_from_self(&SecretJson) -> Result<InvitePublic>` (8 pól przez `sf::*`). Import `sf` przeniesiony na poziom pliku (był w `mod tests`).
+- `invite_create.rs` / `invite_accept.rs` — oba/jeden blok zwinięte do `invite_public_from_self(&self_json)`; usunięte importy `InvitePublic`/`sf`. invite_accept: literał `"peer"` -> `sf::PEER` (zostaje `use sf`).
+§8 domknięcie pozostałych literałów-kluczy dokumentów stanu (poza GRUPA A):
+- `contact_verify_emoji.rs` — wszystkie odczyty SAS (`self_field`/`peer_field`): `"x_priv"/"x_pub"/"k_pub"/"mbox_*"/"peer"` -> `sf::*` (prod + test-buildy `bundle`/`self_view`/`peer_view` + lista pól w `swapping_*`). Kolejność argumentów `party_transcript` NIETKNIĘTA = bajty SAS bez zmian.
+- NOWA stała `sf::LABEL = "label"` (+ pin).
+- `contact_list.rs` — `v.get("label")` -> `sf::LABEL`, `v.get("peer")` -> `sf::PEER` (klucze IPC `json!` zostają).
+- `contact_send.rs` — `self_state["prekeys_local_public"]` -> `sf::PREKEYS_LOCAL_PUBLIC`.
+- `contact_fetch.rs` — 4 odczyty `ui.get("mailbox_gen")/("msg_id")` -> `sf::MAILBOX_GEN/MSG_ID` (klucze wyjściowe IPC `json!` i `"recovered"` zostają — warstwa IPC, odłożona).
+- Weryfikacja: lithiumd 114 ok (w tym oba testy SAS), clippy `--tests` czysto, itest `ds_invite_abuse` 5 ok, `ds_messaging` 6 ok (pełny invite handshake + send/fetch/list).
+
+UWAGA: to był read-half §7.3 + zamknięcie literałów §8. Pełne §6 (self_v/peer_v -> structy) ROZPOCZĘTE w sekcji I.
+
+### I. §6 START — typowanie pod-dokumentów stanu na serde-structy (ta sesja, niezacommitowane)
+Podejście: NOWY `lithiumd/src/e2e/state.rs` (`pub(crate) mod state;` w `e2e/mod.rs`) z serde-structami pod-dokumentów; parse-out (`from_value`) -> operuj -> write-back (`to_value`). Publiczne sygnatury funkcji BEZ ZMIAN (callerzy nietknięci). Każdy struct, którego pola pokrywają komplet kluczy danego pod-obiektu, pozwala USUNĄĆ odpowiednie `sf::*` (nazwę trzyma teraz serde) — zrobione dla `SEEN_AT_MS`, `UPDATED_AT_MS`.
+
+Structy zrobione (3), wszystkie zweryfikowane (lithiumd 114 + clippy + `ds_messaging` 6 po każdym istotnym):
+1. `RemotePrekey {id,x_pub,k_pub,seen_at_ms(#[serde(default)])}` — `state_peer.rs::merge_remote_prekeys_into_peer` (Vec<RemotePrekey> zamiast ręcznego `json!` push) + `peer_pick_remote_prekey` (from_value). Usunięto `sf::SEEN_AT_MS`.
+2. `LocalPrekeyPublic {id,x_pub,k_pub,created_at_ms}` — `prekeys.rs::gen_local_prekey_material` `public_item` przez `to_value` zamiast `json!`. (`LocalPrekeyPriv` był już structem, został lokalny.)
+3. `E2ePeer {id,x_pub,k_pub,step,updated_at_ms(#[serde(default)])}` — zapis w `session.rs` (reply -> e2e_peer) przez `to_value`; odczyt w `state_peer.rs::ensure_peer_e2e` przez `from_value` (let-chain `&&`, edition 2024). Usunięto `sf::UPDATED_AT_MS`. UWAGA: odczyt `peer_v[E2E_PEER][STEP]` w `session.rs:79` (peer_step_cur) zostawiony jako Value-read (działa na null gdy brak e2e_peer).
+4. `RxKey {x_priv,x_pub,k_priv,k_pub,seq,created_at_ms}` — wpis mapy reply-keys. Insert w `session.rs::encrypt_for_peer` przez `to_value`; gettery `state_self.rs::self_get_rx_privs` (prywatne klucze) i `self_find_seq` przez `from_value`. Usunięto `sf::CREATED_AT_MS`. UWAGA: `gc_after_ack` i `ensure_self_keyring` wciąż iterują mapę i czytają `.seq` jako Value (sf::SEQ zostaje) — typowanie kontenera `E2eRx` to dalszy krok.
+5. `MsgMeta {ts_ms,msg_id,kind:Option<String>(skip_if_none),step,mode:E2eMode,mailbox_gen}` — meta/ui zwracane z `encrypt_for_peer` (kind=None) i `decrypt_with_privs` (kind=Some). Oba `json!` -> `to_value`. Kolejność pól = poprzednia, serializacja bajt-identyczna (encrypt pomija kind). Usunięto `sf::TS_MS/MODE/KIND` ORAZ `E2eMode::as_str` (serde przejął string trybu, §10 domknięte typem). Testy session: asercje trybu przez `meta_mode()` helper (`from_value::<MsgMeta>().mode == E2eMode::*`) zamiast `meta.get(sf::MODE).as_str()`. UWAGA: `kind` w MsgMeta to inny byt niż `kind` w `StoredMessage`/`KIND_TEXT` (tamto stała wartości, nie pole meta).
+
+6. `BootstrapState {rx_used:bool, tx_used:Option<bool>(skip_if_none), retire_ok:bool, retired_at_ms:u64}` — self `{rx_used,retire_ok,retired_at_ms}` + peer `{tx_used}` w jednym. `tx_used` Option bo init = `had_e2e` tylko gdy absent (presence-check). Helper `load_bootstrap`. Konwersja w `state_self.rs` (drop/mark/ensure) i `state_peer.rs` (ensure_peer_e2e). Test mark przez `load_bootstrap(v).retire_ok`. Usunięto `sf::RX_USED/TX_USED/RETIRE_OK/RETIRED_AT_MS`.
+7. `E2eRx {active,ack_seq,next_seq,window, keys:BTreeMap<String,RxKey>}` (`#[serde(default)]` + custom Default: next_seq=1, window=DEFAULT_WINDOW) — RDZEŃ RATCHETA ODBIORCZEGO. **KLUCZOWE BEZP.**: `RxKey` dostał `#[derive(Zeroize, ZeroizeOnDrop)]`, a `store_e2e_rx` zeroizuje stary Value (`SecretJson::from(mem::replace(...))`) — zachowuje zeroizację reply-keys z dawnego `drop_removed_json_key` (gc `retain` dropuje RxKey -> zeroize). Helpery `load_e2e_rx`/`store_e2e_rx`/`set_active_reply_key`/`advance_ack` w `state_self.rs` (pub(crate)). Konwersja: `ensure_self_keyring` (init+stale-bootstrap-slot removal), `self_next_seq/find_seq/get_rx_privs`, `gc_after_ack`, `drop_bootstrap` (ack_seq read); `session.rs` encrypt (`set_active_reply_key`) i decrypt (`advance_ack`). Testy state_self/session czytają e2e_rx przez `load_e2e_rx`/`store_e2e_rx`. Usunięto `sf::ACTIVE/ACK_SEQ/NEXT_SEQ/WINDOW/KEYS/SEQ`. Weryfikacja: lithiumd 114 (w tym gc/ack/roundtripy), `ds_messaging` 6, `ds_invite_abuse` 5.
+
+Łącznie usunięte martwe `sf` (przejęte przez serde): `SEEN_AT_MS, UPDATED_AT_MS, CREATED_AT_MS, TS_MS, MODE, KIND, RX_USED, TX_USED, RETIRE_OK, RETIRED_AT_MS, ACTIVE, ACK_SEQ, NEXT_SEQ, WINDOW, KEYS, SEQ` (16) + metoda `E2eMode::as_str`.
+
+Domknięcie residual §8 (literały-klucze pominięte przez GRUPA A, ta sesja):
+- `contact_mailbox.rs` — WSZYSTKIE `get_str(v, "literal")` -> `get_str(v, sf::*)` (perl: nazwa stałej = uppercase wartości) + test `.remove("mbox_out_next_priv")` -> `sf::MBOX_OUT_NEXT_PRIV`.
+- `crypto.rs` — `json_get_str(peer_obj, "ed_pub"/"dili_pub")` (odczyt kluczy peera do weryfikacji podpisu) -> `sf::ED_PUB/DILI_PUB`.
+- `state_self.rs` — `drop_removed_json_key(obj, "x_priv"/"k_priv")` -> `sf::X_PRIV/K_PRIV`.
+- ŚWIADOMIE ZOSTAJĄ literałami (nie pozycja klucza): `json_missing_field("...")` etykiety błędów (utrwalony wzorzec klucz=sf/etykieta=literał), wartości trybów (`"bootstrap"`/`"text"`), klucze wyjścia IPC `"mailbox_gen"` w `json!` (warstwa IPC, odłożona), golden-piny (`header.rs`/`stored_message.rs`), `"recovered"` (ui-meta IPC).
+- Weryfikacja: lithiumd 114 + clippy + `ds_messaging` 6 (ścieżka weryfikacji podpisu w crypto.rs pokryta).
+
+8. `SelfMailbox {tx_gen,tx_sent,rotate_every}` + `PeerMailbox {peer_tx_gen_seen, sender_pubs:BTreeMap<String,String>}` — w `contact_mailbox.rs` (NIE state.rs: warstwa command, `MAILBOX_ROTATE_EVERY_DEFAULT` tutaj; BEZ zeroize — sender_pubs to klucze publiczne, self to liczniki). Helpery `load/store_self_mailbox`, `load/store_peer_mailbox`. Skonwertowane WSZYSTKIE funkcje: `ensure_mailbox_state` (self+peer init przez load/store, sender_pubs 0/1 przez `.entry().or_insert()`), `peer_store_mailbox_sender_keys`, `peer_sender_pub_for_generation`, `self_tx_generation`, `mark_outbound_message_sent` (rotacja), `note_inbound_generation_seen`, `inbound_fetch_generations`. Usunięto helpery `sender_pub_map`/`_mut`. ~50 asercji testowych skonwertowanych (helpery `set_rotate`/`set_peer_mailbox` w mod tests; reads przez `load_*_mailbox`). Usunięto `sf::TX_GEN/TX_SENT/ROTATE_EVERY/PEER_TX_GEN_SEEN/SENDER_PUBS`. UWAGA `gen` to słowo zarezerwowane w edition 2024 (zmienna `cur_gen`). UWAGA: §7.4 — `peer.mbox_out_cur/next_pub` setter wciąż ×3 (peer_store/note_inbound/ensure), nie zdedup (drobne). Weryfikacja: lithiumd 114, `ds_messaging` 6 (rotacja generacji), `ds_invite_abuse` 5.
+
+Łączny stan §6: rejestr `sf` 55 -> 30 stałych. Wszystkie POD-DOKUMENTY stanu (e2e_rx, e2e_peer, bootstrap, mailbox self+peer, prekeys_remote, msg-meta, prekey-public) są typowanymi serde-structami; produkcja nie ma już ad-hoc `json!`/Value-poke pól stanu ratcheta/mailboxa.
+
+ZOSTAŁE 30 stałych `sf` (NIE są ad-hoc state-poke, inny charakter):
+- klucze KONTENERÓW koperty: `E2E_RX, E2E_TX, E2E_PEER, BOOTSTRAP, MAILBOX, PEER, NEED_RECOVER, PREKEYS_LOCAL_PUBLIC/ADVERTISED/REMOTE, LABEL` — nieodłączne dopóki `self_v`/`peer_v` to `SecretJson(Value)` envelope; znikną dopiero z pełnymi kontenerami.
+- pola TOŻSAMOŚCI/kluczy (§7.3, nie §6): `CID, X_PUB, K_PUB, ED_PUB, DILI_PUB, X_PRIV, K_PRIV, ED_PRIV, DILI_PRIV, MBOX_IN/OUT_*` — czytane pole-po-polu (część zrobiona przez `invite_public_from_self`); docelowo `PeerIdentity` struct.
+- drobne: `ID` (prekey/e2e_peer id), `STEP` (e2e_tx + e2e_peer.step read w session:79), `MSG_ID`/`MAILBOX_GEN` (ui-meta read w contact_fetch).
+
+ZOSTAJE (opcjonalnie, osobny duży przebieg):
+- Pełne kontenery `SelfState`/`PeerState` zamiast `SecretJson(Value)` na granicy storage — usuwa klucze-kontenery; dotyka WSZYSTKICH command-handlerów (load/save) + sygnatur funkcji e2e (z `&mut Value`/`SecretJson` na typy) + IPC. NAJWIĘKSZY/najryzykowniejszy, robić jako dedykowany przebieg.
+- §7.3 reszta: `PeerIdentity`/`SelfIdentity` struct dla pól tożsamości (cid/x/k/ed/dili/mbox_*) zamiast pole-po-polu (`ensure_self_keyring`, `self_bootstrap_rx_privs`, `crypto.rs` peer-id reads, `contact_mailbox.rs` identity reads, `derive_mailboxes`).
+- bootstrap `{rx_used,tx_used,retire_ok,retired_at_ms}` — `state_self.rs`/`state_peer.rs`.
+- meta/ui json! (`{ts_ms,msg_id,kind,step,mode,mailbox_gen}`) zwracane z encrypt/decrypt — struct `MsgMeta`.
+- mailbox `{tx_gen,tx_sent,rotate_every,peer_tx_gen_seen,sender_pubs{<gen>:{...}}}` — `contact_mailbox.rs` (307 linii, §7.4 zapisy kluczy nadawcy też tu). NAJWIĘKSZY kawałek.
+- crypto.rs rekonstrukcja nagłówka (już używa typowanego SignedHeader z header.rs — sprawdzić co zostało).
+- Docelowo: pełne kontenery `SelfState`/`PeerState` zamiast `SecretJson(Value)` na granicy storage — ostatni krok, dotyka wszystkich command-handlerów ładujących/zapisujących stan.
 
 ## Uwagi stylu (przypomniane przez usera)
 - Komentarze tylko „dlaczego", nigdy „co"; bez dekoracyjnych dividerów; bez znaków spoza klawiatury. (Patrz CLAUDE.md / pamięć `feedback_code_style`.)

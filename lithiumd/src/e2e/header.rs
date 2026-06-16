@@ -12,16 +12,6 @@ pub(crate) enum E2eMode {
     PrekeyRecover,
 }
 
-impl E2eMode {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            E2eMode::Ratchet => "ratchet",
-            E2eMode::Bootstrap => "bootstrap",
-            E2eMode::PrekeyRecover => "prekey_recover",
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Mailbox {
     pub sender_cur_x_pub: String,

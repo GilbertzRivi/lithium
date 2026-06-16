@@ -9,6 +9,7 @@ use lithium_core::{
 };
 
 use crate::e2e::drop_bootstrap_private_if_established;
+use crate::state_fields as sf;
 use crate::{
     commands::contact_mailbox::{
         derive_mailboxes_for_generation_from_values,
@@ -68,7 +69,7 @@ async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 
     }
 
     self_v.with_exposed_mut(|self_state| {
-        self_state["prekeys_local_public"] = Value::Array(arr);
+        self_state[sf::PREKEYS_LOCAL_PUBLIC] = Value::Array(arr);
     });
 
     Ok(())

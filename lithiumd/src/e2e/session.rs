@@ -13,16 +13,17 @@ use super::{
     crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
     header::{Auth, E2eMode, Mailbox, Reply, SignedHeader, SignedHeaderWire, SIGNED_HEADER_V},
     prekeys::prekey_blob_to_privs,
+    state::{E2ePeer, MsgMeta, RxKey},
     state_peer::{
         ensure_peer_e2e, merge_remote_prekeys_into_peer, peer_bootstrap_target,
         peer_pick_remote_prekey,
     },
     state_self::{
-        drop_bootstrap_private_if_established, gc_after_ack, next_tx_step, self_bootstrap_rx_privs,
-        self_find_seq, self_get_rx_privs, self_next_seq, ensure_self_keyring,
-        mark_bootstrap_retire_ready,
+        advance_ack, drop_bootstrap_private_if_established, gc_after_ack, next_tx_step,
+        self_bootstrap_rx_privs, self_find_seq, self_get_rx_privs, self_next_seq,
+        ensure_self_keyring, mark_bootstrap_retire_ready, set_active_reply_key,
     },
-    wire::{DEFAULT_WINDOW, PREKEY_TARGET, WireV1},
+    wire::{PREKEY_TARGET, WireV1},
 };
 
 fn decrypt_with_privs(
@@ -80,23 +81,29 @@ fn decrypt_with_privs(
 
     if step_in > peer_step_cur {
         let reply_id = Byte32::from_hex(hdr.reply.id.trim())?;
-        peer_v[sf::E2E_PEER] = json!({
-            sf::ID: reply_id.to_hex().expose(),
-            sf::X_PUB: hdr.reply.x_pub.as_str(),
-            sf::K_PUB: hdr.reply.k_pub.as_str(),
-            sf::STEP: step_in,
-            sf::UPDATED_AT_MS: super::wire::now_ms()
-        });
+        peer_v[sf::E2E_PEER] = serde_json::to_value(E2ePeer {
+            id: reply_id.to_hex().expose().to_owned(),
+            x_pub: hdr.reply.x_pub.clone(),
+            k_pub: hdr.reply.k_pub.clone(),
+            step: step_in,
+            updated_at_ms: super::wire::now_ms(),
+        })
+        .map_err(LithiumError::json_parse)?;
     }
 
     peer_v[sf::NEED_RECOVER] = json!(false);
 
     Ok((
         pt_body.expose_as_slice().to_vec(),
-        json!({
-            sf::TS_MS: hdr.ts_ms, sf::MSG_ID: hdr.msg_id.as_str(), sf::KIND: hdr.kind.as_str(),
-            sf::STEP: step_in, sf::MODE: hdr.mode.as_str(), sf::MAILBOX_GEN: mailbox_gen
-        }),
+        serde_json::to_value(MsgMeta {
+            ts_ms: hdr.ts_ms,
+            msg_id: hdr.msg_id.clone(),
+            kind: Some(hdr.kind.clone()),
+            step: step_in,
+            mode: hdr.mode,
+            mailbox_gen,
+        })
+        .map_err(LithiumError::json_parse)?,
     ))
 }
 
@@ -140,39 +147,21 @@ pub fn encrypt_for_peer(
     let rx_k_pub_hex = rx_k_pub.to_hex();
 
     let seq = self_next_seq(self_v);
-    self_v.with_exposed_mut(|self_v| -> Result<()> {
-        if self_v.get(sf::E2E_RX).is_none() {
-            self_v[sf::E2E_RX] = json!({
-                sf::ACTIVE: "",
-                sf::ACK_SEQ: 0u64,
-                sf::NEXT_SEQ: 1u64,
-                sf::WINDOW: DEFAULT_WINDOW,
-                sf::KEYS: {}
-            });
-        }
-
-        let id_hex = reply_id.to_hex();
-        self_v[sf::E2E_RX][sf::ACTIVE] = Value::String(id_hex.expose().to_owned());
-
-        let keys = self_v[sf::E2E_RX]
-            .get_mut(sf::KEYS)
-            .and_then(|v| v.as_object_mut())
-            .ok_or_else(|| LithiumError::json_missing_field("e2e_rx.keys"))?;
-
-        keys.insert(
-            id_hex.expose().to_owned(),
-            json!({
-                sf::X_PRIV: rx_x_priv_hex.expose(),
-                sf::X_PUB: rx_x_pub_hex.expose(),
-                sf::K_PRIV: rx_k_priv_hex.expose(),
-                sf::K_PUB: rx_k_pub_hex.expose(),
-                sf::SEQ: seq,
-                sf::CREATED_AT_MS: super::wire::now_ms()
-            }),
+    let id_hex = reply_id.to_hex();
+    self_v.with_exposed_mut(|self_v| {
+        set_active_reply_key(
+            self_v,
+            id_hex.expose(),
+            RxKey {
+                x_priv: rx_x_priv_hex.expose().to_owned(),
+                x_pub: rx_x_pub_hex.expose().to_owned(),
+                k_priv: rx_k_priv_hex.expose().to_owned(),
+                k_pub: rx_k_pub_hex.expose().to_owned(),
+                seq,
+                created_at_ms: super::wire::now_ms(),
+            },
         );
-
-        Ok(())
-    })?;
+    });
 
     let (mailbox_sender_cur_x_pub, mailbox_sender_next_x_pub) = self_v
         .with_exposed(current_outbound_mailbox_pubs)
@@ -235,10 +224,15 @@ pub fn encrypt_for_peer(
             enc_headers: wire.enc_headers.expose_as_slice().to_vec(),
             enc_body: wire.enc_body.expose_as_slice().to_vec(),
         },
-        json!({
-            sf::TS_MS: ts_ms, sf::MSG_ID: msg_id,
-            sf::STEP: step, sf::MODE: mode.as_str(), sf::MAILBOX_GEN: mailbox_gen
-        }),
+        serde_json::to_value(MsgMeta {
+            ts_ms,
+            msg_id,
+            kind: None,
+            step,
+            mode,
+            mailbox_gen,
+        })
+        .map_err(LithiumError::json_parse)?,
     ))
 }
 
@@ -261,12 +255,7 @@ pub fn decrypt_for_us(
     };
 
     if let Some(seq) = self_find_seq(self_v, &w.to_id) {
-        self_v.with_exposed_mut(|self_v| {
-            let ack = self_v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0);
-            if seq > ack {
-                self_v[sf::E2E_RX][sf::ACK_SEQ] = json!(seq);
-            }
-        });
+        self_v.with_exposed_mut(|self_v| advance_ack(self_v, seq));
         gc_after_ack(self_v);
     }
 
@@ -294,7 +283,7 @@ mod tests {
     use crate::commands::invite_codec::gen_self_state;
     use crate::e2e::{
         prekeys::gen_local_prekey_material,
-        state_self::ensure_self_keyring,
+        state_self::{ensure_self_keyring, load_e2e_rx, store_e2e_rx},
         wire::{pack_wire, unpack_wire},
     };
 
@@ -314,6 +303,10 @@ mod tests {
                 }
             }))
         })
+    }
+
+    fn meta_mode(meta: &Value) -> E2eMode {
+        serde_json::from_value::<MsgMeta>(meta.clone()).unwrap().mode
     }
 
     fn make_real_wire() -> (WireV1, SecretJson, SecretJson, Vec<u8>) {
@@ -342,8 +335,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            meta.get(sf::MODE).and_then(|v| v.as_str()),
-            Some("bootstrap"),
+            meta_mode(&meta),
+            E2eMode::Bootstrap,
             "first message must use bootstrap mode"
         );
 
@@ -421,7 +414,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(meta.get(sf::MODE).and_then(|v| v.as_str()), Some("prekey_recover"));
+        assert_eq!(meta_mode(&meta), E2eMode::PrekeyRecover);
 
         let mut alice_peer_v_correct = build_peer_v_from_state(&alice_self_sj, &alice_cid);
         let (decrypted, _ui) =
@@ -623,8 +616,8 @@ mod tests {
         let (wire1, m1) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"first", "text", &[], false, 0).unwrap();
         let (wire2, m2) = encrypt_for_peer(&mut alice_sj, &mut bob_pv, b"second", "text", &[], false, 0).unwrap();
 
-        assert_eq!(m1[sf::MODE].as_str(), Some("bootstrap"));
-        assert_eq!(m2[sf::MODE].as_str(), Some("bootstrap"));
+        assert_eq!(meta_mode(&m1), E2eMode::Bootstrap);
+        assert_eq!(meta_mode(&m2), E2eMode::Bootstrap);
 
         let (pt1, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire1).unwrap();
         let (pt2, _) = decrypt_for_us(&mut bob_sj, &mut alice_pv, &wire2).unwrap();
@@ -649,7 +642,7 @@ mod tests {
         let (wire_b, meta_b) = encrypt_for_peer(
             &mut bob_sj, &mut alice_pv_for_bob, b"ratchet-reply", "text", &[], false, 0,
         ).unwrap();
-        assert_eq!(meta_b[sf::MODE].as_str(), Some("ratchet"),
+        assert_eq!(meta_mode(&meta_b), E2eMode::Ratchet,
             "after receiving bootstrap, next send must be ratchet");
 
         let mut bob_pv_for_alice2 = build_peer_v_from_state(&bob_sj, &bob_cid);
@@ -673,10 +666,10 @@ mod tests {
             &mut bob_sj, &mut alice_pv_for_bob, b"reply", "text", &[], false, 0,
         ).unwrap();
 
-        let ack_before = alice_sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0));
+        let ack_before = alice_sj.with_exposed(|v| load_e2e_rx(v).ack_seq);
         let mut bob_pv2 = build_peer_v_from_state(&bob_sj, &bob_cid);
         decrypt_for_us(&mut alice_sj, &mut bob_pv2, &wire_b).unwrap();
-        let ack_after = alice_sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0));
+        let ack_after = alice_sj.with_exposed(|v| load_e2e_rx(v).ack_seq);
 
         assert!(ack_after > ack_before,
             "ack_seq must advance: {ack_before} → {ack_after}");
@@ -688,7 +681,11 @@ mod tests {
         let (bob_cid, mut bob_sj) = gen_self_state().unwrap();
 
         ensure_self_keyring(&mut alice_sj).unwrap();
-        alice_sj.with_exposed_mut(|v| { v[sf::E2E_RX][sf::WINDOW] = json!(1u64); });
+        alice_sj.with_exposed_mut(|v| {
+            let mut rx = load_e2e_rx(v);
+            rx.window = 1;
+            store_e2e_rx(v, &rx);
+        });
 
         let mut bob_pv = build_peer_v_from_state(&bob_sj, &bob_cid);
         let mut alice_pv_for_bob = build_peer_v_from_state(&alice_sj, &alice_cid);

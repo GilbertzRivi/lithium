@@ -8,9 +8,10 @@ use lithium_core::{
     secrets::bytes::SecretBytes,
 };
 
-use crate::state_fields as sf;
 use crate::{
-    commands::invite_codec::{decode_contact_id_hex, encode_invite_code, gen_self_state, InvitePublic},
+    commands::invite_codec::{
+        decode_contact_id_hex, encode_invite_code, gen_self_state, invite_public_from_self,
+    },
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
     state::DaemonState,
@@ -54,50 +55,9 @@ pub async fn handle(
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };
 
-        let cid_hex = match self_json.get_string(sf::CID) {
+        let pub_code = match invite_public_from_self(&self_json) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let x_pub = match self_json.get_string("x_pub") {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let k_pub = match self_json.get_string("k_pub") {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let ed_pub = match self_json.get_string(sf::ED_PUB) {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let dili_pub = match self_json.get_string(sf::DILI_PUB) {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-
-        let mbox_in_pub = match self_json.get_string("mbox_in_pub") {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let mbox_out_cur_pub = match self_json.get_string("mbox_out_cur_pub") {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-        let mbox_out_next_pub = match self_json.get_string("mbox_out_next_pub") {
-            Ok(v) => v,
-            Err(_) => return err_resp(id, "self_state_corrupt"),
-        };
-
-        let pub_code = InvitePublic {
-            cid_hex,
-            x_pub_hex: x_pub,
-            k_pub_hex: k_pub,
-            ed_pub_hex: ed_pub,
-            dili_pub_hex: dili_pub,
-
-            mbox_in_pub_hex: mbox_in_pub,
-            mbox_out_cur_pub_hex: mbox_out_cur_pub,
-            mbox_out_next_pub_hex: mbox_out_next_pub,
         };
 
         let code = match encode_invite_code(&pub_code) {
@@ -163,50 +123,9 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let cid_hex = match self_json.get_string(sf::CID) {
+    let pub_code = match invite_public_from_self(&self_json) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let x_pub = match self_json.get_string("x_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let k_pub = match self_json.get_string("k_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let ed_pub = match self_json.get_string(sf::ED_PUB) {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let dili_pub = match self_json.get_string(sf::DILI_PUB) {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-
-    let mbox_in_pub = match self_json.get_string("mbox_in_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let mbox_out_cur_pub = match self_json.get_string("mbox_out_cur_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-    let mbox_out_next_pub = match self_json.get_string("mbox_out_next_pub") {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "self_state_corrupt"),
-    };
-
-    let pub_code = InvitePublic {
-        cid_hex,
-        x_pub_hex: x_pub,
-        k_pub_hex: k_pub,
-        ed_pub_hex: ed_pub,
-        dili_pub_hex: dili_pub,
-
-        mbox_in_pub_hex: mbox_in_pub,
-        mbox_out_cur_pub_hex: mbox_out_cur_pub,
-        mbox_out_next_pub_hex: mbox_out_next_pub,
     };
 
     let code = match encode_invite_code(&pub_code) {

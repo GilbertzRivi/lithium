@@ -31,7 +31,7 @@ const VERIFY_EMOJI_TABLE: [&str; 64] = [
 
 fn peer_field(peer_v: &SecretJson, key: &'static str) -> Result<String, LithiumError> {
     peer_v.with_exposed(|v| {
-        v.get("peer")
+        v.get(sf::PEER)
             .and_then(|p| p.get(key))
             .and_then(|x| x.as_str())
             .map(str::to_owned)
@@ -73,25 +73,25 @@ fn compute_verify_emojis(
     self_v: &SecretJson,
     peer_v: &SecretJson,
 ) -> Result<Vec<&'static str>, LithiumError> {
-    let self_x_priv = Byte32::from_hex(self_field(self_v, "x_priv")?.trim())?;
+    let self_x_priv = Byte32::from_hex(self_field(self_v, sf::X_PRIV)?.trim())?;
 
     let self_cid = decode_hex_field(&self_field(self_v, sf::CID)?)?;
-    let self_x_pub = decode_hex_field(&self_field(self_v, "x_pub")?)?;
+    let self_x_pub = decode_hex_field(&self_field(self_v, sf::X_PUB)?)?;
     let self_ed_pub = decode_hex_field(&self_field(self_v, sf::ED_PUB)?)?;
     let self_dili_pub = decode_hex_field(&self_field(self_v, sf::DILI_PUB)?)?;
-    let self_k_pub = decode_hex_field(&self_field(self_v, "k_pub")?)?;
-    let self_mbox_in_pub = decode_hex_field(&self_field(self_v, "mbox_in_pub")?)?;
-    let self_mbox_out_cur_pub = decode_hex_field(&self_field(self_v, "mbox_out_cur_pub")?)?;
-    let self_mbox_out_next_pub = decode_hex_field(&self_field(self_v, "mbox_out_next_pub")?)?;
+    let self_k_pub = decode_hex_field(&self_field(self_v, sf::K_PUB)?)?;
+    let self_mbox_in_pub = decode_hex_field(&self_field(self_v, sf::MBOX_IN_PUB)?)?;
+    let self_mbox_out_cur_pub = decode_hex_field(&self_field(self_v, sf::MBOX_OUT_CUR_PUB)?)?;
+    let self_mbox_out_next_pub = decode_hex_field(&self_field(self_v, sf::MBOX_OUT_NEXT_PUB)?)?;
 
-    let peer_x_pub_bytes = decode_hex_field(&peer_field(peer_v, "x_pub")?)?;
+    let peer_x_pub_bytes = decode_hex_field(&peer_field(peer_v, sf::X_PUB)?)?;
     let peer_cid = decode_hex_field(&peer_field(peer_v, sf::CID)?)?;
     let peer_ed_pub = decode_hex_field(&peer_field(peer_v, sf::ED_PUB)?)?;
     let peer_dili_pub = decode_hex_field(&peer_field(peer_v, sf::DILI_PUB)?)?;
-    let peer_k_pub = decode_hex_field(&peer_field(peer_v, "k_pub")?)?;
-    let peer_mbox_in_pub = decode_hex_field(&peer_field(peer_v, "mbox_in_pub")?)?;
-    let peer_mbox_out_cur_pub = decode_hex_field(&peer_field(peer_v, "mbox_out_cur_pub")?)?;
-    let peer_mbox_out_next_pub = decode_hex_field(&peer_field(peer_v, "mbox_out_next_pub")?)?;
+    let peer_k_pub = decode_hex_field(&peer_field(peer_v, sf::K_PUB)?)?;
+    let peer_mbox_in_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_IN_PUB)?)?;
+    let peer_mbox_out_cur_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_OUT_CUR_PUB)?)?;
+    let peer_mbox_out_next_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_OUT_NEXT_PUB)?)?;
 
     let peer_x_pub_arr: [u8; 32] = peer_x_pub_bytes
         .as_slice()
@@ -162,7 +162,7 @@ pub async fn handle(
     };
 
     let peer_set = peer_v.with_exposed(|v| {
-        v.get("peer").map(|p| !p.is_null()).unwrap_or(false)
+        v.get(sf::PEER).map(|p| !p.is_null()).unwrap_or(false)
     });
 
     if !peer_set {
@@ -204,25 +204,25 @@ mod tests {
 
     fn bundle(x_pub: &str) -> Value {
         json!({
-            "cid": hex32(),
-            "x_pub": x_pub,
-            "ed_pub": hex32(),
-            "dili_pub": hex32(),
-            "k_pub": hex32(),
-            "mbox_in_pub": hex32(),
-            "mbox_out_cur_pub": hex32(),
-            "mbox_out_next_pub": hex32(),
+            sf::CID: hex32(),
+            sf::X_PUB: x_pub,
+            sf::ED_PUB: hex32(),
+            sf::DILI_PUB: hex32(),
+            sf::K_PUB: hex32(),
+            sf::MBOX_IN_PUB: hex32(),
+            sf::MBOX_OUT_CUR_PUB: hex32(),
+            sf::MBOX_OUT_NEXT_PUB: hex32(),
         })
     }
 
     fn self_view(x_priv: &str, b: &Value) -> SecretJson {
         let mut v = b.clone();
-        v["x_priv"] = json!(x_priv);
+        v[sf::X_PRIV] = json!(x_priv);
         SecretJson::from(v)
     }
 
     fn peer_view(b: &Value) -> SecretJson {
-        SecretJson::from(json!({ "peer": b }))
+        SecretJson::from(json!({ sf::PEER: b }))
     }
 
     #[test]
@@ -255,13 +255,13 @@ mod tests {
             compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&bob)).unwrap();
 
         for field in [
-            "cid",
-            "ed_pub",
-            "dili_pub",
-            "k_pub",
-            "mbox_in_pub",
-            "mbox_out_cur_pub",
-            "mbox_out_next_pub",
+            sf::CID,
+            sf::ED_PUB,
+            sf::DILI_PUB,
+            sf::K_PUB,
+            sf::MBOX_IN_PUB,
+            sf::MBOX_OUT_CUR_PUB,
+            sf::MBOX_OUT_NEXT_PUB,
         ] {
             let mut tampered = bob.clone();
             tampered[field] = json!(hex32());

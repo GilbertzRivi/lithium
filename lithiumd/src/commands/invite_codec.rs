@@ -8,6 +8,7 @@ use lithium_core::{
 };
 
 use crate::labels::{INV_MAGIC, INV_VER};
+use crate::state_fields as sf;
 
 const MLKEM1024_PUBLIC_KEY_LEN: usize = 1568;
 const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
@@ -190,6 +191,19 @@ pub fn decode_contact_id_hex(s: &SecretString) -> Result<Vec<u8>> {
     Ok(b.as_slice().to_vec())
 }
 
+pub fn invite_public_from_self(self_json: &SecretJson) -> Result<InvitePublic> {
+    Ok(InvitePublic {
+        cid_hex: self_json.get_string(sf::CID)?,
+        x_pub_hex: self_json.get_string(sf::X_PUB)?,
+        k_pub_hex: self_json.get_string(sf::K_PUB)?,
+        ed_pub_hex: self_json.get_string(sf::ED_PUB)?,
+        dili_pub_hex: self_json.get_string(sf::DILI_PUB)?,
+        mbox_in_pub_hex: self_json.get_string(sf::MBOX_IN_PUB)?,
+        mbox_out_cur_pub_hex: self_json.get_string(sf::MBOX_OUT_CUR_PUB)?,
+        mbox_out_next_pub_hex: self_json.get_string(sf::MBOX_OUT_NEXT_PUB)?,
+    })
+}
+
 pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
     let cid: Byte32 = keys::random_32()?;
 
@@ -249,7 +263,6 @@ pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state_fields as sf;
     use lithium_core::{crypto::keys, secrets::SecretString};
 
     fn hex32() -> SecretString {

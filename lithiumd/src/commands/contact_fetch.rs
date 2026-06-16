@@ -27,6 +27,7 @@ use crate::{
     state::DaemonState,
 };
 use crate::e2e::mark_bootstrap_retire_ready;
+use crate::state_fields as sf;
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
     let Some(dm) = state.local_db.lock().await.clone() else {
@@ -164,7 +165,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                 match decrypt_for_us(&mut self_v, &mut peer_v, &w) {
                     Ok((pt, ui)) => {
                         let seen_gen = ui
-                            .get("mailbox_gen")
+                            .get(sf::MAILBOX_GEN)
                             .and_then(|v| v.as_u64())
                             .unwrap_or(mailbox_gen);
 
@@ -195,7 +196,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                         };
 
                         let msg_id = ui
-                            .get("msg_id")
+                            .get(sf::MSG_ID)
                             .and_then(|v| v.as_str())
                             .filter(|s| !s.is_empty())
                             .map(|s| s.as_bytes().to_vec());
@@ -276,7 +277,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 }
 
                                 let seen_gen = ui
-                                    .get("mailbox_gen")
+                                    .get(sf::MAILBOX_GEN)
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(mailbox_gen);
 
@@ -307,7 +308,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 };
 
                                 let msg_id = ui
-                                    .get("msg_id")
+                                    .get(sf::MSG_ID)
                                     .and_then(|v| v.as_str())
                                     .filter(|s| !s.is_empty())
                                     .map(|s| s.as_bytes().to_vec());

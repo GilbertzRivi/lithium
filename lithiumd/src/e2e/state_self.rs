@@ -6,28 +6,55 @@ use serde_json::json;
 
 use crate::state_fields as sf;
 
+use serde_json::Value;
+
 use super::{
     crypto::id_from_peer_pubs,
-    wire::{drop_removed_json_key, now_ms, DEFAULT_WINDOW},
+    state::{BootstrapState, E2eRx, RxKey},
+    wire::{drop_removed_json_key, now_ms},
 };
+
+fn load_bootstrap(self_v: &Value) -> BootstrapState {
+    self_v
+        .get(sf::BOOTSTRAP)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+pub(crate) fn load_e2e_rx(self_v: &Value) -> E2eRx {
+    self_v
+        .get(sf::E2E_RX)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+pub(crate) fn store_e2e_rx(self_v: &mut Value, rx: &E2eRx) {
+    if let Ok(v) = serde_json::to_value(rx) {
+        // Zeroize the prior receive keys instead of letting the old Value drop in clear.
+        drop(SecretJson::from(std::mem::replace(&mut self_v[sf::E2E_RX], v)));
+    }
+}
+
+pub(crate) fn set_active_reply_key(self_v: &mut Value, id_hex: &str, key: RxKey) {
+    let mut rx = load_e2e_rx(self_v);
+    rx.active = id_hex.to_owned();
+    rx.keys.insert(id_hex.to_owned(), key);
+    store_e2e_rx(self_v, &rx);
+}
+
+pub(crate) fn advance_ack(self_v: &mut Value, seq: u64) {
+    let mut rx = load_e2e_rx(self_v);
+    if seq > rx.ack_seq {
+        rx.ack_seq = seq;
+        store_e2e_rx(self_v, &rx);
+    }
+}
 
 pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &SecretJson) {
     let peer_established = peer_v.with_exposed(|peer_v| peer_v.get(sf::E2E_PEER).is_some());
 
     let retire_ok = self_v.with_exposed(|self_v| {
-        let ack_seq = self_v
-            .get(sf::E2E_RX)
-            .and_then(|v| v.get(sf::ACK_SEQ))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        let marked = self_v
-            .get(sf::BOOTSTRAP)
-            .and_then(|v| v.get(sf::RETIRE_OK))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        ack_seq > 0 || marked
+        load_e2e_rx(self_v).ack_seq > 0 || load_bootstrap(self_v).retire_ok
     });
 
     if !(peer_established && retire_ok) {
@@ -35,27 +62,28 @@ pub fn drop_bootstrap_private_if_established(self_v: &mut SecretJson, peer_v: &S
     }
 
     self_v.with_exposed_mut(|self_v| {
-        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
-            self_v[sf::BOOTSTRAP] = json!({});
-        }
-
         if let Some(obj) = self_v.as_object_mut() {
-            drop_removed_json_key(obj, "x_priv");
-            drop_removed_json_key(obj, "k_priv");
+            drop_removed_json_key(obj, sf::X_PRIV);
+            drop_removed_json_key(obj, sf::K_PRIV);
         }
 
-        self_v[sf::BOOTSTRAP][sf::RX_USED] = json!(true);
-        self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(true);
-        self_v[sf::BOOTSTRAP][sf::RETIRED_AT_MS] = json!(now_ms());
+        let mut b = load_bootstrap(self_v);
+        b.rx_used = true;
+        b.retire_ok = true;
+        b.retired_at_ms = now_ms();
+        if let Ok(v) = serde_json::to_value(b) {
+            self_v[sf::BOOTSTRAP] = v;
+        }
     });
 }
 
 pub fn mark_bootstrap_retire_ready(self_v: &mut SecretJson) {
     self_v.with_exposed_mut(|self_v| {
-        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
-            self_v[sf::BOOTSTRAP] = json!({});
+        let mut b = load_bootstrap(self_v);
+        b.retire_ok = true;
+        if let Ok(v) = serde_json::to_value(b) {
+            self_v[sf::BOOTSTRAP] = v;
         }
-        self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(true);
     });
 }
 
@@ -65,42 +93,11 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
             self_v[sf::E2E_TX] = json!({ sf::STEP: 0u64 });
         }
 
-        if self_v.get(sf::BOOTSTRAP).is_none() || !self_v[sf::BOOTSTRAP].is_object() {
-            self_v[sf::BOOTSTRAP] = json!({ sf::RX_USED: false, sf::RETIRE_OK: false });
-        } else {
-            if self_v[sf::BOOTSTRAP].get(sf::RX_USED).is_none() {
-                self_v[sf::BOOTSTRAP][sf::RX_USED] = json!(false);
-            }
-            if self_v[sf::BOOTSTRAP].get(sf::RETIRE_OK).is_none() {
-                self_v[sf::BOOTSTRAP][sf::RETIRE_OK] = json!(false);
-            }
+        if let Ok(v) = serde_json::to_value(load_bootstrap(self_v)) {
+            self_v[sf::BOOTSTRAP] = v;
         }
 
-        if self_v.get(sf::E2E_RX).is_some() {
-            if self_v[sf::E2E_RX].get(sf::WINDOW).is_none() {
-                self_v[sf::E2E_RX][sf::WINDOW] = json!(DEFAULT_WINDOW);
-            }
-            if self_v[sf::E2E_RX].get(sf::ACK_SEQ).is_none() {
-                self_v[sf::E2E_RX][sf::ACK_SEQ] = json!(0u64);
-            }
-            if self_v[sf::E2E_RX].get(sf::NEXT_SEQ).is_none() {
-                self_v[sf::E2E_RX][sf::NEXT_SEQ] = json!(1u64);
-            }
-            if self_v[sf::E2E_RX].get(sf::KEYS).is_none() {
-                self_v[sf::E2E_RX][sf::KEYS] = json!({});
-            }
-            if self_v[sf::E2E_RX].get(sf::ACTIVE).is_none() {
-                self_v[sf::E2E_RX][sf::ACTIVE] = json!("");
-            }
-        } else {
-            self_v[sf::E2E_RX] = json!({
-                sf::ACTIVE: "",
-                sf::ACK_SEQ: 0u64,
-                sf::NEXT_SEQ: 1u64,
-                sf::WINDOW: DEFAULT_WINDOW,
-                sf::KEYS: {}
-            });
-        }
+        let mut rx = load_e2e_rx(self_v);
 
         let x_pub = self_v
             .get(sf::X_PUB)
@@ -116,25 +113,15 @@ pub fn ensure_self_keyring(self_v: &mut SecretJson) -> Result<()> {
         let bootstrap_id_hex = hex::encode(id_from_peer_pubs(&x_pub, &k_pub)?);
 
         // Remove any stale seq=0 bootstrap slot from the ratchet key map.
-        if let Some(keys) = self_v[sf::E2E_RX].get_mut(sf::KEYS).and_then(|v| v.as_object_mut()) {
-            let remove_bootstrap = keys
-                .get(&bootstrap_id_hex)
-                .and_then(|v| v.get(sf::SEQ))
-                .and_then(|v| v.as_u64())
-                == Some(0);
-
-            if remove_bootstrap {
-                drop_removed_json_key(keys, &bootstrap_id_hex);
-            }
+        if rx.keys.get(&bootstrap_id_hex).map(|k| k.seq) == Some(0) {
+            rx.keys.remove(&bootstrap_id_hex);
         }
 
-        if self_v[sf::E2E_RX]
-            .get(sf::ACTIVE)
-            .and_then(|v| v.as_str())
-            == Some(bootstrap_id_hex.as_str())
-        {
-            self_v[sf::E2E_RX][sf::ACTIVE] = json!("");
+        if rx.active == bootstrap_id_hex {
+            rx.active = String::new();
         }
+
+        store_e2e_rx(self_v, &rx);
 
         if self_v.get(sf::PREKEYS_LOCAL_PUBLIC).is_none() {
             self_v[sf::PREKEYS_LOCAL_PUBLIC] = json!([]);
@@ -172,62 +159,35 @@ pub(crate) fn self_bootstrap_rx_privs(
 
 pub(crate) fn self_next_seq(self_v: &mut SecretJson) -> u64 {
     self_v.with_exposed_mut(|self_v| {
-        let n = self_v[sf::E2E_RX][sf::NEXT_SEQ].as_u64().unwrap_or(1);
-        self_v[sf::E2E_RX][sf::NEXT_SEQ] = json!(n + 1);
+        let mut rx = load_e2e_rx(self_v);
+        let n = rx.next_seq;
+        rx.next_seq = n + 1;
+        store_e2e_rx(self_v, &rx);
         n
     })
 }
 
 pub(crate) fn self_find_seq(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<u64> {
-    self_v.with_exposed(|self_v| {
-        let id_hex = hex::encode(to_id);
-        let keys = self_v.get(sf::E2E_RX)?.get(sf::KEYS)?.as_object()?;
-        let item = keys.get(&id_hex)?.as_object()?;
-        item.get(sf::SEQ)?.as_u64()
-    })
+    self_v.with_exposed(|self_v| load_e2e_rx(self_v).keys.get(&hex::encode(to_id)).map(|k| k.seq))
 }
 
 pub(crate) fn self_get_rx_privs(self_v: &SecretJson, to_id: &[u8; 32]) -> Option<(Byte32, SecretBytes)> {
     self_v.with_exposed(|self_v| {
-        let id_hex = hex::encode(to_id);
-        let keys = self_v.get(sf::E2E_RX)?.get(sf::KEYS)?.as_object()?;
-        let item = keys.get(&id_hex)?.as_object()?;
-
-        let x_priv_hex = item.get(sf::X_PRIV)?.as_str()?;
-        let k_priv_hex = item.get(sf::K_PRIV)?.as_str()?;
-
+        let rx = load_e2e_rx(self_v);
+        let rk = rx.keys.get(&hex::encode(to_id))?;
         Some((
-            Byte32::from_hex(x_priv_hex.trim()).ok()?,
-            SecretBytes::from_hex(k_priv_hex.trim()).ok()?,
+            Byte32::from_hex(rk.x_priv.trim()).ok()?,
+            SecretBytes::from_hex(rk.k_priv.trim()).ok()?,
         ))
     })
 }
 
 pub(crate) fn gc_after_ack(self_v: &mut SecretJson) {
     self_v.with_exposed_mut(|self_v| {
-        let window = self_v[sf::E2E_RX][sf::WINDOW].as_u64().unwrap_or(DEFAULT_WINDOW);
-        let ack = self_v[sf::E2E_RX][sf::ACK_SEQ].as_u64().unwrap_or(0);
-        let min_keep_seq = ack.saturating_sub(window);
-
-        let mut remove: Vec<String> = Vec::new();
-
-        if let Some(keys) = self_v[sf::E2E_RX][sf::KEYS].as_object() {
-            for (k, v) in keys.iter() {
-                let seq = v.get(sf::SEQ).and_then(|x| x.as_u64()).unwrap_or(0);
-                if seq == 0 {
-                    continue;
-                }
-                if seq < min_keep_seq {
-                    remove.push(k.clone());
-                }
-            }
-        }
-
-        if let Some(keys) = self_v[sf::E2E_RX][sf::KEYS].as_object_mut() {
-            for k in remove {
-                drop_removed_json_key(keys, &k);
-            }
-        }
+        let mut rx = load_e2e_rx(self_v);
+        let min_keep_seq = rx.ack_seq.saturating_sub(rx.window);
+        rx.keys.retain(|_, k| k.seq == 0 || k.seq >= min_keep_seq);
+        store_e2e_rx(self_v, &rx);
     });
 }
 
@@ -243,6 +203,7 @@ pub(crate) fn next_tx_step(self_v: &mut SecretJson) -> u64 {
 mod tests {
     use super::*;
     use crate::commands::invite_codec::gen_self_state;
+    use crate::e2e::wire::DEFAULT_WINDOW;
 
     #[test]
     fn ensure_self_keyring_initializes_e2e_fields() {
@@ -253,10 +214,11 @@ mod tests {
             assert!(v.get(sf::E2E_TX).is_some(), "e2e_tx must be initialized");
             assert!(v.get(sf::E2E_RX).is_some(), "e2e_rx must be initialized");
             assert!(v.get(sf::BOOTSTRAP).is_some(), "bootstrap must be initialized");
-            assert!(v[sf::E2E_RX][sf::ACTIVE].is_string());
-            assert_eq!(v[sf::E2E_RX][sf::ACK_SEQ].as_u64(), Some(0));
-            assert_eq!(v[sf::E2E_RX][sf::NEXT_SEQ].as_u64(), Some(1));
-            assert_eq!(v[sf::E2E_RX][sf::WINDOW].as_u64(), Some(DEFAULT_WINDOW));
+            let rx = load_e2e_rx(v);
+            assert!(rx.active.is_empty());
+            assert_eq!(rx.ack_seq, 0);
+            assert_eq!(rx.next_seq, 1);
+            assert_eq!(rx.window, DEFAULT_WINDOW);
         });
     }
 
@@ -264,9 +226,9 @@ mod tests {
     fn ensure_self_keyring_idempotent() {
         let (_cid, mut sj) = gen_self_state().unwrap();
         ensure_self_keyring(&mut sj).unwrap();
-        let ack_before = sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64());
+        let ack_before = sj.with_exposed(|v| load_e2e_rx(v).ack_seq);
         ensure_self_keyring(&mut sj).unwrap();
-        let ack_after = sj.with_exposed(|v| v[sf::E2E_RX][sf::ACK_SEQ].as_u64());
+        let ack_after = sj.with_exposed(|v| load_e2e_rx(v).ack_seq);
         assert_eq!(ack_before, ack_after);
     }
 
@@ -276,12 +238,7 @@ mod tests {
         ensure_self_keyring(&mut sj).unwrap();
         mark_bootstrap_retire_ready(&mut sj);
 
-        let flag = sj.with_exposed(|v| {
-            v.get(sf::BOOTSTRAP)
-                .and_then(|b| b.get(sf::RETIRE_OK))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        });
+        let flag = sj.with_exposed(|v| load_bootstrap(v).retire_ok);
         assert!(flag, "retire_ok must be true after mark");
     }
 }

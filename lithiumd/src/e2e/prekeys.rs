@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::state_fields as sf;
 
+use super::state::LocalPrekeyPublic;
 use super::wire::now_ms;
 
 #[derive(Serialize)]
@@ -21,7 +22,6 @@ struct LocalPrekeyPriv<'a> {
     created_at_ms: u64,
 }
 
-// Returns (id_hex, priv_blob, public_item { id, x_pub, k_pub, created_at_ms }).
 pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, Value)> {
     let id = keys::random_32()?;
     let id_hex = id.to_hex();
@@ -53,12 +53,13 @@ pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, Value)> {
         out
     };
 
-    let public_item = json!({
-        sf::ID: id_hex.expose(),
-        sf::X_PUB: x_pub_hex.expose(),
-        sf::K_PUB: k_pub_hex.expose(),
-        sf::CREATED_AT_MS: created_at_ms
-    });
+    let public_item = serde_json::to_value(LocalPrekeyPublic {
+        id: id_hex.expose().to_owned(),
+        x_pub: x_pub_hex.expose().to_owned(),
+        k_pub: k_pub_hex.expose().to_owned(),
+        created_at_ms,
+    })
+    .map_err(LithiumError::json_parse)?;
 
     Ok((id_hex.expose().to_owned(), priv_blob, public_item))
 }

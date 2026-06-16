@@ -4,6 +4,7 @@ use sea_orm::{EntityTrait, QueryOrder};
 
 use lithium_core::secrets::SecretJson;
 
+use crate::state_fields as sf;
 use crate::{
     db::models::contacts,
     ipc::types::{err_resp, storage_err, IpcResponse},
@@ -42,11 +43,11 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
         };
 
         let label = peer_json.with_exposed(|v| {
-            v.get("label").and_then(|x| x.as_str()).unwrap_or("").to_string()
+            v.get(sf::LABEL).and_then(|x| x.as_str()).unwrap_or("").to_string()
         });
 
         let peer_set = peer_json.with_exposed(|v| {
-            v.get("peer").map(|p| !p.is_null()).unwrap_or(false)
+            v.get(sf::PEER).map(|p| !p.is_null()).unwrap_or(false)
         });
 
         out.push(json!({

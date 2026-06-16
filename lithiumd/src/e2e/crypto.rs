@@ -56,10 +56,10 @@ pub(crate) fn get_self_identity_privs(self_v: &SecretJson) -> Result<(Byte32, Se
 pub(crate) fn get_peer_identity_pubs(peer_v: &Value) -> Result<(Byte32, SecretBytes)> {
     let peer_obj = peer_v.get(sf::PEER).filter(|v| v.is_object()).unwrap_or(peer_v);
 
-    let ed_pub_hex = json_get_str(peer_obj, "ed_pub")
+    let ed_pub_hex = json_get_str(peer_obj, sf::ED_PUB)
         .ok_or_else(|| LithiumError::json_missing_field("ed_pub"))?;
 
-    let dili_pub_hex = json_get_str(peer_obj, "dili_pub")
+    let dili_pub_hex = json_get_str(peer_obj, sf::DILI_PUB)
         .ok_or_else(|| LithiumError::json_missing_field("dili_pub"))?;
 
     Ok((
