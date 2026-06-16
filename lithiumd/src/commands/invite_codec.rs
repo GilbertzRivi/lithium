@@ -1,14 +1,12 @@
-use serde::Serialize;
-
 use lithium_core::{
     crypto::keys,
     error::{LithiumError, Result},
-    secrets::{Byte32, SecretJson, SecretString},
+    secrets::{Byte32, SecretString},
     secrets::bytes::SecretBytes,
 };
 
+use crate::e2e::state::SelfState;
 use crate::labels::{INV_MAGIC, INV_VER};
-use crate::state_fields as sf;
 
 const MLKEM1024_PUBLIC_KEY_LEN: usize = 1568;
 const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
@@ -24,27 +22,6 @@ pub struct InvitePublic {
     pub mbox_in_pub_hex: SecretString,
     pub mbox_out_cur_pub_hex: SecretString,
     pub mbox_out_next_pub_hex: SecretString,
-}
-
-#[derive(Serialize)]
-struct SelfStateSerde<'a> {
-    v: u8,
-    cid: &'a str,
-    x_priv: &'a str,
-    x_pub: &'a str,
-    k_priv: &'a str,
-    k_pub: &'a str,
-    ed_priv: &'a str,
-    ed_pub: &'a str,
-    dili_priv: &'a str,
-    dili_pub: &'a str,
-
-    mbox_in_priv: &'a str,
-    mbox_in_pub: &'a str,
-    mbox_out_cur_priv: &'a str,
-    mbox_out_cur_pub: &'a str,
-    mbox_out_next_priv: &'a str,
-    mbox_out_next_pub: &'a str,
 }
 
 #[inline]
@@ -191,20 +168,20 @@ pub fn decode_contact_id_hex(s: &SecretString) -> Result<Vec<u8>> {
     Ok(b.as_slice().to_vec())
 }
 
-pub fn invite_public_from_self(self_json: &SecretJson) -> Result<InvitePublic> {
+pub fn invite_public_from_self(self_st: &SelfState) -> Result<InvitePublic> {
     Ok(InvitePublic {
-        cid_hex: self_json.get_string(sf::CID)?,
-        x_pub_hex: self_json.get_string(sf::X_PUB)?,
-        k_pub_hex: self_json.get_string(sf::K_PUB)?,
-        ed_pub_hex: self_json.get_string(sf::ED_PUB)?,
-        dili_pub_hex: self_json.get_string(sf::DILI_PUB)?,
-        mbox_in_pub_hex: self_json.get_string(sf::MBOX_IN_PUB)?,
-        mbox_out_cur_pub_hex: self_json.get_string(sf::MBOX_OUT_CUR_PUB)?,
-        mbox_out_next_pub_hex: self_json.get_string(sf::MBOX_OUT_NEXT_PUB)?,
+        cid_hex: SecretString::new(self_st.cid.clone()),
+        x_pub_hex: SecretString::new(self_st.x_pub.clone()),
+        k_pub_hex: SecretString::new(self_st.k_pub.clone()),
+        ed_pub_hex: SecretString::new(self_st.ed_pub.clone()),
+        dili_pub_hex: SecretString::new(self_st.dili_pub.clone()),
+        mbox_in_pub_hex: SecretString::new(self_st.mbox_in_pub.clone()),
+        mbox_out_cur_pub_hex: SecretString::new(self_st.mbox_out_cur_pub.clone()),
+        mbox_out_next_pub_hex: SecretString::new(self_st.mbox_out_next_pub.clone()),
     })
 }
 
-pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
+pub fn gen_self_state() -> Result<(Vec<u8>, SelfState)> {
     let cid: Byte32 = keys::random_32()?;
 
     let (x_priv, x_pub) = keys::random_x25519_keypair()?;
@@ -216,48 +193,34 @@ pub fn gen_self_state() -> Result<(Vec<u8>, SecretJson)> {
     let (mbox_out_cur_priv, mbox_out_cur_pub) = keys::random_x25519_keypair()?;
     let (mbox_out_next_priv, mbox_out_next_pub) = keys::random_x25519_keypair()?;
 
-    let cid_hex = cid.to_hex();
-    let x_priv_hex = x_priv.to_hex();
-    let x_pub_hex = x_pub.to_hex();
-    let k_priv_hex = k_priv.to_hex();
-    let k_pub_hex = k_pub.to_hex();
-    let ed_priv_hex = ed_priv.to_hex();
-    let ed_pub_hex = ed_pub.to_hex();
-    let dili_priv_hex = dili_priv.to_hex();
-    let dili_pub_hex = dili_pub.to_hex();
-
-    let mbox_in_priv_hex = mbox_in_priv.to_hex();
-    let mbox_in_pub_hex = mbox_in_pub.to_hex();
-    let mbox_out_cur_priv_hex = mbox_out_cur_priv.to_hex();
-    let mbox_out_cur_pub_hex = mbox_out_cur_pub.to_hex();
-    let mbox_out_next_priv_hex = mbox_out_next_priv.to_hex();
-    let mbox_out_next_pub_hex = mbox_out_next_pub.to_hex();
-
-    let state = SelfStateSerde {
+    let state = SelfState {
         v: 1,
-        cid: cid_hex.expose(),
-        x_priv: x_priv_hex.expose(),
-        x_pub: x_pub_hex.expose(),
-        k_priv: k_priv_hex.expose(),
-        k_pub: k_pub_hex.expose(),
-        ed_priv: ed_priv_hex.expose(),
-        ed_pub: ed_pub_hex.expose(),
-        dili_priv: dili_priv_hex.expose(),
-        dili_pub: dili_pub_hex.expose(),
+        cid: cid.to_hex().expose().to_owned(),
+        x_priv: Some(x_priv.to_hex().expose().to_owned()),
+        x_pub: x_pub.to_hex().expose().to_owned(),
+        k_priv: Some(k_priv.to_hex().expose().to_owned()),
+        k_pub: k_pub.to_hex().expose().to_owned(),
+        ed_priv: ed_priv.to_hex().expose().to_owned(),
+        ed_pub: ed_pub.to_hex().expose().to_owned(),
+        dili_priv: dili_priv.to_hex().expose().to_owned(),
+        dili_pub: dili_pub.to_hex().expose().to_owned(),
 
-        mbox_in_priv: mbox_in_priv_hex.expose(),
-        mbox_in_pub: mbox_in_pub_hex.expose(),
-        mbox_out_cur_priv: mbox_out_cur_priv_hex.expose(),
-        mbox_out_cur_pub: mbox_out_cur_pub_hex.expose(),
-        mbox_out_next_priv: mbox_out_next_priv_hex.expose(),
-        mbox_out_next_pub: mbox_out_next_pub_hex.expose(),
+        mbox_in_priv: mbox_in_priv.to_hex().expose().to_owned(),
+        mbox_in_pub: mbox_in_pub.to_hex().expose().to_owned(),
+        mbox_out_cur_priv: mbox_out_cur_priv.to_hex().expose().to_owned(),
+        mbox_out_cur_pub: mbox_out_cur_pub.to_hex().expose().to_owned(),
+        mbox_out_next_priv: mbox_out_next_priv.to_hex().expose().to_owned(),
+        mbox_out_next_pub: mbox_out_next_pub.to_hex().expose().to_owned(),
+
+        e2e_tx: Default::default(),
+        e2e_rx: Default::default(),
+        bootstrap: Default::default(),
+        mailbox: Default::default(),
+        prekeys_local_public: Vec::new(),
+        prekeys_advertised: false,
     };
 
-    let mut buf = SecretBytes::new(Vec::new());
-    serde_json::to_writer(buf.expose_as_mut_vec(), &state).map_err(LithiumError::json_parse)?;
-    let sj = SecretJson::from_bytes(buf.expose_as_slice())?;
-
-    Ok((cid.as_slice().to_vec(), sj))
+    Ok((cid.as_slice().to_vec(), state))
 }
 
 #[cfg(test)]
@@ -386,16 +349,22 @@ mod tests {
 
     #[test]
     fn gen_self_state_has_all_required_fields() {
-        let (_cid, sj) = gen_self_state().unwrap();
-        for field in &[
-            sf::CID, sf::X_PRIV, sf::X_PUB, sf::K_PRIV, sf::K_PUB,
-            sf::ED_PRIV, sf::ED_PUB, sf::DILI_PRIV, sf::DILI_PUB,
-            sf::MBOX_IN_PRIV, sf::MBOX_IN_PUB,
-            sf::MBOX_OUT_CUR_PRIV, sf::MBOX_OUT_CUR_PUB,
-            sf::MBOX_OUT_NEXT_PRIV, sf::MBOX_OUT_NEXT_PUB,
-        ] {
-            sj.get_string(field).unwrap_or_else(|_| panic!("missing field: {field}"));
-        }
+        let (_cid, st) = gen_self_state().unwrap();
+        assert!(!st.cid.is_empty());
+        assert!(st.x_priv.is_some());
+        assert!(!st.x_pub.is_empty());
+        assert!(st.k_priv.is_some());
+        assert!(!st.k_pub.is_empty());
+        assert!(!st.ed_priv.is_empty());
+        assert!(!st.ed_pub.is_empty());
+        assert!(!st.dili_priv.is_empty());
+        assert!(!st.dili_pub.is_empty());
+        assert!(!st.mbox_in_priv.is_empty());
+        assert!(!st.mbox_in_pub.is_empty());
+        assert!(!st.mbox_out_cur_priv.is_empty());
+        assert!(!st.mbox_out_cur_pub.is_empty());
+        assert!(!st.mbox_out_next_priv.is_empty());
+        assert!(!st.mbox_out_next_pub.is_empty());
     }
 
     #[test]
@@ -407,17 +376,8 @@ mod tests {
 
     #[test]
     fn gen_self_state_can_encode_as_invite() {
-        let (_cid, sj) = gen_self_state().unwrap();
-        let invite = InvitePublic {
-            cid_hex:              sj.get_string(sf::CID).unwrap(),
-            x_pub_hex:            sj.get_string(sf::X_PUB).unwrap(),
-            k_pub_hex:            sj.get_string(sf::K_PUB).unwrap(),
-            ed_pub_hex:           sj.get_string(sf::ED_PUB).unwrap(),
-            dili_pub_hex:         sj.get_string(sf::DILI_PUB).unwrap(),
-            mbox_in_pub_hex:      sj.get_string(sf::MBOX_IN_PUB).unwrap(),
-            mbox_out_cur_pub_hex: sj.get_string(sf::MBOX_OUT_CUR_PUB).unwrap(),
-            mbox_out_next_pub_hex: sj.get_string(sf::MBOX_OUT_NEXT_PUB).unwrap(),
-        };
+        let (_cid, st) = gen_self_state().unwrap();
+        let invite = invite_public_from_self(&st).unwrap();
         let code = encode_invite_code(&invite).unwrap();
         let decoded = decode_invite_code(&code).unwrap();
         assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());

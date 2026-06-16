@@ -1,40 +1,33 @@
 use lithium_core::{
     error::{LithiumError, Result},
-    secrets::{Byte32, SecretJson},
+    secrets::Byte32,
 };
-use serde_json::{Value, json};
-
-use crate::state_fields as sf;
+use serde_json::Value;
 
 use super::{
     crypto::id_from_peer_pubs,
-    state::{BootstrapState, E2ePeer, RemotePrekey},
+    state::{PeerState, RemotePrekey},
     wire::now_ms,
 };
 
 pub(crate) fn merge_remote_prekeys_into_peer(
-    peer_v: &mut Value,
+    peer_st: &mut PeerState,
     incoming: &[Value],
     max_keep: usize,
 ) {
-    let mut arr: Vec<RemotePrekey> = peer_v
-        .get(sf::PREKEYS_REMOTE)
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-
     for item in incoming {
-        let id = item.get(sf::ID).and_then(|v| v.as_str()).unwrap_or("");
-        if id.is_empty() || arr.iter().any(|p| p.id == id) {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if id.is_empty() || peer_st.prekeys_remote.iter().any(|p| p.id == id) {
             continue;
         }
 
-        let x_pub = item.get(sf::X_PUB).and_then(|v| v.as_str()).unwrap_or("");
-        let k_pub = item.get(sf::K_PUB).and_then(|v| v.as_str()).unwrap_or("");
+        let x_pub = item.get("x_pub").and_then(|v| v.as_str()).unwrap_or("");
+        let k_pub = item.get("k_pub").and_then(|v| v.as_str()).unwrap_or("");
         if x_pub.is_empty() || k_pub.is_empty() {
             continue;
         }
 
-        arr.push(RemotePrekey {
+        peer_st.prekeys_remote.push(RemotePrekey {
             id: id.to_owned(),
             x_pub: x_pub.to_owned(),
             k_pub: k_pub.to_owned(),
@@ -42,167 +35,154 @@ pub(crate) fn merge_remote_prekeys_into_peer(
         });
     }
 
-    while arr.len() > max_keep {
-        arr.remove(0);
+    while peer_st.prekeys_remote.len() > max_keep {
+        peer_st.prekeys_remote.remove(0);
+    }
+}
+
+pub fn ensure_peer_e2e(peer_st: &mut PeerState) -> Result<([u8; 32], String, String, u64)> {
+    let had_e2e = peer_st.e2e_peer.is_some();
+
+    if peer_st.bootstrap.tx_used.is_none() {
+        peer_st.bootstrap.tx_used = Some(had_e2e);
     }
 
-    peer_v[sf::PREKEYS_REMOTE] = serde_json::to_value(&arr).unwrap_or_else(|_| json!([]));
+    if let Some(e2e) = &peer_st.e2e_peer
+        && !e2e.id.is_empty()
+        && !e2e.x_pub.is_empty()
+        && !e2e.k_pub.is_empty()
+    {
+        let id = Byte32::from_hex(e2e.id.trim())?;
+        return Ok((*id.as_array(), e2e.x_pub.clone(), e2e.k_pub.clone(), e2e.step));
+    }
+
+    Err(LithiumError::invalid_credentials("e2e_peer_not_set"))
 }
 
-pub fn ensure_peer_e2e(peer_v: &mut SecretJson) -> Result<([u8; 32], String, String, u64)> {
-    peer_v.with_exposed_mut(|peer_v| {
-        let had_e2e = peer_v.get(sf::E2E_PEER).is_some();
+pub(crate) fn peer_bootstrap_target(peer_st: &PeerState) -> Option<([u8; 32], String, String)> {
+    if peer_st.e2e_peer.is_some() {
+        return None;
+    }
 
-        let mut b: BootstrapState = peer_v
-            .get(sf::BOOTSTRAP)
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-        if b.tx_used.is_none() {
-            b.tx_used = Some(had_e2e);
-        }
-        if let Ok(v) = serde_json::to_value(b) {
-            peer_v[sf::BOOTSTRAP] = v;
-        }
-
-        if let Some(e2e) = peer_v
-            .get(sf::E2E_PEER)
-            .and_then(|v| serde_json::from_value::<E2ePeer>(v.clone()).ok())
-            && !e2e.id.is_empty()
-            && !e2e.x_pub.is_empty()
-            && !e2e.k_pub.is_empty()
-        {
-            let id = Byte32::from_hex(e2e.id.trim())?;
-            return Ok((*id.as_array(), e2e.x_pub, e2e.k_pub, e2e.step));
-        }
-
-        Err(LithiumError::invalid_credentials("e2e_peer_not_set"))
-    })
+    let peer = peer_st.peer.as_ref()?;
+    let id = id_from_peer_pubs(&peer.x_pub, &peer.k_pub).ok()?;
+    Some((id, peer.x_pub.clone(), peer.k_pub.clone()))
 }
 
-pub(crate) fn peer_bootstrap_target(peer_v: &SecretJson) -> Option<([u8; 32], String, String)> {
-    peer_v.with_exposed(|peer_v| {
-        if peer_v.get(sf::E2E_PEER).is_some() {
-            return None;
-        }
-
-        let peer_obj = peer_v.get(sf::PEER)?;
-        if peer_obj.is_null() {
-            return None;
-        }
-
-        let x_pub = peer_obj.get(sf::X_PUB)?.as_str()?.to_string();
-        let k_pub = peer_obj.get(sf::K_PUB)?.as_str()?.to_string();
-        let id = id_from_peer_pubs(&x_pub, &k_pub).ok()?;
-
-        Some((id, x_pub, k_pub))
-    })
+pub fn peer_need_recover(peer_st: &PeerState) -> bool {
+    peer_st.need_recover
 }
 
-pub fn peer_need_recover(peer_v: &SecretJson) -> bool {
-    peer_v.with_exposed(|peer_v| {
-        peer_v
-            .get(sf::NEED_RECOVER)
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-    })
+pub fn peer_set_need_recover(peer_st: &mut PeerState, v: bool) {
+    peer_st.need_recover = v;
 }
 
-pub fn peer_set_need_recover(peer_v: &mut SecretJson, v: bool) {
-    peer_v.with_exposed_mut(|peer_v| {
-        peer_v[sf::NEED_RECOVER] = json!(v);
-    });
+pub fn peer_pick_remote_prekey(peer_st: &PeerState) -> Option<(String, String, String)> {
+    let pk = peer_st.prekeys_remote.first()?;
+    Some((pk.id.clone(), pk.x_pub.clone(), pk.k_pub.clone()))
 }
 
-pub fn peer_pick_remote_prekey(peer_v: &SecretJson) -> Option<(String, String, String)> {
-    peer_v.with_exposed(|peer_v| {
-        let first = peer_v.get(sf::PREKEYS_REMOTE)?.as_array()?.first()?;
-        let pk: RemotePrekey = serde_json::from_value(first.clone()).ok()?;
-        Some((pk.id, pk.x_pub, pk.k_pub))
-    })
-}
-
-pub fn peer_remove_remote_prekey(peer_v: &mut SecretJson, id_hex: &str) {
-    peer_v.with_exposed_mut(|peer_v| {
-        let Some(arr) = peer_v
-            .get_mut(sf::PREKEYS_REMOTE)
-            .and_then(|v| v.as_array_mut())
-        else {
-            return;
-        };
-        arr.retain(|v| v.get(sf::ID).and_then(|x| x.as_str()) != Some(id_hex));
-    });
+pub fn peer_remove_remote_prekey(peer_st: &mut PeerState, id_hex: &str) {
+    peer_st.prekeys_remote.retain(|p| p.id != id_hex);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::e2e::state::PeerIdentity;
     use crate::e2e::wire::PREKEY_TARGET;
+    use serde_json::json;
+
+    fn empty_peer() -> PeerState {
+        PeerState::from_bytes(b"{}").unwrap()
+    }
+
+    fn peer_with_remote(items: &[(&str, &str, &str)]) -> PeerState {
+        let mut p = empty_peer();
+        for (id, x, k) in items {
+            p.prekeys_remote.push(RemotePrekey {
+                id: (*id).to_owned(),
+                x_pub: (*x).to_owned(),
+                k_pub: (*k).to_owned(),
+                seen_at_ms: 0,
+            });
+        }
+        p
+    }
 
     #[test]
     fn peer_need_recover_false_by_default() {
-        let pv = SecretJson::from(json!({}));
-        assert!(!peer_need_recover(&pv));
+        assert!(!peer_need_recover(&empty_peer()));
     }
 
     #[test]
     fn peer_set_and_get_need_recover() {
-        let mut pv = SecretJson::from(json!({}));
-        peer_set_need_recover(&mut pv, true);
-        assert!(peer_need_recover(&pv));
-        peer_set_need_recover(&mut pv, false);
-        assert!(!peer_need_recover(&pv));
+        let mut p = empty_peer();
+        peer_set_need_recover(&mut p, true);
+        assert!(peer_need_recover(&p));
+        peer_set_need_recover(&mut p, false);
+        assert!(!peer_need_recover(&p));
     }
 
     #[test]
     fn peer_pick_and_remove_remote_prekey() {
-        let mut pv = SecretJson::from(json!({
-            sf::PREKEYS_REMOTE: [
-                {sf::ID: "aabb", sf::X_PUB: "pppp", sf::K_PUB: "kkkk"},
-                {sf::ID: "ccdd", sf::X_PUB: "qqqq", sf::K_PUB: "llll"}
-            ]
-        }));
+        let mut p = peer_with_remote(&[("aabb", "pppp", "kkkk"), ("ccdd", "qqqq", "llll")]);
 
-        let picked = peer_pick_remote_prekey(&pv).unwrap();
+        let picked = peer_pick_remote_prekey(&p).unwrap();
         assert_eq!(picked.0, "aabb");
 
-        peer_remove_remote_prekey(&mut pv, "aabb");
-        let after = peer_pick_remote_prekey(&pv).unwrap();
+        peer_remove_remote_prekey(&mut p, "aabb");
+        let after = peer_pick_remote_prekey(&p).unwrap();
         assert_eq!(after.0, "ccdd", "first prekey must be removed");
     }
 
     #[test]
     fn peer_pick_remote_prekey_empty_returns_none() {
-        let pv = SecretJson::from(json!({ sf::PREKEYS_REMOTE: [] }));
-        assert!(peer_pick_remote_prekey(&pv).is_none());
+        assert!(peer_pick_remote_prekey(&empty_peer()).is_none());
     }
 
     #[test]
     fn merge_deduplicates_and_caps() {
-        let mut pv = json!({
-            sf::PREKEYS_REMOTE: [
-                {sf::ID: "aa", sf::X_PUB: "x1", sf::K_PUB: "k1"}
-            ]
-        });
+        let mut p = peer_with_remote(&[("aa", "x1", "k1")]);
         let incoming = vec![
-            json!({sf::ID: "aa", sf::X_PUB: "x1", sf::K_PUB: "k1"}), // duplicate
-            json!({sf::ID: "bb", sf::X_PUB: "x2", sf::K_PUB: "k2"}),
-            json!({sf::ID: "cc", sf::X_PUB: "x3", sf::K_PUB: "k3"}),
+            json!({"id": "aa", "x_pub": "x1", "k_pub": "k1"}),
+            json!({"id": "bb", "x_pub": "x2", "k_pub": "k2"}),
+            json!({"id": "cc", "x_pub": "x3", "k_pub": "k3"}),
         ];
-        merge_remote_prekeys_into_peer(&mut pv, &incoming, 2);
-        let arr = pv[sf::PREKEYS_REMOTE].as_array().unwrap();
-        assert_eq!(arr.len(), 2, "cap at max_keep=2");
-        // oldest (aa) evicted; bb and cc remain
-        assert!(arr.iter().any(|v| v[sf::ID] == "bb"));
-        assert!(arr.iter().any(|v| v[sf::ID] == "cc"));
+        merge_remote_prekeys_into_peer(&mut p, &incoming, 2);
+        assert_eq!(p.prekeys_remote.len(), 2, "cap at max_keep=2");
+        assert!(p.prekeys_remote.iter().any(|v| v.id == "bb"));
+        assert!(p.prekeys_remote.iter().any(|v| v.id == "cc"));
     }
 
     #[test]
     fn merge_ignores_entries_without_pub_keys() {
-        let mut pv = json!({ sf::PREKEYS_REMOTE: [] });
-        let incoming = vec![
-            json!({sf::ID: "aa"}), // no x_pub / k_pub
-        ];
-        merge_remote_prekeys_into_peer(&mut pv, &incoming, PREKEY_TARGET);
-        assert!(pv[sf::PREKEYS_REMOTE].as_array().unwrap().is_empty());
+        let mut p = empty_peer();
+        let incoming = vec![json!({"id": "aa"})];
+        merge_remote_prekeys_into_peer(&mut p, &incoming, PREKEY_TARGET);
+        assert!(p.prekeys_remote.is_empty());
+    }
+
+    #[test]
+    fn peer_bootstrap_target_none_without_peer() {
+        assert!(peer_bootstrap_target(&empty_peer()).is_none());
+    }
+
+    #[test]
+    fn peer_bootstrap_target_some_with_peer() {
+        let mut p = empty_peer();
+        let (_, x_pub) = lithium_core::crypto::keys::random_x25519_keypair().unwrap();
+        let (_, k_pub) = lithium_core::crypto::keys::random_kyber_mlkem1024_keypair().unwrap();
+        p.peer = Some(PeerIdentity {
+            cid: "00".repeat(32),
+            x_pub: x_pub.to_hex().expose().to_owned(),
+            k_pub: k_pub.to_hex().expose().to_owned(),
+            ed_pub: "11".repeat(32),
+            dili_pub: "22".repeat(32),
+            mbox_in_pub: "33".repeat(32),
+            mbox_out_cur_pub: "44".repeat(32),
+            mbox_out_next_pub: "55".repeat(32),
+        });
+        assert!(peer_bootstrap_target(&p).is_some());
     }
 }

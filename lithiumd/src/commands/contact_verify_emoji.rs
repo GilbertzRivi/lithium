@@ -6,11 +6,11 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use lithium_core::{
     crypto::kdf,
     error::LithiumError,
-    secrets::{Byte32, SecretJson},
+    secrets::Byte32,
     secrets::bytes::SecretBytes,
 };
 
-use crate::state_fields as sf;
+use crate::e2e::state::{PeerState, SelfState};
 use crate::{
     db::repo::DaemonDbExt,
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
@@ -28,25 +28,6 @@ const VERIFY_EMOJI_TABLE: [&str; 64] = [
     "α","β","γ","δ","λ","μ","π","σ",
     "φ","χ","ψ","ω","Δ","Σ","Φ","Ω",
 ];
-
-fn peer_field(peer_v: &SecretJson, key: &'static str) -> Result<String, LithiumError> {
-    peer_v.with_exposed(|v| {
-        v.get(sf::PEER)
-            .and_then(|p| p.get(key))
-            .and_then(|x| x.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| LithiumError::json_missing_field(key))
-    })
-}
-
-fn self_field(self_v: &SecretJson, key: &'static str) -> Result<String, LithiumError> {
-    self_v.with_exposed(|v| {
-        v.get(key)
-            .and_then(|x| x.as_str())
-            .map(str::to_owned)
-            .ok_or_else(|| LithiumError::json_missing_field(key))
-    })
-}
 
 fn decode_hex_field(s: &str) -> Result<Vec<u8>, LithiumError> {
     hex::decode(s.trim()).map_err(|_| LithiumError::internal())
@@ -70,28 +51,39 @@ fn party_transcript(
 }
 
 fn compute_verify_emojis(
-    self_v: &SecretJson,
-    peer_v: &SecretJson,
+    self_st: &SelfState,
+    peer_st: &PeerState,
 ) -> Result<Vec<&'static str>, LithiumError> {
-    let self_x_priv = Byte32::from_hex(self_field(self_v, sf::X_PRIV)?.trim())?;
+    let peer = peer_st
+        .peer
+        .as_ref()
+        .ok_or_else(|| LithiumError::json_missing_field("peer"))?;
 
-    let self_cid = decode_hex_field(&self_field(self_v, sf::CID)?)?;
-    let self_x_pub = decode_hex_field(&self_field(self_v, sf::X_PUB)?)?;
-    let self_ed_pub = decode_hex_field(&self_field(self_v, sf::ED_PUB)?)?;
-    let self_dili_pub = decode_hex_field(&self_field(self_v, sf::DILI_PUB)?)?;
-    let self_k_pub = decode_hex_field(&self_field(self_v, sf::K_PUB)?)?;
-    let self_mbox_in_pub = decode_hex_field(&self_field(self_v, sf::MBOX_IN_PUB)?)?;
-    let self_mbox_out_cur_pub = decode_hex_field(&self_field(self_v, sf::MBOX_OUT_CUR_PUB)?)?;
-    let self_mbox_out_next_pub = decode_hex_field(&self_field(self_v, sf::MBOX_OUT_NEXT_PUB)?)?;
+    let self_x_priv = Byte32::from_hex(
+        self_st
+            .x_priv
+            .as_ref()
+            .ok_or_else(|| LithiumError::json_missing_field("x_priv"))?
+            .trim(),
+    )?;
 
-    let peer_x_pub_bytes = decode_hex_field(&peer_field(peer_v, sf::X_PUB)?)?;
-    let peer_cid = decode_hex_field(&peer_field(peer_v, sf::CID)?)?;
-    let peer_ed_pub = decode_hex_field(&peer_field(peer_v, sf::ED_PUB)?)?;
-    let peer_dili_pub = decode_hex_field(&peer_field(peer_v, sf::DILI_PUB)?)?;
-    let peer_k_pub = decode_hex_field(&peer_field(peer_v, sf::K_PUB)?)?;
-    let peer_mbox_in_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_IN_PUB)?)?;
-    let peer_mbox_out_cur_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_OUT_CUR_PUB)?)?;
-    let peer_mbox_out_next_pub = decode_hex_field(&peer_field(peer_v, sf::MBOX_OUT_NEXT_PUB)?)?;
+    let self_cid = decode_hex_field(&self_st.cid)?;
+    let self_x_pub = decode_hex_field(&self_st.x_pub)?;
+    let self_ed_pub = decode_hex_field(&self_st.ed_pub)?;
+    let self_dili_pub = decode_hex_field(&self_st.dili_pub)?;
+    let self_k_pub = decode_hex_field(&self_st.k_pub)?;
+    let self_mbox_in_pub = decode_hex_field(&self_st.mbox_in_pub)?;
+    let self_mbox_out_cur_pub = decode_hex_field(&self_st.mbox_out_cur_pub)?;
+    let self_mbox_out_next_pub = decode_hex_field(&self_st.mbox_out_next_pub)?;
+
+    let peer_x_pub_bytes = decode_hex_field(&peer.x_pub)?;
+    let peer_cid = decode_hex_field(&peer.cid)?;
+    let peer_ed_pub = decode_hex_field(&peer.ed_pub)?;
+    let peer_dili_pub = decode_hex_field(&peer.dili_pub)?;
+    let peer_k_pub = decode_hex_field(&peer.k_pub)?;
+    let peer_mbox_in_pub = decode_hex_field(&peer.mbox_in_pub)?;
+    let peer_mbox_out_cur_pub = decode_hex_field(&peer.mbox_out_cur_pub)?;
+    let peer_mbox_out_next_pub = decode_hex_field(&peer.mbox_out_next_pub)?;
 
     let peer_x_pub_arr: [u8; 32] = peer_x_pub_bytes
         .as_slice()
@@ -151,25 +143,21 @@ pub async fn handle(
         Err(_) => return storage_err(id),
     };
 
-    let self_v = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
+    let self_st = match SelfState::from_bytes(row.self_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
 
-    let peer_v = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
+    let peer_st = match PeerState::from_bytes(row.peer_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
 
-    let peer_set = peer_v.with_exposed(|v| {
-        v.get(sf::PEER).map(|p| !p.is_null()).unwrap_or(false)
-    });
-
-    if !peer_set {
+    if !peer_st.peer_is_set() {
         return err_resp(id, "peer_not_set");
     }
 
-    let emojis = match compute_verify_emojis(&self_v, &peer_v) {
+    let emojis = match compute_verify_emojis(&self_st, &peer_st) {
         Ok(v) => v,
         Err(_) => return internal_err(id),
     };
@@ -187,87 +175,66 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lithium_core::crypto::keys;
-    use serde_json::Value;
+    use crate::commands::invite_codec::gen_self_state;
+    use crate::e2e::state::PeerIdentity;
 
-    fn hex32() -> String {
-        keys::random_32().unwrap().to_hex().expose().to_owned()
+    fn peer_identity_from(self_st: &SelfState) -> PeerIdentity {
+        PeerIdentity {
+            cid: self_st.cid.clone(),
+            x_pub: self_st.x_pub.clone(),
+            k_pub: self_st.k_pub.clone(),
+            ed_pub: self_st.ed_pub.clone(),
+            dili_pub: self_st.dili_pub.clone(),
+            mbox_in_pub: self_st.mbox_in_pub.clone(),
+            mbox_out_cur_pub: self_st.mbox_out_cur_pub.clone(),
+            mbox_out_next_pub: self_st.mbox_out_next_pub.clone(),
+        }
     }
 
-    fn x_pair() -> (String, String) {
-        let (priv_fb, pub_fb) = keys::random_x25519_keypair().unwrap();
-        (
-            priv_fb.to_hex().expose().to_owned(),
-            pub_fb.to_hex().expose().to_owned(),
-        )
-    }
-
-    fn bundle(x_pub: &str) -> Value {
-        json!({
-            sf::CID: hex32(),
-            sf::X_PUB: x_pub,
-            sf::ED_PUB: hex32(),
-            sf::DILI_PUB: hex32(),
-            sf::K_PUB: hex32(),
-            sf::MBOX_IN_PUB: hex32(),
-            sf::MBOX_OUT_CUR_PUB: hex32(),
-            sf::MBOX_OUT_NEXT_PUB: hex32(),
-        })
-    }
-
-    fn self_view(x_priv: &str, b: &Value) -> SecretJson {
-        let mut v = b.clone();
-        v[sf::X_PRIV] = json!(x_priv);
-        SecretJson::from(v)
-    }
-
-    fn peer_view(b: &Value) -> SecretJson {
-        SecretJson::from(json!({ sf::PEER: b }))
+    fn peer_state_with(identity: PeerIdentity) -> PeerState {
+        let mut p = PeerState::from_bytes(b"{}").unwrap();
+        p.peer = Some(identity);
+        p
     }
 
     #[test]
     fn both_parties_derive_identical_emojis() {
-        let (a_priv, a_pub) = x_pair();
-        let (b_priv, b_pub) = x_pair();
-        let alice = bundle(&a_pub);
-        let bob = bundle(&b_pub);
+        let (_a, alice) = gen_self_state().unwrap();
+        let (_b, bob) = gen_self_state().unwrap();
 
         let alice_side =
-            compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&bob)).unwrap();
+            compute_verify_emojis(&alice, &peer_state_with(peer_identity_from(&bob))).unwrap();
         let bob_side =
-            compute_verify_emojis(&self_view(&b_priv, &bob), &peer_view(&alice)).unwrap();
+            compute_verify_emojis(&bob, &peer_state_with(peer_identity_from(&alice))).unwrap();
 
         assert_eq!(alice_side.len(), 6);
-        assert_eq!(
-            alice_side, bob_side,
-            "both sides must read the same SAS from the same key bundles"
-        );
+        assert_eq!(alice_side, bob_side, "both sides must read the same SAS");
     }
 
     #[test]
     fn swapping_any_non_x_peer_key_changes_emojis() {
-        let (a_priv, a_pub) = x_pair();
-        let (_b_priv, b_pub) = x_pair();
-        let alice = bundle(&a_pub);
-        let bob = bundle(&b_pub);
-
+        let (_a, alice) = gen_self_state().unwrap();
+        let (_b, bob) = gen_self_state().unwrap();
         let baseline =
-            compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&bob)).unwrap();
+            compute_verify_emojis(&alice, &peer_state_with(peer_identity_from(&bob))).unwrap();
 
-        for field in [
-            sf::CID,
-            sf::ED_PUB,
-            sf::DILI_PUB,
-            sf::K_PUB,
-            sf::MBOX_IN_PUB,
-            sf::MBOX_OUT_CUR_PUB,
-            sf::MBOX_OUT_NEXT_PUB,
-        ] {
-            let mut tampered = bob.clone();
-            tampered[field] = json!(hex32());
-            let got =
-                compute_verify_emojis(&self_view(&a_priv, &alice), &peer_view(&tampered)).unwrap();
-            assert_ne!(baseline, got, "swapping peer.{field} must change the SAS");
+        let bogus = || gen_self_state().unwrap().1.cid.clone();
+
+        let mutate: [fn(&mut PeerIdentity, String); 7] = [
+            |p, v| p.cid = v,
+            |p, v| p.ed_pub = v,
+            |p, v| p.dili_pub = v,
+            |p, v| p.k_pub = v,
+            |p, v| p.mbox_in_pub = v,
+            |p, v| p.mbox_out_cur_pub = v,
+            |p, v| p.mbox_out_next_pub = v,
+        ];
+
+        for apply in mutate {
+            let mut tampered = peer_identity_from(&bob);
+            apply(&mut tampered, bogus());
+            let got = compute_verify_emojis(&alice, &peer_state_with(tampered)).unwrap();
+            assert_ne!(baseline, got, "swapping a peer key must change the SAS");
         }
     }
 }

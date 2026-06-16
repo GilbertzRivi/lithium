@@ -1,15 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use lithium_core::{
     contract::protocol::field,
-    secrets::{Byte32, SecretJson, SecretString},
-    secrets::bytes::SecretBytes,
+    secrets::{Byte32, SecretString},
 };
 
 use crate::e2e::drop_bootstrap_private_if_established;
-use crate::state_fields as sf;
+use crate::e2e::SelfState;
 use crate::{
     commands::contact_mailbox::{
         derive_mailboxes_for_generation_from_values,
@@ -29,6 +28,7 @@ use crate::{
         peer_remove_remote_prekey,
         prekeys_mark_advertised,
         prekeys_should_advertise,
+        PeerState,
         PREKEY_TARGET,
     },
     db::repo::DaemonDbExt,
@@ -42,11 +42,9 @@ const PREKEY_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 'static>(
     dm: &lithium_core::db::manager::DataManager<P>,
     contact_id: &[u8],
-    self_v: &mut SecretJson,
+    self_st: &mut SelfState,
 ) -> Result<(), String> {
-    let mut arr = local_public_prekeys(self_v);
-
-    while arr.len() < PREKEY_TARGET {
+    while self_st.prekeys_local_public.len() < PREKEY_TARGET {
         let (id_hex, priv_blob, public_item) = match gen_local_prekey_material() {
             Ok(v) => v,
             Err(_) => return Err("crypto_error".into()),
@@ -65,12 +63,8 @@ async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 
             return Err("storage_error".into());
         }
 
-        arr.push(public_item);
+        self_st.prekeys_local_public.push(public_item);
     }
-
-    self_v.with_exposed_mut(|self_state| {
-        self_state[sf::PREKEYS_LOCAL_PUBLIC] = Value::Array(arr);
-    });
 
     Ok(())
 }
@@ -104,65 +98,57 @@ pub async fn handle(
         return err_resp(id, "contact_not_found");
     };
 
-    let mut self_v = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
+    let mut self_st = match SelfState::from_bytes(row.self_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let mut peer_v = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
+    let mut peer_st = match PeerState::from_bytes(row.peer_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
 
-    if ensure_self_keyring(&mut self_v).is_err() {
+    if ensure_self_keyring(&mut self_st).is_err() {
         return crypto_err(id);
     }
 
-    if self_v
-        .with_exposed_mut(|self_state| {
-            peer_v.with_exposed_mut(|peer_state| ensure_mailbox_state(self_state, peer_state))
-        })
-        .is_err()
-    {
+    if ensure_mailbox_state(&mut peer_st).is_err() {
         return crypto_err(id);
     }
 
-    if let Err(e) = ensure_local_prekeys(dm.as_ref(), contact_id.as_slice(), &mut self_v).await {
+    if let Err(e) = ensure_local_prekeys(dm.as_ref(), contact_id.as_slice(), &mut self_st).await {
         return err_resp(id, e);
     }
 
-    let advertise = if prekeys_should_advertise(&self_v) {
-        local_public_prekeys(&self_v)
+    let advertise = if prekeys_should_advertise(&self_st) {
+        local_public_prekeys(&self_st)
     } else {
         Vec::new()
     };
 
-    let use_recovery = peer_need_recover(&peer_v);
+    let use_recovery = peer_need_recover(&peer_st);
 
-    if use_recovery && peer_pick_remote_prekey(&peer_v).is_none() {
+    if use_recovery && peer_pick_remote_prekey(&peer_st).is_none() {
         return err_resp(id, "need_recover_but_no_remote_prekey");
     }
 
     let used_recovery_prekey = if use_recovery {
-        peer_pick_remote_prekey(&peer_v).map(|(id_hex, _, _)| id_hex)
+        peer_pick_remote_prekey(&peer_st).map(|(id_hex, _, _)| id_hex)
     } else {
         None
     };
 
-    let mailbox_gen = self_v.with_exposed(self_tx_generation);
+    let mailbox_gen = self_tx_generation(&self_st);
 
-    let (mbox_out, _mbox_in) = match self_v.with_exposed(|self_state| {
-        peer_v.with_exposed(|peer_state| {
-            derive_mailboxes_for_generation_from_values(self_state, peer_state, mailbox_gen)
-        })
-    }) {
-        Ok(v) => v,
-        Err(_) => return crypto_err(id),
-    };
+    let (mbox_out, _mbox_in) =
+        match derive_mailboxes_for_generation_from_values(&self_st, &peer_st, mailbox_gen) {
+            Ok(v) => v,
+            Err(_) => return crypto_err(id),
+        };
     let mailbox_hex = hex::encode(mbox_out);
 
     let (wire, ui_meta) = match encrypt_for_peer(
-        &mut self_v,
-        &mut peer_v,
+        &mut self_st,
+        &mut peer_st,
         plaintext.expose().as_bytes(),
         stored_message::KIND_TEXT,
         &advertise,
@@ -185,43 +171,31 @@ pub async fn handle(
     }
 
     if let Some(id_hex) = used_recovery_prekey {
-        peer_remove_remote_prekey(&mut peer_v, &id_hex);
+        peer_remove_remote_prekey(&mut peer_st, &id_hex);
     }
 
     if !advertise.is_empty() {
-        prekeys_mark_advertised(&mut self_v);
+        prekeys_mark_advertised(&mut self_st);
     }
 
-    if self_v.with_exposed_mut(mark_outbound_message_sent).is_err() {
+    if mark_outbound_message_sent(&mut self_st).is_err() {
         return crypto_err(id);
     }
 
-    drop_bootstrap_private_if_established(&mut self_v, &peer_v);
+    drop_bootstrap_private_if_established(&mut self_st, &peer_st);
 
-    let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-        Ok(out)
-    }) {
+    let new_self_bytes = match self_st.to_secret_bytes() {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
 
-    let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-        Ok(out)
-    }) {
+    let new_peer_bytes = match peer_st.to_secret_bytes() {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
 
     if dm
-        .upsert_contact(
-            contact_id.clone(),
-            new_peer_bytes,
-            new_self_bytes,
-        )
+        .upsert_contact(contact_id.clone(), new_peer_bytes, new_self_bytes)
         .await
         .is_err()
     {

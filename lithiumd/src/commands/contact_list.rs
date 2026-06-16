@@ -2,9 +2,7 @@ use std::sync::Arc;
 use serde_json::json;
 use sea_orm::{EntityTrait, QueryOrder};
 
-use lithium_core::secrets::SecretJson;
-
-use crate::state_fields as sf;
+use crate::e2e::PeerState;
 use crate::{
     db::models::contacts,
     ipc::types::{err_resp, storage_err, IpcResponse},
@@ -37,23 +35,15 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
             Err(_) => return storage_err(id),
         };
 
-        let peer_json = match SecretJson::from_vec(peer_pt.expose_as_slice().to_vec()) {
+        let peer_st = match PeerState::from_bytes(peer_pt.expose_as_slice()) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "peer_state_corrupt"),
         };
 
-        let label = peer_json.with_exposed(|v| {
-            v.get(sf::LABEL).and_then(|x| x.as_str()).unwrap_or("").to_string()
-        });
-
-        let peer_set = peer_json.with_exposed(|v| {
-            v.get(sf::PEER).map(|p| !p.is_null()).unwrap_or(false)
-        });
-
         out.push(json!({
             "contact_id": hex::encode(r.contact_id),
-            "label": label,
-            "peer_set": peer_set,
+            "label": peer_st.label,
+            "peer_set": peer_st.peer_is_set(),
         }));
     }
 

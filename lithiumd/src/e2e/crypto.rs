@@ -1,11 +1,10 @@
 use lithium_core::{
     crypto::{kdf, sign},
     error::{LithiumError, Result},
-    secrets::{Byte32, SecretJson, bytes::SecretBytes},
+    secrets::{Byte32, bytes::SecretBytes},
 };
-use serde_json::Value;
 
-use crate::state_fields as sf;
+use super::state::{PeerState, SelfState};
 
 use crate::labels::{E2E_SIG_LABEL, KID_LABEL};
 
@@ -30,41 +29,22 @@ pub(crate) fn malicious_message_err() -> LithiumError {
     LithiumError::invalid_credentials("potentially_harmful_message")
 }
 
-pub(crate) fn json_get_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
-    v.get(key).and_then(|x| x.as_str())
+pub(crate) fn get_self_identity_privs(self_st: &SelfState) -> Result<(Byte32, SecretBytes)> {
+    Ok((
+        Byte32::from_hex(self_st.ed_priv.trim())?,
+        SecretBytes::from_hex(self_st.dili_priv.trim())?,
+    ))
 }
 
-pub(crate) fn get_self_identity_privs(self_v: &SecretJson) -> Result<(Byte32, SecretBytes)> {
-    self_v.with_exposed(|self_v| {
-        let ed_priv_hex = self_v
-            .get(sf::ED_PRIV)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field("ed_priv"))?;
-
-        let dili_priv_hex = self_v
-            .get(sf::DILI_PRIV)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field("dili_priv"))?;
-
-        Ok((
-            Byte32::from_hex(ed_priv_hex.trim())?,
-            SecretBytes::from_hex(dili_priv_hex.trim())?,
-        ))
-    })
-}
-
-pub(crate) fn get_peer_identity_pubs(peer_v: &Value) -> Result<(Byte32, SecretBytes)> {
-    let peer_obj = peer_v.get(sf::PEER).filter(|v| v.is_object()).unwrap_or(peer_v);
-
-    let ed_pub_hex = json_get_str(peer_obj, sf::ED_PUB)
-        .ok_or_else(|| LithiumError::json_missing_field("ed_pub"))?;
-
-    let dili_pub_hex = json_get_str(peer_obj, sf::DILI_PUB)
-        .ok_or_else(|| LithiumError::json_missing_field("dili_pub"))?;
+pub(crate) fn get_peer_identity_pubs(peer_st: &PeerState) -> Result<(Byte32, SecretBytes)> {
+    let peer = peer_st
+        .peer
+        .as_ref()
+        .ok_or_else(|| LithiumError::json_missing_field("peer"))?;
 
     Ok((
-        Byte32::from_hex(ed_pub_hex.trim())?,
-        SecretBytes::from_hex(dili_pub_hex.trim())?,
+        Byte32::from_hex(peer.ed_pub.trim())?,
+        SecretBytes::from_hex(peer.dili_pub.trim())?,
     ))
 }
 
@@ -93,13 +73,13 @@ pub(crate) fn build_sig_input(
 
 // Returns (sig_ed_hex, sig_dili_hex).
 pub(crate) fn sign_e2e_payload(
-    self_v: &SecretJson,
+    self_st: &SelfState,
     to_id: &[u8; 32],
     from_x_pub: &[u8; 32],
     hdr_unsigned: &[u8],
     pt_body: &[u8],
 ) -> Result<(String, String)> {
-    let (ed_priv, dili_priv) = get_self_identity_privs(self_v)?;
+    let (ed_priv, dili_priv) = get_self_identity_privs(self_st)?;
     let sig_input = build_sig_input(to_id, from_x_pub, hdr_unsigned, pt_body);
 
     let sig_ed = sign::sign_message(sig_input.expose_as_slice(), ed_priv.as_slice())?;
@@ -113,7 +93,7 @@ pub(crate) fn sign_e2e_payload(
 }
 
 pub(crate) fn verify_e2e_payload(
-    peer_v: &Value,
+    peer_st: &PeerState,
     to_id: &[u8; 32],
     from_x_pub: &[u8; 32],
     hdr_unsigned: &[u8],
@@ -121,7 +101,7 @@ pub(crate) fn verify_e2e_payload(
     sig_ed_hex: &str,
     sig_dili_hex: &str,
 ) -> Result<()> {
-    let (ed_pub, dili_pub) = get_peer_identity_pubs(peer_v)?;
+    let (ed_pub, dili_pub) = get_peer_identity_pubs(peer_st)?;
     let sig_input = build_sig_input(to_id, from_x_pub, hdr_unsigned, pt_body);
 
     let sig_ed = SecretBytes::from_hex(sig_ed_hex.trim())

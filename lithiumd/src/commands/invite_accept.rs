@@ -1,14 +1,11 @@
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::json;
 
-use lithium_core::{
-    secrets::{SecretJson, SecretString},
-    secrets::bytes::SecretBytes,
-};
+use lithium_core::secrets::SecretString;
 
-use crate::state_fields as sf;
+use crate::e2e::state::PeerIdentity;
+use crate::e2e::{PeerState, SelfState};
 use crate::{
     commands::invite_codec::{
         decode_contact_id_hex, decode_invite_code, encode_invite_code, gen_self_state,
@@ -18,26 +15,6 @@ use crate::{
     ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
     state::DaemonState,
 };
-
-#[derive(Serialize)]
-struct PeerState<'a> {
-    v: u8,
-    label: &'a str,
-    peer: PeerStatePeer<'a>,
-}
-
-#[derive(Serialize)]
-struct PeerStatePeer<'a> {
-    cid: &'a str,
-    x_pub: &'a str,
-    k_pub: &'a str,
-    ed_pub: &'a str,
-    dili_pub: &'a str,
-
-    mbox_in_pub: &'a str,
-    mbox_out_cur_pub: &'a str,
-    mbox_out_next_pub: &'a str,
-}
 
 pub async fn handle(
     id: u64,
@@ -59,7 +36,7 @@ pub async fn handle(
 
     let mut should_return_my_code = false;
 
-    let (contact_id, self_json) = if let Some(cid_hex) = contact_id_opt {
+    let (contact_id, self_st) = if let Some(cid_hex) = contact_id_opt {
         let cid_ss = SecretString::new(cid_hex);
         let contact_id = match decode_contact_id_hex(&cid_ss) {
             Ok(v) => v,
@@ -68,24 +45,21 @@ pub async fn handle(
 
         match dm.get_contact(contact_id.as_slice()).await {
             Ok(Some(row)) => {
-                let existing_peer_json = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
+                let existing_peer = match PeerState::from_bytes(row.peer_state.expose_as_slice()) {
                     Ok(v) => v,
                     Err(_) => return err_resp(id, "peer_state_corrupt"),
                 };
 
-                let peer_established = existing_peer_json
-                    .with_exposed(|v| v.get(sf::PEER).map(|p| !p.is_null()).unwrap_or(false));
-
-                if peer_established {
+                if existing_peer.peer_is_set() {
                     return err_resp(id, "peer_already_set");
                 }
 
-                let sj = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
+                let st = match SelfState::from_bytes(row.self_state.expose_as_slice()) {
                     Ok(v) => v,
                     Err(_) => return err_resp(id, "self_state_corrupt"),
                 };
 
-                (contact_id, sj)
+                (contact_id, st)
             }
             Ok(None) => return err_resp(id, "contact_not_found"),
             Err(_) => return storage_err(id),
@@ -93,62 +67,39 @@ pub async fn handle(
     } else {
         should_return_my_code = true;
         match gen_self_state() {
-            Ok((contact_id, self_json)) => (contact_id, self_json),
+            Ok((contact_id, self_st)) => (contact_id, self_st),
             Err(_) => return internal_err(id),
         }
     };
 
-    let peer_state = PeerState {
-        v: 1,
-        label: &label,
-        peer: PeerStatePeer {
-            cid: peer.cid_hex.expose(),
-            x_pub: peer.x_pub_hex.expose(),
-            k_pub: peer.k_pub_hex.expose(),
-            ed_pub: peer.ed_pub_hex.expose(),
-            dili_pub: peer.dili_pub_hex.expose(),
+    let mut peer_st = match PeerState::from_bytes(b"{}") {
+        Ok(v) => v,
+        Err(_) => return internal_err(id),
+    };
+    peer_st.label = label;
+    peer_st.peer = Some(PeerIdentity {
+        cid: peer.cid_hex.expose().to_owned(),
+        x_pub: peer.x_pub_hex.expose().to_owned(),
+        k_pub: peer.k_pub_hex.expose().to_owned(),
+        ed_pub: peer.ed_pub_hex.expose().to_owned(),
+        dili_pub: peer.dili_pub_hex.expose().to_owned(),
+        mbox_in_pub: peer.mbox_in_pub_hex.expose().to_owned(),
+        mbox_out_cur_pub: peer.mbox_out_cur_pub_hex.expose().to_owned(),
+        mbox_out_next_pub: peer.mbox_out_next_pub_hex.expose().to_owned(),
+    });
 
-            mbox_in_pub: peer.mbox_in_pub_hex.expose(),
-            mbox_out_cur_pub: peer.mbox_out_cur_pub_hex.expose(),
-            mbox_out_next_pub: peer.mbox_out_next_pub_hex.expose(),
-        },
+    let self_bytes = match self_st.to_secret_bytes() {
+        Ok(v) => v,
+        Err(_) => return err_resp(id, "json_error"),
     };
 
-    let peer_json = {
-        let mut buf = SecretBytes::new(Vec::new());
-        if serde_json::to_writer(buf.expose_as_mut_vec(), &peer_state).is_err() {
-            return err_resp(id, "json_error");
-        }
-        match SecretJson::from_bytes(buf.expose_as_slice()) {
-            Ok(v) => v,
-            Err(_) => return internal_err(id),
-        }
-    };
-
-    let self_bytes = match self_json.with_exposed(|v| {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v).ok()?;
-        Some(out)
-    }) {
-        Some(v) => v,
-        None => return err_resp(id, "json_error"),
-    };
-
-    let peer_bytes = match peer_json.with_exposed(|v| {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v).ok()?;
-        Some(out)
-    }) {
-        Some(v) => v,
-        None => return err_resp(id, "json_error"),
+    let peer_bytes = match peer_st.to_secret_bytes() {
+        Ok(v) => v,
+        Err(_) => return err_resp(id, "json_error"),
     };
 
     if dm
-        .upsert_contact(
-            contact_id.clone(),
-            peer_bytes,
-            self_bytes,
-        )
+        .upsert_contact(contact_id.clone(), peer_bytes, self_bytes)
         .await
         .is_err()
     {
@@ -156,7 +107,7 @@ pub async fn handle(
     }
 
     let my_code = if should_return_my_code {
-        let my_pub = match invite_public_from_self(&self_json) {
+        let my_pub = match invite_public_from_self(&self_st) {
             Ok(v) => v,
             Err(_) => return err_resp(id, "self_state_corrupt"),
         };

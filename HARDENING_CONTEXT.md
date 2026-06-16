@@ -184,6 +184,18 @@ ZOSTAJE (opcjonalnie, osobny duży przebieg):
 - crypto.rs rekonstrukcja nagłówka (już używa typowanego SignedHeader z header.rs — sprawdzić co zostało).
 - Docelowo: pełne kontenery `SelfState`/`PeerState` zamiast `SecretJson(Value)` na granicy storage — ostatni krok, dotyka wszystkich command-handlerów ładujących/zapisujących stan.
 
+### J. §6-FINAL — pełne kontenery `SelfState`/`PeerState` (ta sesja, niezacommitowane)
+Decyzja usera: pełne structy + `ZeroizeOnDrop` (mocniejsza gwarancja zeroizacji niż best-effort przejazd po `SecretJson(Value)`). `SecretJson(Value)` USUNIĘTY z całej ścieżki stanu kontaktu.
+- NOWE w `e2e/state.rs`: `SelfState`, `PeerState` (oba `#[derive(Serialize, Deserialize, Zeroize)]` + ręczny `impl Drop { self.zeroize() }`), `PeerIdentity`, `E2eTx`, `SelfMailbox`, `PeerMailbox`. `from_bytes`/`to_secret_bytes` na granicy storage. `peer_is_set()`.
+- ZEROIZACJA: `String` (hex) zeroizowane przez derive; `E2eRx`/`PeerMailbox` mają RĘCZNY `impl Zeroize` (BTreeMap nie ma derive) drenujący mapę — klucze ORAZ wartości, jak stary `SecretJson::zeroize_value`. `RxKey` dalej `ZeroizeOnDrop`. `drop_bootstrap_private_if_established` jawnie `take()+zeroize()` na `x_priv`/`k_priv` (Option) przy retirementcie.
+- Sygnatury e2e/command z `&mut Value`/`&mut SecretJson` -> `&mut SelfState`/`&mut PeerState` w: `state_self.rs`, `state_peer.rs`, `crypto.rs`, `prekeys.rs`, `session.rs`, `contact_mailbox.rs`. `ensure_mailbox_state` przyjmuje już tylko `&mut PeerState` (self gwarantowany przez typy/serde-default; legacy-fallbacki z x_priv usunięte — brak deploymentu).
+- Handlery (granica storage) na `*State::from_bytes`/`to_secret_bytes`: `contact_send`, `contact_fetch`, `invite_create`, `invite_accept`, `contact_verify_emoji`, `contact_list`. `gen_self_state` zwraca `(Vec<u8>, SelfState)`. `invite_public_from_self(&SelfState)`. ui-meta dekodowane typowo przez `MsgMeta` (zamiast literałów `mailbox_gen`/`msg_id`).
+- USUNIĘTE martwe: `state_fields.rs` (cały rejestr `sf::*` zbędny — nazwy trzyma serde), `mod state_fields` w `main.rs`, `wire::drop_removed_json_key`, struct `SelfStateSerde`/`EmptyPeerState`/`PeerStatePeer`/lokalne `SelfMailbox`/`PeerMailbox`.
+- KANON BEZ ZMIAN: `SignedHeader::canonical_bytes()` nietknięty — reprezentacja stanu nigdy nie dotyka bajtów wire/podpisu. On-disk format stanu zmieniony świadomie (brak deploymentu).
+- WERYFIKACJA (cała zielona): lithiumd 111 (w tym round-tripy `state::tests::*`, SAS, ratchet/gc/ack/prekey), clippy `--tests` czysto, core 9 + store/crypto, lithiums 32. Integracje: `ds_messaging` 6, `ds_invite_abuse` 5, `ds_account_lifecycle` 5, `ds_concurrent` 3, `daemon_basic` 7, `daemon_server` 4, `daemon_contacts` 4.
+
+STATUS INWENTARZA: wszystkie pozycje §1-§11 z `hardening.md` ZROBIONE. Zostaje tylko opcjonalne, niskie-pri: §13 `key_type`->enum (KT_* wchodzą w AAD keyfile, ryzyko, pominięte) i rejestr pól warstwy IPC (`lithiumg`<->`lithiumd`, cross-crate).
+
 ## Uwagi stylu (przypomniane przez usera)
-- Komentarze tylko „dlaczego", nigdy „co"; bez dekoracyjnych dividerów; bez znaków spoza klawiatury. (Patrz CLAUDE.md / pamięć `feedback_code_style`.)
+- Komentarze tylko „dlaczego", nigdy „co"; minimum, tylko gdzie naprawdę niezbędne; reszta ma czytać się z kodu; bez dekoracyjnych dividerów; bez znaków spoza klawiatury. (Patrz CLAUDE.md / pamięć `feedback_code_style`.)
 - Goldeny krypto = realny output (decrypt/verify), bez ręcznie wpisanych nonce; format-pliki z materiałem klucza (keyfile/identity/mkfile) = syntetyczne.

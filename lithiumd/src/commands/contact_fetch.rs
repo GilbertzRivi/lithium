@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use lithium_core::{contract::protocol::field, secrets::{SecretJson, SecretString}, secrets::bytes::SecretBytes, CryptoErrorKind};
+use lithium_core::{contract::protocol::field, secrets::SecretString, secrets::bytes::SecretBytes, CryptoErrorKind};
 
+use crate::e2e::state::{MsgMeta, PeerState, SelfState};
 use crate::{
     commands::contact_mailbox::{
         derive_mailboxes_for_generation_from_values,
@@ -27,7 +28,20 @@ use crate::{
     state::DaemonState,
 };
 use crate::e2e::mark_bootstrap_retire_ready;
-use crate::state_fields as sf;
+
+fn meta_mailbox_gen(ui: &serde_json::Value, fallback: u64) -> u64 {
+    serde_json::from_value::<MsgMeta>(ui.clone())
+        .map(|m| m.mailbox_gen)
+        .unwrap_or(fallback)
+}
+
+fn meta_msg_id(ui: &serde_json::Value) -> Option<Vec<u8>> {
+    serde_json::from_value::<MsgMeta>(ui.clone())
+        .ok()
+        .map(|m| m.msg_id)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.into_bytes())
+}
 
 pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
     let Some(dm) = state.local_db.lock().await.clone() else {
@@ -56,53 +70,35 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         return err_resp(id, "contact_not_found");
     };
 
-    let mut self_v = match SecretJson::from_bytes(row.self_state.expose_as_slice()) {
+    let mut self_st = match SelfState::from_bytes(row.self_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "self_state_corrupt"),
     };
-    let mut peer_v = match SecretJson::from_bytes(row.peer_state.expose_as_slice()) {
+    let mut peer_st = match PeerState::from_bytes(row.peer_state.expose_as_slice()) {
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
 
-    if ensure_self_keyring(&mut self_v).is_err() {
+    if ensure_self_keyring(&mut self_st).is_err() {
         return crypto_err(id);
     }
 
-    if self_v
-        .with_exposed_mut(|self_state| {
-            peer_v.with_exposed_mut(|peer_state| ensure_mailbox_state(self_state, peer_state))
-        })
-        .is_err()
-    {
+    if ensure_mailbox_state(&mut peer_st).is_err() {
         return crypto_err(id);
     }
 
     {
-        let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-            let mut out = SecretBytes::new(Vec::new());
-            serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-            Ok(out)
-        }) {
+        let new_self_bytes = match self_st.to_secret_bytes() {
             Ok(v) => v,
             Err(_) => return err_resp(id, "json_error"),
         };
-
-        let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-            let mut out = SecretBytes::new(Vec::new());
-            serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-            Ok(out)
-        }) {
+        let new_peer_bytes = match peer_st.to_secret_bytes() {
             Ok(v) => v,
             Err(_) => return err_resp(id, "json_error"),
         };
 
         if dm
-            .upsert_contact(
-                contact_id.clone(),
-                new_peer_bytes,
-                new_self_bytes,
-            )
+            .upsert_contact(contact_id.clone(), new_peer_bytes, new_self_bytes)
             .await
             .is_err()
         {
@@ -110,18 +106,15 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         }
     }
 
-    let generations = peer_v.with_exposed(inbound_fetch_generations);
+    let generations = inbound_fetch_generations(&peer_st);
     let mut out = Vec::new();
 
     for mailbox_gen in generations {
-        let (_mbox_out, mbox_in) = match self_v.with_exposed(|self_state| {
-            peer_v.with_exposed(|peer_state| {
-                derive_mailboxes_for_generation_from_values(self_state, peer_state, mailbox_gen)
-            })
-        }) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+        let (_mbox_out, mbox_in) =
+            match derive_mailboxes_for_generation_from_values(&self_st, &peer_st, mailbox_gen) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
         let mailbox_hex = hex::encode(mbox_in);
 
         let resp = match proto
@@ -162,16 +155,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                     }
                 };
 
-                match decrypt_for_us(&mut self_v, &mut peer_v, &w) {
+                match decrypt_for_us(&mut self_st, &mut peer_st, &w) {
                     Ok((pt, ui)) => {
-                        let seen_gen = ui
-                            .get(sf::MAILBOX_GEN)
-                            .and_then(|v| v.as_u64())
-                            .unwrap_or(mailbox_gen);
+                        let seen_gen = meta_mailbox_gen(&ui, mailbox_gen);
 
-                        peer_v.with_exposed_mut(|peer_state| {
-                            note_inbound_generation_seen(peer_state, seen_gen);
-                        });
+                        note_inbound_generation_seen(&mut peer_st, seen_gen);
 
                         let text = match SecretString::from_utf8_vec(pt) {
                             Ok(v) => v,
@@ -195,11 +183,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             Err(_) => return err_resp(id, "json_error"),
                         };
 
-                        let msg_id = ui
-                            .get(sf::MSG_ID)
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.is_empty())
-                            .map(|s| s.as_bytes().to_vec());
+                        let msg_id = meta_msg_id(&ui);
 
                         match dm
                             .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored, msg_id)
@@ -256,7 +240,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                         };
 
                         let Some(blob) = prekey_blob else {
-                            peer_set_need_recover(&mut peer_v, true);
+                            peer_set_need_recover(&mut peer_st, true);
                             out.push(json!({
                                 "ok": false,
                                 "err": "to_id_unknown",
@@ -265,25 +249,20 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             continue;
                         };
 
-                        match decrypt_for_prekey(&mut peer_v, &w, &blob) {
+                        match decrypt_for_prekey(&mut peer_st, &w, &blob) {
                             Ok((pt, mut ui)) => {
-                                local_remove_public_prekey(&mut self_v, &hex::encode(w.to_id));
-                                peer_set_need_recover(&mut peer_v, false);
-                                mark_bootstrap_retire_ready(&mut self_v);
-                                drop_bootstrap_private_if_established(&mut self_v, &peer_v);
+                                local_remove_public_prekey(&mut self_st, &hex::encode(w.to_id));
+                                peer_set_need_recover(&mut peer_st, false);
+                                mark_bootstrap_retire_ready(&mut self_st);
+                                drop_bootstrap_private_if_established(&mut self_st, &peer_st);
 
                                 if let Some(obj) = ui.as_object_mut() {
                                     obj.insert("recovered".into(), json!(true));
                                 }
 
-                                let seen_gen = ui
-                                    .get(sf::MAILBOX_GEN)
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(mailbox_gen);
+                                let seen_gen = meta_mailbox_gen(&ui, mailbox_gen);
 
-                                peer_v.with_exposed_mut(|peer_state| {
-                                    note_inbound_generation_seen(peer_state, seen_gen);
-                                });
+                                note_inbound_generation_seen(&mut peer_st, seen_gen);
 
                                 let text = match SecretString::from_utf8_vec(pt) {
                                     Ok(v) => v,
@@ -307,11 +286,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     Err(_) => return err_resp(id, "json_error"),
                                 };
 
-                                let msg_id = ui
-                                    .get(sf::MSG_ID)
-                                    .and_then(|v| v.as_str())
-                                    .filter(|s| !s.is_empty())
-                                    .map(|s| s.as_bytes().to_vec());
+                                let msg_id = meta_msg_id(&ui);
 
                                 match dm
                                     .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored, msg_id)
@@ -346,7 +321,7 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                     continue;
                                 }
 
-                                peer_set_need_recover(&mut peer_v, true);
+                                peer_set_need_recover(&mut peer_st, true);
                                 out.push(json!({
                                     "ok": false,
                                     "err": "prekey_recovery_failed",
@@ -360,30 +335,17 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         }
     }
 
-    let new_self_bytes = match self_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-        Ok(out)
-    }) {
+    let new_self_bytes = match self_st.to_secret_bytes() {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
-
-    let new_peer_bytes = match peer_v.with_exposed(|v| -> Result<SecretBytes, serde_json::Error> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), v)?;
-        Ok(out)
-    }) {
+    let new_peer_bytes = match peer_st.to_secret_bytes() {
         Ok(v) => v,
         Err(_) => return err_resp(id, "json_error"),
     };
 
     if dm
-        .upsert_contact(
-            contact_id.clone(),
-            new_peer_bytes,
-            new_self_bytes,
-        )
+        .upsert_contact(contact_id.clone(), new_peer_bytes, new_self_bytes)
         .await
         .is_err()
     {

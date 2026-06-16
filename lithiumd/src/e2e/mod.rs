@@ -9,6 +9,8 @@ pub mod session;
 
 pub use wire::{pack_wire, unpack_wire, PREKEY_TARGET};
 
+pub(crate) use state::{PeerState, SelfState};
+
 pub use state_self::{
     drop_bootstrap_private_if_established,
     ensure_self_keyring,

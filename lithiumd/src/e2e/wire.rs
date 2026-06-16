@@ -1,8 +1,4 @@
-use lithium_core::{
-    error::{LithiumError, Result},
-    secrets::SecretJson,
-};
-use serde_json::{Map, Value};
+use lithium_core::error::{LithiumError, Result};
 
 use crate::labels::{E2E_WIRE_MAGIC, E2E_WIRE_VER};
 
@@ -16,12 +12,6 @@ pub(crate) fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
-}
-
-pub(crate) fn drop_removed_json_key(map: &mut Map<String, Value>, key: &str) {
-    if let Some(removed) = map.remove(key) {
-        drop(SecretJson::from(removed));
-    }
 }
 
 #[derive(Clone)]
