@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use super::{zero_str, Command, LithiumApp};
+use super::{Command, LithiumApp, zero_str};
 
 impl LithiumApp {
     pub(super) fn draw_set_server_url(&mut self, ui: &mut egui::Ui) {
@@ -25,7 +25,9 @@ impl LithiumApp {
                 response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
             ui.add_space(8.0);
-            if ui.add_enabled(can_save, egui::Button::new("Save")).clicked()
+            if ui
+                .add_enabled(can_save, egui::Button::new("Save"))
+                .clicked()
                 || (can_save && pressed_enter)
             {
                 let url = self.server_url_input.trim().to_string();
@@ -55,9 +57,9 @@ impl LithiumApp {
                 && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Server identity", &["identity"])
                     .pick_file()
-                {
-                    self.server_identity_path = Some(path);
-                }
+            {
+                self.server_identity_path = Some(path);
+            }
 
             ui.add_space(8.0);
 
@@ -65,12 +67,13 @@ impl LithiumApp {
             if ui
                 .add_enabled(can_upload, egui::Button::new("Upload"))
                 .clicked()
-                && let Some(path) = &self.server_identity_path {
-                    match std::fs::read(path) {
-                        Ok(data) => self.send(Command::SetServerIdentity { data }),
-                        Err(e) => self.set_error(format!("Could not read file: {e}")),
-                    }
+                && let Some(path) = &self.server_identity_path
+            {
+                match std::fs::read(path) {
+                    Ok(data) => self.send(Command::SetServerIdentity { data }),
+                    Err(e) => self.set_error(format!("Could not read file: {e}")),
                 }
+            }
         });
     }
 
@@ -85,7 +88,11 @@ impl LithiumApp {
 
         ui.add_space(32.0);
         ui.vertical_centered(|ui| {
-            ui.heading(if first_run { "Welcome to Lithium" } else { "Set data password" });
+            ui.heading(if first_run {
+                "Welcome to Lithium"
+            } else {
+                "Set data password"
+            });
             ui.add_space(8.0);
             if first_run {
                 ui.label("Set a data password to protect your local keys.");
@@ -114,7 +121,10 @@ impl LithiumApp {
                 && self.data_password != self.data_password_confirm
             {
                 ui.add_space(4.0);
-                ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Passwords do not match.");
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 80, 80),
+                    "Passwords do not match.",
+                );
             }
 
             let can_submit = !self.busy
@@ -197,9 +207,8 @@ impl LithiumApp {
                     .hint_text("Password"),
             );
 
-            let can_submit = !self.busy
-                && !self.username.trim().is_empty()
-                && !self.account_password.is_empty();
+            let can_submit =
+                !self.busy && !self.username.trim().is_empty() && !self.account_password.is_empty();
 
             let pressed_enter =
                 response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));

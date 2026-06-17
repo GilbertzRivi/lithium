@@ -4,7 +4,7 @@ use subtle::ConstantTimeEq;
 use serde_json::json;
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
-    sync::{oneshot, Mutex},
+    sync::{Mutex, oneshot},
 };
 
 const IPC_MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
@@ -14,7 +14,11 @@ async fn next_ipc_line<R: AsyncBufRead + Unpin>(r: &mut R) -> io::Result<Option<
     loop {
         let chunk = r.fill_buf().await?;
         if chunk.is_empty() {
-            return if buf.is_empty() { Ok(None) } else { Ok(Some(finish_line(buf)?)) };
+            return if buf.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(finish_line(buf)?))
+            };
         }
         match chunk.iter().position(|&b| b == b'\n') {
             Some(pos) => {
@@ -38,7 +42,9 @@ async fn next_ipc_line<R: AsyncBufRead + Unpin>(r: &mut R) -> io::Result<Option<
 }
 
 fn finish_line(mut buf: Vec<u8>) -> io::Result<String> {
-    if buf.last() == Some(&b'\r') { buf.pop(); }
+    if buf.last() == Some(&b'\r') {
+        buf.pop();
+    }
     String::from_utf8(buf).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid utf8"))
 }
 use lithium_core::crypto::keys;
@@ -46,7 +52,7 @@ use lithium_core::error::{LithiumError, Result};
 use lithium_core::passwords::passwords::PasswordPolicy;
 
 use crate::commands;
-use crate::ipc::types::{bad_json_resp, err_resp, IpcCommand, IpcRequest, IpcResponse};
+use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse, bad_json_resp, err_resp};
 use crate::state::DaemonState;
 
 pub mod types;
@@ -68,7 +74,9 @@ pub struct IpcPeerMeta {
 
 async fn write_resp<W: AsyncWrite + Unpin>(w: &mut W, resp: &IpcResponse) -> Result<()> {
     let out = serde_json::to_string(resp).map_err(LithiumError::json_parse)?;
-    w.write_all(out.as_bytes()).await.map_err(LithiumError::io)?;
+    w.write_all(out.as_bytes())
+        .await
+        .map_err(LithiumError::io)?;
     w.write_all(b"\n").await.map_err(LithiumError::io)?;
     Ok(())
 }
@@ -94,8 +102,7 @@ fn cmd_is_unlock(cmd: &IpcCommand) -> bool {
 
 async fn authorize_request(
     state: &Arc<DaemonState>,
-    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-    peer: IpcPeerMeta,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] peer: IpcPeerMeta,
     req: &IpcRequest,
 ) -> Option<IpcResponse> {
     if !cmd_requires_auth(&req.cmd) {
@@ -121,24 +128,24 @@ async fn authorize_request(
     #[cfg(target_os = "linux")]
     {
         if let Some(bound_uid) = auth.bound_uid
-            && peer.uid != Some(bound_uid) {
-                return Some(err_resp(req.id, "ipc_auth_failed"));
-            }
+            && peer.uid != Some(bound_uid)
+        {
+            return Some(err_resp(req.id, "ipc_auth_failed"));
+        }
 
         if let Some(bound_pid) = auth.bound_pid
-            && peer.pid != Some(bound_pid) {
-                return Some(err_resp(req.id, "ipc_auth_failed"));
-            }
+            && peer.pid != Some(bound_pid)
+        {
+            return Some(err_resp(req.id, "ipc_auth_failed"));
+        }
     }
 
     None
 }
 
-
 async fn issue_ipc_session(
     state: &Arc<DaemonState>,
-    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-    peer: IpcPeerMeta,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] peer: IpcPeerMeta,
 ) -> Result<String> {
     let token = keys::random_32()?.to_hex().expose().to_string();
     let mut auth = state.ipc_auth.lock().await;

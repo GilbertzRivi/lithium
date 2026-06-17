@@ -194,15 +194,35 @@ Brak tego rozróżnienia prowadzi do błędnej oceny systemu.
 
 ## Zmiana server.identity jest celowo bolesna
 
-Daemon buforuje `ServerBootstrap` (klucze publiczne serwera) przez cały czas trwania sesji keystore.
-Jeśli operator zmieni `server.identity` na serwerze — np. po re-key po kompromitacji —
-każdy klient musi ręcznie wgrać nowy plik i wykonać `lock_keystore` + `unlock_keystore`.
+Daemon buforuje `ServerBootstrap` (klucze publiczne serwera wczytane z lokalnego `server.identity`)
+na czas życia procesu (`ProtocolManager::bootstrap_cache`). Jeśli operator zmieni `server.identity`
+na serwerze — np. po re-key po kompromitacji — klient musi ręcznie zdobyć nowy plik (kanałem OOB)
+i wgrać go komendą IPC `set_server_identity`, która natychmiast invaliduje cache
+(`proto.invalidate_bootstrap_cache()`) — nowa tożsamość obowiązuje od następnego żądania,
+bez potrzeby `lock_keystore`/`unlock_keystore`.
+
+Kluczowa właściwość nie zależy od mechaniki cache'u, tylko od konstrukcji kryptograficznej: dopóki
+klient nie wgra nowej tożsamości, każda próba komunikacji ze zrotowanym serwerem kończy się twardym
+błędem, nie cichą degradacją. Klient szyfruje `Shake` do `shake_pub_x/k` ze starego pliku — serwer,
+deszyfrujący prawdziwym (już zrotowanym) kluczem prywatnym, dostaje inny shared secret i AEAD
+odrzuca żądanie. Nawet gdyby request jakimś cudem przeszedł, podpis odpowiedzi serwera jest
+weryfikowany pod starymi `server_sig_ed/dili` — przy podpisie nowymi kluczami weryfikacja zawodzi
+(`server_signature_invalid`). Nie istnieje retry, fallback ani automatyczne pobranie nowej tożsamości
+z serwera — klient po prostu nie może rozmawiać z serwerem, dopóki operator nie dystrybuuje nowego
+pliku OOB i użytkownik nie wgra go ręcznie.
 
 Jest to celowa decyzja. Operator nie ma dostępu do urządzeń klientów i nie może wymusić
 aktualizacji zaufania bez ich wiedzy i świadomej akcji. Automatyczna aktualizacja kluczy serwera
 otworzyłaby wektor dla operatora, który chce podmienić klucze bez wiedzy użytkownika.
 
-Bolesność tej operacji jest funkcją bezpieczeństwa, nie wadą UX.
+To dotyczy nie tylko re-key po kompromitacji, ale `server.identity` w ogóle: protokół nie definiuje
+żadnego adresu URL ani endpointu, z którego dałoby się ten plik pobrać automatycznie — ani przy
+pierwszym uruchomieniu, ani przy odświeżeniu. Taki endpoint nigdy nie istniał i nie jest planowany.
+Jedyna droga to kanał out-of-band i ręczne wgranie pliku komendą `set_server_identity` — zawsze,
+bez wyjątków.
+
+Twardość tej blokady (komunikacja zrywa się całkowicie, nie degraduje się) jest funkcją
+bezpieczeństwa, nie wadą UX.
 
 ## Podsumowanie
 

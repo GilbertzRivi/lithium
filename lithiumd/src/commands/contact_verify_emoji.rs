@@ -4,30 +4,25 @@ use serde_json::json;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use lithium_core::{
-    crypto::kdf,
-    error::LithiumError,
-    secrets::Byte32,
-    secrets::bytes::SecretBytes,
+    crypto::kdf, error::LithiumError, secrets::Byte32, secrets::bytes::SecretBytes,
 };
 
 use crate::e2e::state::{PeerState, SelfState};
 use crate::{
     db::repo::DaemonDbExt,
-    ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, internal_err, storage_err},
     labels::{PARTY_TRANSCRIPT_LABEL, VERIFY_EMOJI_LABEL},
     state::DaemonState,
 };
 
 const VERIFY_EMOJI_TABLE: [&str; 64] = [
-    "A","B","C","D","E","F","G","H",
-    "J","K","L","M","N","P","Q","R",
-    "S","T","U","V","W","X","Y","Z",
-    "2","3","4","5","6","7","8","9",
-    "!","@","#","$","%","&","*","+",
-    "-","=","?","/","~","^","<",">",
-    "α","β","γ","δ","λ","μ","π","σ",
-    "φ","χ","ψ","ω","Δ","Σ","Φ","Ω",
+    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "U",
+    "V", "W", "X", "Y", "Z", "2", "3", "4", "5", "6", "7", "8", "9", "!", "@", "#", "$", "%", "&",
+    "*", "+", "-", "=", "?", "/", "~", "^", "<", ">", "α", "β", "γ", "δ", "λ", "μ", "π", "σ", "φ",
+    "χ", "ψ", "ω", "Δ", "Σ", "Φ", "Ω",
 ];
+
+const VERIFY_EMOJI_LEN: usize = 12;
 
 fn decode_hex_field(s: &str) -> Result<Vec<u8>, LithiumError> {
     hex::decode(s.trim()).map_err(|_| LithiumError::internal())
@@ -35,11 +30,19 @@ fn decode_hex_field(s: &str) -> Result<Vec<u8>, LithiumError> {
 
 #[allow(clippy::too_many_arguments)]
 fn party_transcript(
-    cid: &[u8], x_pub: &[u8], ed_pub: &[u8], dili_pub: &[u8], k_pub: &[u8],
-    mbox_in: &[u8], mbox_cur: &[u8], mbox_next: &[u8],
+    cid: &[u8],
+    x_pub: &[u8],
+    ed_pub: &[u8],
+    dili_pub: &[u8],
+    k_pub: &[u8],
+    mbox_in: &[u8],
+    mbox_cur: &[u8],
+    mbox_next: &[u8],
 ) -> Result<[u8; 32], LithiumError> {
     let mut bundle = Vec::new();
-    for part in [cid, x_pub, ed_pub, dili_pub, k_pub, mbox_in, mbox_cur, mbox_next] {
+    for part in [
+        cid, x_pub, ed_pub, dili_pub, k_pub, mbox_in, mbox_cur, mbox_next,
+    ] {
         bundle.extend_from_slice(part);
     }
     let derived = kdf::derive32(
@@ -94,15 +97,31 @@ fn compute_verify_emojis(
         .diffie_hellman(&PublicKey::from(peer_x_pub_arr));
 
     let t_self = party_transcript(
-        &self_cid, &self_x_pub, &self_ed_pub, &self_dili_pub, &self_k_pub,
-        &self_mbox_in_pub, &self_mbox_out_cur_pub, &self_mbox_out_next_pub,
+        &self_cid,
+        &self_x_pub,
+        &self_ed_pub,
+        &self_dili_pub,
+        &self_k_pub,
+        &self_mbox_in_pub,
+        &self_mbox_out_cur_pub,
+        &self_mbox_out_next_pub,
     )?;
     let t_peer = party_transcript(
-        &peer_cid, &peer_x_pub_bytes, &peer_ed_pub, &peer_dili_pub, &peer_k_pub,
-        &peer_mbox_in_pub, &peer_mbox_out_cur_pub, &peer_mbox_out_next_pub,
+        &peer_cid,
+        &peer_x_pub_bytes,
+        &peer_ed_pub,
+        &peer_dili_pub,
+        &peer_k_pub,
+        &peer_mbox_in_pub,
+        &peer_mbox_out_cur_pub,
+        &peer_mbox_out_next_pub,
     )?;
 
-    let (t_a, t_b) = if t_self <= t_peer { (t_self, t_peer) } else { (t_peer, t_self) };
+    let (t_a, t_b) = if t_self <= t_peer {
+        (t_self, t_peer)
+    } else {
+        (t_peer, t_self)
+    };
 
     let mut info = Vec::with_capacity(32 + 64);
     info.extend_from_slice(VERIFY_EMOJI_LABEL);
@@ -115,19 +134,15 @@ fn compute_verify_emojis(
         &SecretBytes::new(info),
     )?;
 
-    let mut out = Vec::with_capacity(6);
-    for b in &derived.as_slice()[..6] {
+    let mut out = Vec::with_capacity(VERIFY_EMOJI_LEN);
+    for b in &derived.as_slice()[..VERIFY_EMOJI_LEN] {
         out.push(VERIFY_EMOJI_TABLE[*b as usize % VERIFY_EMOJI_TABLE.len()]);
     }
 
     Ok(out)
 }
 
-pub async fn handle(
-    id: u64,
-    contact_id_hex: String,
-    state: Arc<DaemonState>,
-) -> IpcResponse {
+pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) -> IpcResponse {
     let Some(dm) = state.local_db.lock().await.clone() else {
         return err_resp(id, "storage_locked");
     };
@@ -207,7 +222,7 @@ mod tests {
         let bob_side =
             compute_verify_emojis(&bob, &peer_state_with(peer_identity_from(&alice))).unwrap();
 
-        assert_eq!(alice_side.len(), 6);
+        assert_eq!(alice_side.len(), VERIFY_EMOJI_LEN);
         assert_eq!(alice_side, bob_side, "both sides must read the same SAS");
     }
 
@@ -218,7 +233,13 @@ mod tests {
         let baseline =
             compute_verify_emojis(&alice, &peer_state_with(peer_identity_from(&bob))).unwrap();
 
-        let bogus = || lithium_core::crypto::keys::random_32().unwrap().to_hex().expose().to_owned();
+        let bogus = || {
+            lithium_core::crypto::keys::random_32()
+                .unwrap()
+                .to_hex()
+                .expose()
+                .to_owned()
+        };
 
         let mutate: [fn(&mut PeerIdentity, String); 7] = [
             |p, v| p.cid = v,

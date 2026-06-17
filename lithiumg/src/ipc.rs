@@ -7,7 +7,7 @@ use std::{
 use std::path::PathBuf;
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 #[cfg(unix)]
@@ -148,9 +148,10 @@ pub struct ContactFetchResult {
 
 async fn send_request(mut req: Value) -> Result<Value, String> {
     if let Some(token) = current_auth_token()
-        && let Some(obj) = req.as_object_mut() {
-            obj.insert("auth_token".into(), Value::String(token));
-        }
+        && let Some(obj) = req.as_object_mut()
+    {
+        obj.insert("auth_token".into(), Value::String(token));
+    }
 
     let line = serde_json::to_string(&req).map_err(|e| format!("json_encode_failed:{e}"))?;
 
@@ -281,7 +282,7 @@ pub async fn ping() -> Result<PingResult, String> {
         "cmd": "ping",
         "id": 1
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_ping_payload:{e}"))
 }
@@ -294,7 +295,7 @@ pub async fn unlock_keystore(data_password: &str) -> Result<(), String> {
         "id": 2,
         "data_password": data_password
     }))
-        .await?;
+    .await?;
 
     let parsed: UnlockKeystoreResult =
         serde_json::from_value(v).map_err(|e| format!("bad_unlock_payload:{e}"))?;
@@ -314,7 +315,7 @@ pub async fn set_credentials(handler: &str, password: &str) -> Result<(), String
         "handler": handler,
         "password": password
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -323,7 +324,7 @@ pub async fn register() -> Result<RegisterResult, String> {
         "cmd": "register",
         "id": 4
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_register_payload:{e}"))
 }
@@ -334,7 +335,7 @@ pub async fn remote_delete(capability: &str) -> Result<(), String> {
         "id": 15,
         "capability": capability
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -343,7 +344,7 @@ pub async fn delete_account() -> Result<(), String> {
         "cmd": "delete_account",
         "id": 16
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -352,7 +353,7 @@ pub async fn unlock_storage() -> Result<(), String> {
         "cmd": "unlock_storage",
         "id": 5
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -361,7 +362,7 @@ pub async fn contacts_list() -> Result<Vec<ContactInfo>, String> {
         "cmd": "contacts_list",
         "id": 6
     }))
-        .await?;
+    .await?;
 
     let parsed: ContactsResult =
         serde_json::from_value(v).map_err(|e| format!("bad_contacts_payload:{e}"))?;
@@ -380,7 +381,7 @@ pub async fn messages_list(
         "limit": limit,
         "before_id": before_id
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_messages_payload:{e}"))
 }
@@ -392,7 +393,7 @@ pub async fn contact_send(contact_id: &str, plaintext: &str) -> Result<(), Strin
         "contact_id": contact_id,
         "plaintext": plaintext
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -402,7 +403,7 @@ pub async fn contact_fetch(contact_id: &str) -> Result<ContactFetchResult, Strin
         "id": 10,
         "contact_id": contact_id,
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_contact_fetch_response: {e}"))
 }
@@ -414,7 +415,7 @@ pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResul
         "contact_id": contact_id,
         "server": null
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_create_invite_payload:{e}"))
 }
@@ -431,7 +432,7 @@ pub async fn accept_invite(
         "contact_id": contact_id,
         "label": label
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_accept_invite_payload:{e}"))
 }
@@ -442,7 +443,7 @@ pub async fn contact_forget(contact_id: &str) -> Result<(), String> {
         "id": 12,
         "contact_id": contact_id
     }))
-        .await?;
+    .await?;
     Ok(())
 }
 
@@ -452,7 +453,7 @@ pub async fn contact_verify_emoji(contact_id: &str) -> Result<VerifyEmojiResult,
         "id": 14,
         "contact_id": contact_id
     }))
-        .await?;
+    .await?;
 
     serde_json::from_value(v).map_err(|e| format!("bad_contact_verify_emoji_payload:{e}"))
 }
@@ -462,7 +463,7 @@ pub async fn wipe_local() -> Result<(), String> {
         "cmd": "wipe_local",
         "id": 13
     }))
-        .await?;
+    .await?;
     set_auth_token(None);
     Ok(())
 }
@@ -472,7 +473,7 @@ pub async fn lock_keystore() -> Result<(), String> {
         "cmd": "lock_keystore",
         "id": 17
     }))
-        .await?;
+    .await?;
     set_auth_token(None);
     Ok(())
 }

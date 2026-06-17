@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use serde_json::json;
 use sea_orm::{EntityTrait, QueryOrder};
+use serde_json::json;
+use std::sync::Arc;
 
 use crate::e2e::PeerState;
 use crate::{
     db::models::contacts,
-    ipc::types::{err_resp, storage_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, storage_err},
     labels::AAD_CONTACT_PEER,
     state::DaemonState,
 };
@@ -27,10 +27,13 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
     let mut out = Vec::with_capacity(rows.len());
 
     for r in rows {
-        let peer_pt = match dm.decrypt_db_blob(
-            &lithium_core::secrets::bytes::SecretBytes::new(r.peer_state_enc.clone()),
-            &lithium_core::secrets::bytes::SecretBytes::from_slice(AAD_CONTACT_PEER),
-        ).await {
+        let peer_pt = match dm
+            .decrypt_db_blob(
+                &lithium_core::secrets::bytes::SecretBytes::new(r.peer_state_enc.clone()),
+                &lithium_core::secrets::bytes::SecretBytes::from_slice(AAD_CONTACT_PEER),
+            )
+            .await
+        {
             Ok(v) => v,
             Err(_) => return storage_err(id),
         };

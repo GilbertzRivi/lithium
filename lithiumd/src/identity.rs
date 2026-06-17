@@ -3,7 +3,7 @@ use std::path::Path;
 use lithium_core::{
     contract::identity_file::decode,
     error::{LithiumError, Result},
-    secrets::{bytes::SecretBytes, Byte32},
+    secrets::{Byte32, bytes::SecretBytes},
 };
 
 use crate::protocol_manager::ServerBootstrap;

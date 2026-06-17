@@ -3,11 +3,10 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::{
-    ipc::types::{err_resp, IpcResponse},
+    ipc::types::{IpcResponse, err_resp},
     state::DaemonState,
     util,
 };
-
 
 pub async fn wipe(state: &Arc<DaemonState>) -> Result<(), ()> {
     let dir = state.base_dir.clone();

@@ -1,7 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::{sync::{watch, Mutex}, task::JoinHandle};
+use tokio::{
+    sync::{Mutex, watch},
+    task::JoinHandle,
+};
 use tracing::error;
 
 use lithium_core::keys::KeyManager;
@@ -43,5 +46,8 @@ pub fn spawn_mk_rotator(
         }
     });
 
-    MkRotatorHandle { _stop_tx: stop_tx, _handle: handle }
+    MkRotatorHandle {
+        _stop_tx: stop_tx,
+        _handle: handle,
+    }
 }

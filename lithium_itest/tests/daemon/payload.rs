@@ -52,7 +52,8 @@ async fn test_auth_token_integer_is_bad_json() {
     let d = DaemonProcess::start().await;
     let mut c = IpcClient::connect(&d.socket_path).await;
 
-    c.send_raw("{\"id\":1,\"cmd\":\"ping\",\"auth_token\":99}\n").await;
+    c.send_raw("{\"id\":1,\"cmd\":\"ping\",\"auth_token\":99}\n")
+        .await;
     let raw = c.try_read_line().await.expect("response");
     let r: Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(r["error"].as_str().unwrap(), "bad_json");
@@ -63,7 +64,8 @@ async fn test_extra_fields_ignored() {
     let d = DaemonProcess::start().await;
     let mut c = IpcClient::connect(&d.socket_path).await;
 
-    c.send_raw("{\"id\":1,\"cmd\":\"ping\",\"unknown_field\":true,\"garbage\":42}\n").await;
+    c.send_raw("{\"id\":1,\"cmd\":\"ping\",\"unknown_field\":true,\"garbage\":42}\n")
+        .await;
     let raw = c.try_read_line().await.expect("response");
     let r: Value = serde_json::from_str(&raw).unwrap();
     assert!(r["ok"].as_bool().unwrap());
@@ -98,7 +100,8 @@ async fn test_null_for_required_string_field_is_bad_json() {
     let mut c = IpcClient::connect(&d.socket_path).await;
 
     // data_password is SecretString (required), null fails deserialization
-    c.send_raw("{\"id\":1,\"cmd\":\"unlock_keystore\",\"data_password\":null}\n").await;
+    c.send_raw("{\"id\":1,\"cmd\":\"unlock_keystore\",\"data_password\":null}\n")
+        .await;
     let raw = c.try_read_line().await.expect("response");
     let r: Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(r["error"].as_str().unwrap(), "bad_json");

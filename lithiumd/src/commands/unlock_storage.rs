@@ -7,7 +7,7 @@ use lithium_core::secrets::Byte32;
 
 use crate::{
     db,
-    ipc::types::{crypto_err, err_resp, internal_err, protocol_err, IpcResponse},
+    ipc::types::{IpcResponse, crypto_err, err_resp, internal_err, protocol_err},
     state::DaemonState,
 };
 

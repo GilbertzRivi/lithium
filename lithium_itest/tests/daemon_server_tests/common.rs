@@ -22,7 +22,11 @@ pub async fn start_daemon() -> DaemonProcess {
         .spawn()
         .expect("spawn daemon");
     wait_for_socket(&socket_path).await;
-    DaemonProcess { child: Some(child), socket_path, _data_dir: Some(data_dir) }
+    DaemonProcess {
+        child: Some(child),
+        socket_path,
+        _data_dir: Some(data_dir),
+    }
 }
 
 // Returns (cid_a, cid_b) — A's local ID for B and B's local ID for A.
@@ -32,7 +36,9 @@ pub async fn connect_pair(
     cb: &mut IpcClient,
     tok_b: &str,
 ) -> (String, String) {
-    let inv = ca.send(json!({"cmd": "create_invite", "auth_token": tok_a})).await;
+    let inv = ca
+        .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
+        .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
     let code_a = inv["result"]["code"].as_str().unwrap().to_owned();

@@ -1,4 +1,4 @@
-use poem::{handler, Response};
+use poem::{Response, handler};
 use serde_json::json;
 
 use crate::db::repo::ServerDbExt;
@@ -9,7 +9,8 @@ use lithium_core::contract::protocol::field;
 use lithium_core::secrets::bytes::SecretBytes;
 
 fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
-    let mb = SecretBytes::from_hex(hex_str).map_err(|_| AppError::bad_request("invalid_mailbox"))?;
+    let mb =
+        SecretBytes::from_hex(hex_str).map_err(|_| AppError::bad_request("invalid_mailbox"))?;
     if mb.len() != 16 && mb.len() != 32 {
         return Err(AppError::bad_request("invalid_mailbox"));
     }
@@ -21,7 +22,10 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     let (state, mailbox_hex, content_hex) = {
         let mut ctx = req.lock().await;
 
-        let _user = ctx.user.clone().ok_or(AppError::unauthorized("unauthorized"))?;
+        let _user = ctx
+            .user
+            .clone()
+            .ok_or(AppError::unauthorized("unauthorized"))?;
 
         let mailbox_hex = ctx.body.take_string(field::MAILBOX)?;
         let content_hex = ctx.body.take_string(field::CONTENT)?;
@@ -30,8 +34,8 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
     };
 
     let mailbox = decode_mailbox(mailbox_hex.expose())?;
-    let content_sb =
-        SecretBytes::from_hex(content_hex.expose()).map_err(|_| AppError::bad_request("invalid_content"))?;
+    let content_sb = SecretBytes::from_hex(content_hex.expose())
+        .map_err(|_| AppError::bad_request("invalid_content"))?;
 
     state
         .db
@@ -50,7 +54,7 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
             field::MSG: "Message sent"
         }),
     )
-        .await
+    .await
 }
 
 #[handler]
@@ -77,5 +81,5 @@ pub async fn fetch(req: CryptoReq) -> Result<Response, AppError> {
         field::MSG: "Ok",
         field::DATA: data,
     }))
-        .await
+    .await
 }

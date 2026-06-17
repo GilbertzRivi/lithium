@@ -1,6 +1,6 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-use poem::{listener::TcpListener, Server};
+use poem::{Server, listener::TcpListener};
 use tokio::sync::Mutex;
 
 use lithium_core::{

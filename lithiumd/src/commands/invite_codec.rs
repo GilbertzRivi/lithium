@@ -1,8 +1,8 @@
 use lithium_core::{
     crypto::keys,
     error::{LithiumError, Result},
-    secrets::{Byte32, SecretString},
     secrets::bytes::SecretBytes,
+    secrets::{Byte32, SecretString},
 };
 
 use crate::e2e::state::SelfState;
@@ -48,13 +48,7 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
     }
 
     let mut out = SecretBytes::new(Vec::with_capacity(
-        4 + 1
-            + 32
-            + 32
-            + 2 + k_pub.len()
-            + 32
-            + 2 + dili_pub.len()
-            + 32 + 32 + 32,
+        4 + 1 + 32 + 32 + 2 + k_pub.len() + 32 + 2 + dili_pub.len() + 32 + 32 + 32,
     ));
 
     out.expose_as_mut_vec().extend_from_slice(INV_MAGIC);
@@ -65,19 +59,27 @@ pub fn encode_invite_code(p: &InvitePublic) -> Result<SecretString> {
 
     out.expose_as_mut_vec()
         .extend_from_slice(&(k_pub.len() as u16).to_be_bytes());
-    out.expose_as_mut_vec().extend_from_slice(k_pub.expose_as_slice());
+    out.expose_as_mut_vec()
+        .extend_from_slice(k_pub.expose_as_slice());
 
     out.expose_as_mut_vec().extend_from_slice(ed_pub.as_slice());
 
     out.expose_as_mut_vec()
         .extend_from_slice(&(dili_pub.len() as u16).to_be_bytes());
-    out.expose_as_mut_vec().extend_from_slice(dili_pub.expose_as_slice());
+    out.expose_as_mut_vec()
+        .extend_from_slice(dili_pub.expose_as_slice());
 
-    out.expose_as_mut_vec().extend_from_slice(mbox_in_pub.as_slice());
-    out.expose_as_mut_vec().extend_from_slice(mbox_out_cur_pub.as_slice());
-    out.expose_as_mut_vec().extend_from_slice(mbox_out_next_pub.as_slice());
+    out.expose_as_mut_vec()
+        .extend_from_slice(mbox_in_pub.as_slice());
+    out.expose_as_mut_vec()
+        .extend_from_slice(mbox_out_cur_pub.as_slice());
+    out.expose_as_mut_vec()
+        .extend_from_slice(mbox_out_next_pub.as_slice());
 
-    Ok(SecretString::new(format!("lci1:{}", hex::encode(out.expose_as_slice()))))
+    Ok(SecretString::new(format!(
+        "lci1:{}",
+        hex::encode(out.expose_as_slice())
+    )))
 }
 
 pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
@@ -86,14 +88,18 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
     let blob = SecretBytes::from_hex(hex_part)?;
     let blob = blob.expose_as_slice();
 
-    const MIN_INVITE_LEN: usize =
-        4 + 1
-            + 32
-            + 32
-            + 2 + MLKEM1024_PUBLIC_KEY_LEN
-            + 32
-            + 2 + MLDSA87_PUBLIC_KEY_LEN
-            + 32 + 32 + 32;
+    const MIN_INVITE_LEN: usize = 4
+        + 1
+        + 32
+        + 32
+        + 2
+        + MLKEM1024_PUBLIC_KEY_LEN
+        + 32
+        + 2
+        + MLDSA87_PUBLIC_KEY_LEN
+        + 32
+        + 32
+        + 32;
 
     if blob.len() < MIN_INVITE_LEN {
         return Err(invalid_invite_code());
@@ -266,15 +272,27 @@ mod tests {
         assert_eq!(decoded.k_pub_hex.expose(), orig.k_pub_hex.expose());
         assert_eq!(decoded.ed_pub_hex.expose(), orig.ed_pub_hex.expose());
         assert_eq!(decoded.dili_pub_hex.expose(), orig.dili_pub_hex.expose());
-        assert_eq!(decoded.mbox_in_pub_hex.expose(), orig.mbox_in_pub_hex.expose());
-        assert_eq!(decoded.mbox_out_cur_pub_hex.expose(), orig.mbox_out_cur_pub_hex.expose());
-        assert_eq!(decoded.mbox_out_next_pub_hex.expose(), orig.mbox_out_next_pub_hex.expose());
+        assert_eq!(
+            decoded.mbox_in_pub_hex.expose(),
+            orig.mbox_in_pub_hex.expose()
+        );
+        assert_eq!(
+            decoded.mbox_out_cur_pub_hex.expose(),
+            orig.mbox_out_cur_pub_hex.expose()
+        );
+        assert_eq!(
+            decoded.mbox_out_next_pub_hex.expose(),
+            orig.mbox_out_next_pub_hex.expose()
+        );
     }
 
     #[test]
     fn invite_code_starts_with_lci1_prefix() {
         let code = encode_invite_code(&make_invite()).unwrap();
-        assert!(code.expose().starts_with("lci1:"), "code must start with lci1:");
+        assert!(
+            code.expose().starts_with("lci1:"),
+            "code must start with lci1:"
+        );
     }
 
     #[test]
@@ -433,6 +451,9 @@ mod tests {
         assert_eq!(decoded.cid_hex.expose(), invite.cid_hex.expose());
         assert_eq!(decoded.k_pub_hex.expose(), invite.k_pub_hex.expose());
         assert_eq!(decoded.dili_pub_hex.expose(), invite.dili_pub_hex.expose());
-        assert_eq!(decoded.mbox_out_next_pub_hex.expose(), invite.mbox_out_next_pub_hex.expose());
+        assert_eq!(
+            decoded.mbox_out_next_pub_hex.expose(),
+            invite.mbox_out_next_pub_hex.expose()
+        );
     }
 }

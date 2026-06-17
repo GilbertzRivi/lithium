@@ -1,35 +1,33 @@
 use rand::distr::{Alphanumeric, Distribution};
-use subtle::ConstantTimeEq;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use subtle::ConstantTimeEq;
 
 use hmac::{Hmac, Mac};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use poem::{
-    http::header,
-    http::StatusCode,
-    Body, Error as PoemError, FromRequest, Request, RequestBody, Response,
-    Result as PoemResult,
+    Body, Error as PoemError, FromRequest, Request, RequestBody, Response, Result as PoemResult,
+    http::StatusCode, http::header,
 };
-use rand::{rngs::SysRng, RngExt};
 use rand::rand_core::UnwrapErr;
+use rand::{RngExt, rngs::SysRng};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::Sha256;
 use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroize;
 
+use crate::provider::ServerMkProvider;
 use lithium_core::contract::protocol::{self, field, header as hdr};
-use lithium_core::crypto::{keys, kyberbox, sign};
 use lithium_core::crypto::kyberbox::WirePayload;
+use lithium_core::crypto::{keys, kyberbox, sign};
 use lithium_core::db::manager::DataManager;
 use lithium_core::error::LithiumError;
-use crate::provider::ServerMkProvider;
-use lithium_core::secrets::{Byte32, Byte64, SecretJson, SecretString};
 use lithium_core::secrets::bytes::SecretBytes;
+use lithium_core::secrets::{Byte32, Byte64, SecretJson, SecretString};
 use lithium_core::utils::headers::{header_hex, header_hex_bytes, header_str};
 use lithium_core::utils::store::EphemeralStoreManager;
 
@@ -105,10 +103,7 @@ fn login_backoff_secs(failures: u32) -> u64 {
         .min(LOGIN_LOCK_MAX_SECS)
 }
 
-pub async fn login_rate_limit_check(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
+pub async fn login_rate_limit_check(state: &SharedState, handler: &str) -> Result<(), AppError> {
     let lock_key = login_lock_key(handler);
 
     if state.store.peek(&lock_key).await?.is_some() {
@@ -118,10 +113,7 @@ pub async fn login_rate_limit_check(
     Ok(())
 }
 
-pub async fn login_rate_limit_fail(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
+pub async fn login_rate_limit_fail(state: &SharedState, handler: &str) -> Result<(), AppError> {
     let fail_key = login_fail_key(handler);
 
     let current = match state.store.peek(&fail_key).await? {
@@ -156,10 +148,7 @@ pub async fn login_rate_limit_fail(
     Ok(())
 }
 
-pub async fn login_rate_limit_success(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
+pub async fn login_rate_limit_success(state: &SharedState, handler: &str) -> Result<(), AppError> {
     let _ = state.store.del(&login_fail_key(handler)).await;
     let _ = state.store.del(&login_lock_key(handler)).await;
     Ok(())
@@ -175,10 +164,7 @@ fn register_lock_key(handler: &str) -> String {
     store_keys::register_lock(&normalize_login_handler(handler))
 }
 
-pub async fn register_rate_limit_check(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
+pub async fn register_rate_limit_check(state: &SharedState, handler: &str) -> Result<(), AppError> {
     let lock_key = register_lock_key(handler);
 
     if state.store.peek(&lock_key).await?.is_some() {
@@ -188,10 +174,7 @@ pub async fn register_rate_limit_check(
     Ok(())
 }
 
-pub async fn register_rate_limit_fail(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
+pub async fn register_rate_limit_note(state: &SharedState, handler: &str) -> Result<(), AppError> {
     let fail_key = register_fail_key(handler);
 
     let current = match state.store.peek(&fail_key).await? {
@@ -222,15 +205,6 @@ pub async fn register_rate_limit_fail(
             .await?;
     }
 
-    Ok(())
-}
-
-pub async fn register_rate_limit_success(
-    state: &SharedState,
-    handler: &str,
-) -> Result<(), AppError> {
-    let _ = state.store.del(&register_fail_key(handler)).await;
-    let _ = state.store.del(&register_lock_key(handler)).await;
     Ok(())
 }
 
@@ -284,15 +258,9 @@ impl CryptoReq {
 
 impl<'a> FromRequest<'a> for CryptoReq {
     async fn from_request(req: &'a Request, _body: &mut RequestBody) -> PoemResult<Self> {
-        req.extensions()
-            .get::<CryptoReq>()
-            .cloned()
-            .ok_or_else(|| {
-                PoemError::from_string(
-                    "crypto context missing",
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                )
-            })
+        req.extensions().get::<CryptoReq>().cloned().ok_or_else(|| {
+            PoemError::from_string("crypto context missing", StatusCode::INTERNAL_SERVER_ERROR)
+        })
     }
 }
 
@@ -343,11 +311,13 @@ pub async fn create_token_for_user(
         &claims,
         &EncodingKey::from_secret(secret.as_slice()),
     )
-        .map_err(|_| AppError::internal("jwt encode error"))?;
+    .map_err(|_| AppError::internal("jwt encode error"))?;
 
     let mut value = SecretBytes::new(Vec::with_capacity(32 + user.id.len()));
     value.expose_as_mut_vec().extend_from_slice(seed.as_slice());
-    value.expose_as_mut_vec().extend_from_slice(user.id.as_slice());
+    value
+        .expose_as_mut_vec()
+        .extend_from_slice(user.id.as_slice());
 
     store
         .set(
@@ -374,7 +344,7 @@ pub async fn get_user_from_token(
         &DecodingKey::from_secret(secret.as_slice()),
         &validation,
     )
-        .map_err(|_| AppError::unauthorized("invalid jwt"))?;
+    .map_err(|_| AppError::unauthorized("invalid jwt"))?;
 
     let value = store
         .take(&store_keys::token(token))
@@ -389,7 +359,12 @@ pub async fn get_user_from_token(
     let id = &value.expose_as_slice()[32..];
 
     let sub = token_data.claims.sub;
-    if hmac_id(id, seed)?.as_bytes().ct_eq(sub.as_bytes()).unwrap_u8() == 0 {
+    if hmac_id(id, seed)?
+        .as_bytes()
+        .ct_eq(sub.as_bytes())
+        .unwrap_u8()
+        == 0
+    {
         return Err(AppError::unauthorized("invalid jwt"));
     }
 
@@ -408,10 +383,9 @@ pub async fn build_crypto_context(
     cipher_body: SecretBytes,
 ) -> Result<CryptoReq, AppError> {
     match cfg.mode {
-        CryptoMode::Shake => verify_headers(
-            headers_map,
-            &[hdr::KEY_X, hdr::KEY_K, hdr::SEED, hdr::DATA],
-        )?,
+        CryptoMode::Shake => {
+            verify_headers(headers_map, &[hdr::KEY_X, hdr::KEY_K, hdr::SEED, hdr::DATA])?
+        }
         CryptoMode::Session => verify_headers(
             headers_map,
             &[
@@ -452,13 +426,18 @@ pub async fn build_crypto_context(
                 .with_x25519_and_kyber_sk(|x_priv, k_priv| {
                     kyberbox::decrypt(req_label.as_str(), &x_priv, &peer_key_x, &k_priv, &wire)
                 }) {
-                Ok(v) => { v }
+                Ok(v) => v,
                 Err(e) => return Err(AppError::from(e)),
             }
         }
         CryptoMode::Session => {
             let ses_x_id = header_str(headers_map, hdr::SES_X)?;
             let ses_k_id = header_str(headers_map, hdr::SES_K)?;
+
+            Byte32::from_hex(ses_x_id.expose())
+                .map_err(|_| AppError::bad_request("invalid session x"))?;
+            Byte32::from_hex(ses_k_id.expose())
+                .map_err(|_| AppError::bad_request("invalid session k"))?;
 
             let x_priv = state
                 .store
@@ -486,7 +465,7 @@ pub async fn build_crypto_context(
                     seed_enc: seed_enc_z,
                 },
             ) {
-                Ok(v) => { v }
+                Ok(v) => v,
                 Err(e) => return Err(AppError::from(e)),
             }
         }
@@ -496,9 +475,12 @@ pub async fn build_crypto_context(
     unpad_block(dec_headers.expose_as_mut_vec())?;
 
     let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
-    let headers_json = SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
+    let headers_json =
+        SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
 
-    let ts = body_json.get_string(field::TIMESTAMP).map_err(AppError::from)?;
+    let ts = body_json
+        .get_string(field::TIMESTAMP)
+        .map_err(AppError::from)?;
     validate_timestamp(ts.expose(), cfg.ts_skew, cfg.ts_skew)?;
 
     let mut client_ed_key: Option<Byte32> = None;
@@ -552,7 +534,8 @@ pub async fn build_crypto_context(
 
             let jwt_secret = { state.key_manager.lock().await.jwt_secret().clone() };
 
-            let u = get_user_from_token(token.expose(), &jwt_secret, &state.db, &state.store).await?;
+            let u =
+                get_user_from_token(token.expose(), &jwt_secret, &state.db, &state.store).await?;
             verify_signature(&headers_json, &body_json, &u.ed_key, &u.dili_key)?;
             user = Some(u);
         }
@@ -613,22 +596,24 @@ impl CryptoContext {
         let response_body_s = SecretString::new(serde_json::to_string(&body)?);
         let response_headers_s = SecretString::new(serde_json::to_string(&response_headers)?);
 
-        let resp_sig_ed = self
-            .state
-            .key_manager
-            .lock()
-            .await
-            .with_ed_sk(|sk| sign::sign_message(response_body_s.expose().as_bytes(), sk))?;
-
-        let resp_sig_dili = self
-            .state
-            .key_manager
-            .lock()
-            .await
-            .with_dilithium_sk(|sk| sign::sign_message_dili(response_body_s.expose().as_bytes(), sk))?;
+        let (resp_sig_ed, resp_sig_dili) =
+            self.state
+                .key_manager
+                .lock()
+                .await
+                .with_signing_keys(|ed_sk, dili_sk| {
+                    let body = response_body_s.expose().as_bytes();
+                    Ok((
+                        sign::sign_message(body, ed_sk)?,
+                        sign::sign_message_dili(body, dili_sk)?,
+                    ))
+                })?;
 
         let response_body_pad = pad_block(response_body_s.expose().as_bytes(), random_block_size());
-        let response_headers_pad = pad_block(response_headers_s.expose().as_bytes(), random_block_size() / 8);
+        let response_headers_pad = pad_block(
+            response_headers_s.expose().as_bytes(),
+            random_block_size() / 8,
+        );
 
         let encrypted = kyberbox::encrypt(
             self.resp_label.as_str(),

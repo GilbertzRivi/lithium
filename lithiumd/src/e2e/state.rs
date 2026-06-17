@@ -117,7 +117,11 @@ pub(crate) struct SelfMailbox {
 
 impl Default for SelfMailbox {
     fn default() -> Self {
-        Self { tx_gen: 0, tx_sent: 0, rotate_every: MAILBOX_ROTATE_EVERY_DEFAULT }
+        Self {
+            tx_gen: 0,
+            tx_sent: 0,
+            rotate_every: MAILBOX_ROTATE_EVERY_DEFAULT,
+        }
     }
 }
 

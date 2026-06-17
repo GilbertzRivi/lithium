@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use super::{draw_invite_box, Command, LithiumApp};
+use super::{Command, LithiumApp, draw_invite_box};
 
 impl LithiumApp {
     pub(super) fn draw_ready(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
@@ -45,7 +45,10 @@ impl LithiumApp {
             }
 
             let can_reply = !self.busy && self.selected_contact_id.is_some();
-            if ui.add_enabled(can_reply, egui::Button::new("Reply to invite")).clicked() {
+            if ui
+                .add_enabled(can_reply, egui::Button::new("Reply to invite"))
+                .clicked()
+            {
                 self.send(Command::CreateInvite {
                     contact_id: self.selected_contact_id.clone(),
                 });
@@ -70,8 +73,7 @@ impl LithiumApp {
 
         ui.add_sized(
             [ui.available_width(), 24.0],
-            egui::TextEdit::singleline(&mut self.invite_label_input)
-                .hint_text("Contact name"),
+            egui::TextEdit::singleline(&mut self.invite_label_input).hint_text("Contact name"),
         );
         ui.add_space(4.0);
 
@@ -88,7 +90,10 @@ impl LithiumApp {
             && !self.invite_code_input.trim().is_empty();
 
         ui.add_space(4.0);
-        if ui.add_enabled(can_accept, egui::Button::new("Accept invite")).clicked() {
+        if ui
+            .add_enabled(can_accept, egui::Button::new("Accept invite"))
+            .clicked()
+        {
             let target_contact_id = self
                 .selected_contact()
                 .filter(|c| !c.peer_set)
@@ -172,26 +177,37 @@ impl LithiumApp {
             if !contact.peer_set {
                 ui.separator();
                 ui.label(
-                    egui::RichText::new("Pending — awaiting contact reply").weak().italics(),
+                    egui::RichText::new("Pending — awaiting contact reply")
+                        .weak()
+                        .italics(),
                 );
             }
         });
 
         // Action buttons
         ui.horizontal(|ui| {
-            if ui.add_enabled(!self.busy, egui::Button::new("Check for messages")).clicked() {
+            if ui
+                .add_enabled(!self.busy, egui::Button::new("Check for messages"))
+                .clicked()
+            {
                 self.send(Command::FetchMessages {
                     contact_id: contact.contact_id.clone(),
                 });
             }
 
-            if ui.add_enabled(!self.busy, egui::Button::new("Refresh")).clicked() {
+            if ui
+                .add_enabled(!self.busy, egui::Button::new("Refresh"))
+                .clicked()
+            {
                 self.send(Command::LoadMessages {
                     contact_id: contact.contact_id.clone(),
                 });
             }
 
-            if ui.add_enabled(!self.busy, egui::Button::new("Remove contact")).clicked() {
+            if ui
+                .add_enabled(!self.busy, egui::Button::new("Remove contact"))
+                .clicked()
+            {
                 self.send(Command::ForgetContact {
                     contact_id: contact.contact_id.clone(),
                 });
@@ -222,7 +238,10 @@ impl LithiumApp {
                     for msg in &self.messages {
                         let is_mine = msg.direction == "out";
                         let sender = if is_mine { "You" } else { &contact.label };
-                        let text = msg.text.clone().unwrap_or_else(|| "(unsupported message type)".into());
+                        let text = msg
+                            .text
+                            .clone()
+                            .unwrap_or_else(|| "(unsupported message type)".into());
 
                         // Show time only — drop internal message ID.
                         let time = msg
@@ -262,16 +281,15 @@ impl LithiumApp {
                 .hint_text("Write a message…"),
         );
 
-        let can_send =
-            !self.busy && contact.peer_set && !self.message_text.trim().is_empty();
+        let can_send = !self.busy && contact.peer_set && !self.message_text.trim().is_empty();
 
         // Send on Ctrl+Enter
         let send_shortcut = compose_response.has_focus()
-            && ui.input(|i| {
-                i.modifiers.ctrl && i.key_pressed(egui::Key::Enter)
-            });
+            && ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter));
 
-        if ui.add_enabled(can_send, egui::Button::new("Send")).clicked()
+        if ui
+            .add_enabled(can_send, egui::Button::new("Send"))
+            .clicked()
             || (can_send && send_shortcut)
         {
             let text = self.message_text.trim().to_string();
@@ -284,9 +302,11 @@ impl LithiumApp {
 
         if !contact.peer_set {
             ui.label(
-                egui::RichText::new("Messaging will be available once the contact accepts your invite.")
-                    .small()
-                    .weak(),
+                egui::RichText::new(
+                    "Messaging will be available once the contact accepts your invite.",
+                )
+                .small()
+                .weak(),
             );
         }
     }

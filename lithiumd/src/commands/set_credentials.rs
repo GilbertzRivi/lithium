@@ -3,13 +3,11 @@ use std::sync::Arc;
 use serde_json::json;
 
 use lithium_core::passwords::passwords::{
-    validate_password,
-    validate_passwords_distinct,
-    PasswordPolicy,
+    PasswordPolicy, validate_password, validate_passwords_distinct,
 };
 use lithium_core::secrets::SecretString;
 
-use crate::ipc::types::{err_resp, IpcResponse};
+use crate::ipc::types::{IpcResponse, err_resp};
 use crate::state::DaemonState;
 
 pub async fn handle(

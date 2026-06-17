@@ -1,13 +1,13 @@
+use crate::error::Result;
+use crate::secrets::{FixedBytes, MasterKey32, Nonce12, SecretBytes, SessionId32};
 use ed25519_dalek::SigningKey;
 use pqcrypto::kem::mlkem1024;
 use pqcrypto::sign::mldsa87;
 use pqcrypto::traits::kem::{PublicKey as _, SecretKey as _};
 use pqcrypto::traits::sign::{PublicKey as SignPub, SecretKey as SignSk};
-use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
-use rand::rngs::SysRng;
 use rand::TryRng;
-use crate::error::Result;
-use crate::secrets::{FixedBytes, MasterKey32, Nonce12, SecretBytes, SessionId32};
+use rand::rngs::SysRng;
+use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 
 #[inline]
 pub fn random_fixed<const N: usize>() -> Result<FixedBytes<N>> {
@@ -17,11 +17,17 @@ pub fn random_fixed<const N: usize>() -> Result<FixedBytes<N>> {
     Ok(out)
 }
 #[inline]
-pub fn random_12() -> Result<Nonce12> { random_fixed::<12>() }
+pub fn random_12() -> Result<Nonce12> {
+    random_fixed::<12>()
+}
 #[inline]
-pub fn random_32() -> Result<SessionId32> { random_fixed::<32>() }
+pub fn random_32() -> Result<SessionId32> {
+    random_fixed::<32>()
+}
 #[inline]
-pub fn random_master_key32() -> Result<MasterKey32> { random_fixed::<32>() }
+pub fn random_master_key32() -> Result<MasterKey32> {
+    random_fixed::<32>()
+}
 
 #[inline]
 pub fn random_x25519_keypair() -> Result<(FixedBytes<32>, FixedBytes<32>)> {
@@ -42,11 +48,17 @@ pub fn random_ed25519_keypair() -> Result<(FixedBytes<32>, FixedBytes<32>)> {
 #[inline]
 pub fn random_kyber_mlkem1024_keypair() -> Result<(SecretBytes, SecretBytes)> {
     let (pk, sk) = mlkem1024::keypair();
-    Ok((SecretBytes::from_slice(sk.as_bytes()), SecretBytes::from_slice(pk.as_bytes())))
+    Ok((
+        SecretBytes::from_slice(sk.as_bytes()),
+        SecretBytes::from_slice(pk.as_bytes()),
+    ))
 }
 
 #[inline]
 pub fn random_dilithium_mldsa87_keypair() -> Result<(SecretBytes, SecretBytes)> {
     let (pk, sk) = mldsa87::keypair();
-    Ok((SecretBytes::from_slice(SignSk::as_bytes(&sk)), SecretBytes::from_slice(SignPub::as_bytes(&pk))))
+    Ok((
+        SecretBytes::from_slice(SignSk::as_bytes(&sk)),
+        SecretBytes::from_slice(SignPub::as_bytes(&pk)),
+    ))
 }

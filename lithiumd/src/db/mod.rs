@@ -7,8 +7,8 @@ use lithium_core::{
     error::{LithiumError, Result},
     keys::{KeyManager, MkProvider},
 };
-use tokio::sync::Mutex;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub mod models;
 pub mod repo;

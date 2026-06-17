@@ -76,35 +76,17 @@ fn derive_kek(mk: &MasterKey32, salt: &[u8; 32]) -> Result<Byte32> {
 }
 
 #[inline]
-fn wrap_dek(
-    kek: &Byte32,
-    dek: &Byte32,
-    aad: &SecretBytes,
-) -> Result<(Vec<u8>, [u8; 12])> {
+fn wrap_dek(kek: &Byte32, dek: &Byte32, aad: &SecretBytes) -> Result<(Vec<u8>, [u8; 12])> {
     let nonce = keys::random_fixed::<12>()?;
-    let ct = aead::encrypt_raw(
-        &SecretBytes::from_slice(dek.as_slice()),
-        kek,
-        &nonce,
-        aad,
-    )?;
+    let ct = aead::encrypt_raw(&SecretBytes::from_slice(dek.as_slice()), kek, &nonce, aad)?;
 
     Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
 
 #[inline]
-fn encrypt_payload(
-    dek: &Byte32,
-    payload: &[u8],
-    aad: &SecretBytes,
-) -> Result<(Vec<u8>, [u8; 12])> {
+fn encrypt_payload(dek: &Byte32, payload: &[u8], aad: &SecretBytes) -> Result<(Vec<u8>, [u8; 12])> {
     let nonce = keys::random_fixed::<12>()?;
-    let ct = aead::encrypt_raw(
-        &SecretBytes::from_slice(payload),
-        dek,
-        &nonce,
-        aad,
-    )?;
+    let ct = aead::encrypt_raw(&SecretBytes::from_slice(payload), dek, &nonce, aad)?;
 
     Ok((ct.expose_as_slice().to_vec(), *nonce.as_array()))
 }
@@ -248,12 +230,7 @@ fn unwrap_dek(
 ) -> Result<Byte32> {
     let kek = derive_kek(mk, salt)?;
     let nonce = Byte12::from_slice(nonce_wrap)?;
-    let dek_bytes = aead::decrypt_raw(
-        &SecretBytes::from_slice(ct_wrap),
-        &kek,
-        &nonce,
-        aad,
-    )?;
+    let dek_bytes = aead::decrypt_raw(&SecretBytes::from_slice(ct_wrap), &kek, &nonce, aad)?;
     Byte32::from_slice(dek_bytes.expose_as_slice())
 }
 
@@ -264,12 +241,7 @@ fn decrypt_payload_bytes(
     aad: &SecretBytes,
 ) -> Result<SecretBytes> {
     let nonce = Byte12::from_slice(nonce_payload)?;
-    aead::decrypt_raw(
-        &SecretBytes::from_slice(ct_payload),
-        dek,
-        &nonce,
-        aad,
-    )
+    aead::decrypt_raw(&SecretBytes::from_slice(ct_payload), dek, &nonce, aad)
 }
 
 fn decrypt_payload_32(
@@ -358,11 +330,7 @@ pub fn load_secret32_decrypted(
     decrypt_payload_32(&dek, &nonce_payload, &ct_payload, &aad)
 }
 
-pub fn load_bytes_decrypted(
-    path: &Path,
-    mk: &MasterKey32,
-    key_type: &str,
-) -> Result<SecretBytes> {
+pub fn load_bytes_decrypted(path: &Path, mk: &MasterKey32, key_type: &str) -> Result<SecretBytes> {
     let buf = read_keyfile_bytes(path)?;
     let (version, alg_id, dek_len, salt, nonce_wrap, ct_wrap, nonce_payload, ct_payload) =
         parse_keyfile(&buf)?;
@@ -455,7 +423,10 @@ mod tests {
             &nonce_payload,
             &ct_payload,
         );
-        assert_eq!(hex::encode(&rec), "4b4559460101002000203333333333333333333333333333333333333333333333333333333333333333000c4444444444444444444444440030555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555000c6666666666666666666666660000002877777777777777777777777777777777777777777777777777777777777777777777777777777777");
+        assert_eq!(
+            hex::encode(&rec),
+            "4b4559460101002000203333333333333333333333333333333333333333333333333333333333333333000c4444444444444444444444440030555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555000c6666666666666666666666660000002877777777777777777777777777777777777777777777777777777777777777777777777777777777"
+        );
 
         let (v, alg, dl, s, nw, cw, np, cp) = parse_keyfile(&SecretBytes::new(rec)).unwrap();
         assert_eq!(v, KEYFILE_VERSION);

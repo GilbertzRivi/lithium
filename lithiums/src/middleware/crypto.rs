@@ -1,12 +1,12 @@
-use std::collections::HashMap;
 use poem::{Endpoint, IntoResponse, Middleware, Request, Result as PoemResult};
+use std::collections::HashMap;
 
 use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::error::AppError;
 use crate::middleware::guard::CipherBody;
 use crate::state::SharedState;
-use crate::transport::{build_crypto_context, CryptoCfg, CryptoReq};
+use crate::transport::{CryptoCfg, CryptoReq, build_crypto_context};
 
 #[derive(Clone)]
 pub struct CryptoMiddleware {
@@ -42,8 +42,7 @@ impl<E: Endpoint> Endpoint for CryptoEndpoint<E> {
     type Output = E::Output;
 
     async fn call(&self, mut req: Request) -> PoemResult<Self::Output> {
-        let mut headers_map: HashMap<String, Vec<u8>> =
-            HashMap::with_capacity(req.headers().len());
+        let mut headers_map: HashMap<String, Vec<u8>> = HashMap::with_capacity(req.headers().len());
 
         for (k, v) in req.headers().iter() {
             headers_map.insert(k.as_str().to_ascii_lowercase(), v.as_bytes().to_vec());
@@ -64,7 +63,7 @@ impl<E: Endpoint> Endpoint for CryptoEndpoint<E> {
             &headers_map,
             cipher_body,
         )
-            .await
+        .await
         {
             Ok(v) => v,
             Err(e) => return Err(poem::Error::from_response(e.into_response())),

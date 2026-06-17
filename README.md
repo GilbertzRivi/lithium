@@ -71,6 +71,8 @@ Każda instalacja daemona generuje własne materiały kryptograficzne niezależn
 
 Tożsamość serwera — zestaw czterech kluczy publicznych (X25519, ML-KEM-1024, Ed25519, ML-DSA-87) — jest przechowywana jako plik binarny `server.identity` generowany przez serwer przy pierwszym uruchomieniu. Daemon klienta wczytuje ten plik i weryfikuje pod nim każdą odpowiedź serwera.
 
+`server.identity` nie ma i nigdy nie będzie miał żadnego adresu URL ani endpointu, z którego dałoby się go pobrać automatycznie — to osobna warstwa bezpieczeństwa, niezależna od adresu URL serwera relay (ten ustawia się odrębną komendą, `set_server_url`, i służy wyłącznie do nawiązania połączenia HTTP, nie do weryfikacji tożsamości). Plik trzeba dostarczyć kanałem out-of-band i wgrać ręcznie, świadomą akcją użytkownika. To jest celowe: gdyby klient mógł sam dociągnąć `server.identity` przez sieć, podmiana kluczy serwera przez atakującego, który przejął serwer, byłaby dla użytkowników niewidoczna — automatyczne dociąganie nowej tożsamości zniosłoby całą ochronę, którą ten plik ma dawać.
+
 Konsekwencja: **dowolna zmiana kluczy serwera — czy to przez podmianę, czy ingerencję zewnętrzną — powoduje natychmiastowe i trwałe zerwanie komunikacji ze wszystkimi istniejącymi klientami.** Klient nie może się połączyć z serwerem, którego tożsamości nie rozpoznaje. Wznowienie wymaga świadomej decyzji po stronie użytkowników: ręcznego wgrania nowego pliku `server.identity`. Jest to celowe — podmiana kluczy serwera bez wiedzy użytkowników jest niemożliwa.
 
 ### Wiadomości jednorazowe
@@ -153,11 +155,14 @@ Użytkownik klika Fetch w GUI
 Parowanie odbywa się przez wymianę kodów zaproszenia (`lci1:HEX`) — poza serwerem, kanałem out-of-band (email, telefon, inne). Kod zaproszenia zawiera wyłącznie klucze publiczne — żadnych danych prywatnych.
 
 ```
-Strona A: [New invite] → kod lci1:HEX (klucze publiczne A)
-Strona B: wkleja kod A + [Add contact] → otrzymuje my_code (klucze publiczne B)
-Strona A: wkleja kod B + [Reply]
+Strona A: [New contact] → kod lci1:HEX (klucze publiczne A)
+Strona B: wybiera ten kontakt, wkleja kod A do pola zaproszenia + [Accept invite]
+         → kontakt B ma już peer_set=true, otrzymuje własny kod lci1:HEX (klucze publiczne B)
+Strona A: wybiera ten (wciąż oczekujący) kontakt, wkleja kod B do tego samego pola + [Accept invite]
 → obie strony mają peer_set=true → można pisać
 ```
+
+To ten sam przycisk "Accept invite" po obu stronach — różni je tylko to, który kontakt jest akurat zaznaczony (nowy, bez `contact_id`, vs. wcześniej utworzony, oczekujący na odpowiedź). Osobny przycisk "Reply to invite" w GUI nie konsumuje wklejonego kodu — tylko ponownie generuje/wyświetla własny kod `lci1:HEX` dla wybranego, oczekującego kontaktu (przydatne, gdy trzeba go wysłać drugiej stronie ponownie).
 
 Po wymianie obie strony weryfikują emoji fingerprint kanałem głosowym lub osobistym — dopiero to potwierdza, że nie doszło do ataku MITM.
 
@@ -216,6 +221,7 @@ Poniższe ograniczenia są **cechami projektu**, nie błędami. Wynikają wprost
 - **PostgreSQL** — dla serwera relay (`lithiums`)
 - **SQLite** — wbudowany, dla daemona klienta (`lithiumd`)
 - **Linux lub Windows** — klient i serwer
+- **Linux: `libgtk-3-dev` i `libappindicator3-dev`** (lub odpowiednik `libayatana-appindicator`) — `lithiumd` osadza ikonę w tray systemowym; bez tych pakietów build pada na kroku pkg-config dla `*-sys` crate
 
 ### Budowanie
 
@@ -253,13 +259,12 @@ Przy pierwszym uruchomieniu serwer generuje własne klucze w `LITHIUM_KEYS_DIR` 
 ### Konfiguracja daemona klienta
 
 ```bash
-export LITHIUMD_BASE_URL=https://relay.example.com
 export LITHIUMD_SERVER_IDENTITY=/ścieżka/do/server.identity   # opcjonalnie; domyślnie: {data_dir}/server.identity
 
 lithiumd
 ```
 
-Daemon odczytuje tożsamość serwera z pliku `server.identity` — nie z env vars. Plik musi zostać dostarczony przez administratora serwera przed pierwszym połączeniem.
+Adres serwera relay **nie** jest zmienną środowiskową — ustawia się go po starcie daemona komendą IPC `set_server_url` (z GUI: w kroku konfiguracji pierwszego uruchomienia). Tożsamość serwera (`server.identity`) jest również wgrywana przez IPC (`set_server_identity`), a nie wskazywana ścieżką — `LITHIUMD_SERVER_IDENTITY` tylko zmienia, gdzie daemon trzyma lokalną kopię po wgraniu. Plik `server.identity` musi zostać dostarczony przez administratora serwera kanałem out-of-band przed pierwszym połączeniem. Szczegóły: [`docs/ipc-reference.md`](docs/ipc-reference.md#set_server_url).
 
 ### Uruchomienie GUI
 
@@ -268,11 +273,13 @@ Daemon odczytuje tożsamość serwera z pliku `server.identity` — nie z env va
 lithiumg
 ```
 
-Pierwsze uruchomienie GUI przeprowadza przez konfigurację:
-1. Wgraj plik `server.identity` (weryfikacja tożsamości serwera)
-2. Ustaw hasło do keystora (szyfruje klucze prywatne na dysku)
-3. Podaj nazwę konta i hasło do konta serwera
-4. Zarejestruj profil na serwerze — po rejestracji GUI wyświetla **capability do awaryjnego usunięcia konta** (patrz niżej); należy go zapisać
+Pierwsze uruchomienie GUI przeprowadza przez konfigurację, w tej kolejności:
+1. Podaj URL serwera relay
+2. Wgraj plik `server.identity` (weryfikacja tożsamości serwera)
+3. Ustaw hasło do keystora (szyfruje klucze prywatne na dysku)
+4. Podaj nazwę konta i hasło do konta serwera
+5. Zarejestruj profil na serwerze — po rejestracji GUI wyświetla **capability do awaryjnego usunięcia konta** (patrz niżej); należy go zapisać
+6. Odblokuj lokalny storage (inicjalizacja lokalnej bazy SQLite — jeden klik, dzieje się automatycznie po rejestracji)
 
 ### Awaryjne zdalne usunięcie konta
 
@@ -338,6 +345,7 @@ W odpowiedzi na te założenia:
   - [`docs/crypto-protocol.md`](docs/crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport, E2E, mailbox, cykl życia kluczy
   - [`docs/ipc-reference.md`](docs/ipc-reference.md) — referencja protokołu IPC daemona
   - [`docs/kyberbox.md`](docs/kyberbox.md) — analiza bezpieczeństwa schematu KyberBox
+  - [`docs/deploy-instructions.md`](docs/deploy-instructions.md) — wdrożenie `lithiums` (Docker, TPM, zmienne środowiskowe)
 - [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami
 - [`lithiumd/README.md`](lithiumd/README.md) — daemon klienta: IPC, E2E, mailbox, SQLite
 - [`lithiums/README.md`](lithiums/README.md) — serwer relay: REST API, middleware, transport, PostgreSQL

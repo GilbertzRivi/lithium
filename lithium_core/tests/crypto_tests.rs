@@ -1,6 +1,6 @@
-use lithium_core::crypto::{aead, kdf, keys, sign, kyberbox};
-use lithium_core::secrets::{Byte32, Byte12, SecretBytes};
+use lithium_core::crypto::{aead, kdf, keys, kyberbox, sign};
 use lithium_core::error::CryptoErrorKind;
+use lithium_core::secrets::{Byte12, Byte32, SecretBytes};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -59,7 +59,11 @@ fn aead_blob_nonce_embedded() {
     let key = key32(0x01);
     let nonce = nonce12(0xCC);
     let blob = aead::encrypt(&sb(b"data"), &key, &nonce, &sb(b"aad")).unwrap();
-    assert_eq!(&blob.expose_as_slice()[1..13], &[0xCC; 12], "nonce must be at bytes 1..13");
+    assert_eq!(
+        &blob.expose_as_slice()[1..13],
+        &[0xCC; 12],
+        "nonce must be at bytes 1..13"
+    );
 }
 
 #[test]
@@ -276,7 +280,11 @@ fn sign_ed25519_roundtrip() {
 fn sign_ed25519_wrong_message_fails() {
     let (seed, pk) = keys::random_ed25519_keypair().unwrap();
     let sig = sign::sign_message(b"original", seed.as_slice()).unwrap();
-    assert!(!sign::verify_signature(b"tampered", sig.expose_as_slice(), &pk));
+    assert!(!sign::verify_signature(
+        b"tampered",
+        sig.expose_as_slice(),
+        &pk
+    ));
 }
 
 #[test]
@@ -286,7 +294,11 @@ fn sign_ed25519_wrong_key_fails() {
     let msg = b"test";
 
     let sig = sign::sign_message(msg, seed.as_slice()).unwrap();
-    assert!(!sign::verify_signature(msg, sig.expose_as_slice(), &wrong_pk));
+    assert!(!sign::verify_signature(
+        msg,
+        sig.expose_as_slice(),
+        &wrong_pk
+    ));
 }
 
 #[test]
@@ -328,7 +340,11 @@ fn sign_dili_roundtrip() {
 fn sign_dili_wrong_message_fails() {
     let (sk, pk) = keys::random_dilithium_mldsa87_keypair().unwrap();
     let sig = sign::sign_message_dili(b"original", sk.expose_as_slice()).unwrap();
-    assert!(!sign::verify_signature_dili(b"tampered", sig.expose_as_slice(), &pk));
+    assert!(!sign::verify_signature_dili(
+        b"tampered",
+        sig.expose_as_slice(),
+        &pk
+    ));
 }
 
 #[test]
@@ -338,7 +354,11 @@ fn sign_dili_wrong_key_fails() {
     let msg = b"test";
 
     let sig = sign::sign_message_dili(msg, sk.expose_as_slice()).unwrap();
-    assert!(!sign::verify_signature_dili(msg, sig.expose_as_slice(), &wrong_pk));
+    assert!(!sign::verify_signature_dili(
+        msg,
+        sig.expose_as_slice(),
+        &wrong_pk
+    ));
 }
 
 #[test]
@@ -356,7 +376,14 @@ fn kyberbox_alice_bob() -> (Byte32, Byte32, SecretBytes, SecretBytes, Byte32, By
     let (alice_x_sk, alice_x_pk) = keys::random_x25519_keypair().unwrap();
     let (bob_x_sk, bob_x_pk) = keys::random_x25519_keypair().unwrap();
     let (bob_kyber_sk, bob_kyber_pk) = keys::random_kyber_mlkem1024_keypair().unwrap();
-    (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk)
+    (
+        alice_x_sk,
+        alice_x_pk,
+        bob_kyber_sk,
+        bob_kyber_pk,
+        bob_x_sk,
+        bob_x_pk,
+    )
 }
 
 #[test]
@@ -368,8 +395,10 @@ fn kyberbox_roundtrip_body_and_headers() {
     let headers = sb(b"secret headers");
     let ctx = "test-context";
 
-    let wire = kyberbox::encrypt(ctx, &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &headers).unwrap();
-    let (dec_body, dec_headers) = kyberbox::decrypt(ctx, &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
+    let wire =
+        kyberbox::encrypt(ctx, &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &headers).unwrap();
+    let (dec_body, dec_headers) =
+        kyberbox::decrypt(ctx, &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
 
     assert_eq!(dec_body.expose_as_slice(), body.expose_as_slice());
     assert_eq!(dec_headers.expose_as_slice(), headers.expose_as_slice());
@@ -380,8 +409,17 @@ fn kyberbox_empty_payload() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
 
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b""), &sb(b"")).unwrap();
-    let (body, headers) = kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b""),
+        &sb(b""),
+    )
+    .unwrap();
+    let (body, headers) =
+        kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
 
     assert!(body.expose_as_slice().is_empty());
     assert!(headers.expose_as_slice().is_empty());
@@ -392,7 +430,15 @@ fn kyberbox_wrong_x25519_key_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, _bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
 
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"data"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"data"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     // Use a random wrong key instead of bob's real key
     let (wrong_x_sk, _) = keys::random_x25519_keypair().unwrap();
@@ -405,7 +451,15 @@ fn kyberbox_wrong_kyber_key_fails() {
     let (alice_x_sk, alice_x_pk, _bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
 
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"data"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"data"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let (wrong_kyber_sk, _) = keys::random_kyber_mlkem1024_keypair().unwrap();
     let result = kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &wrong_kyber_sk, &wire);
@@ -417,7 +471,15 @@ fn kyberbox_different_contexts_incompatible() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
 
-    let wire = kyberbox::encrypt("context-a", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"data"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "context-a",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"data"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
     let result = kyberbox::decrypt("context-b", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire);
     assert!(result.is_err());
 }
@@ -430,8 +492,17 @@ fn kyberbox_large_payload() {
     let big_body = vec![0xABu8; 16384];
     let big_headers = vec![0xCDu8; 4096];
 
-    let wire = kyberbox::encrypt("large", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(&big_body), &sb(&big_headers)).unwrap();
-    let (body, headers) = kyberbox::decrypt("large", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
+    let wire = kyberbox::encrypt(
+        "large",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(&big_body),
+        &sb(&big_headers),
+    )
+    .unwrap();
+    let (body, headers) =
+        kyberbox::decrypt("large", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
 
     assert_eq!(body.expose_as_slice(), big_body.as_slice());
     assert_eq!(headers.expose_as_slice(), big_headers.as_slice());
@@ -522,8 +593,7 @@ fn aead_bit_flip_in_auth_tag_fails() {
 fn aead_aad_differs_by_one_byte_at_end_fails() {
     let key = key32(0x54);
     let nonce = nonce12(0x14);
-    let blob = aead::encrypt(&sb(b"secret"), &key, &nonce, &sb(b"correct-aad"))
-        .unwrap();
+    let blob = aead::encrypt(&sb(b"secret"), &key, &nonce, &sb(b"correct-aad")).unwrap();
     // off-by-one at last AAD byte
     assert!(aead::decrypt(&blob, &key, &sb(b"correct-aaf")).is_err());
 }
@@ -532,8 +602,7 @@ fn aead_aad_differs_by_one_byte_at_end_fails() {
 fn aead_aad_differs_by_one_byte_at_start_fails() {
     let key = key32(0x55);
     let nonce = nonce12(0x15);
-    let blob = aead::encrypt(&sb(b"secret"), &key, &nonce, &sb(b"correct-aad"))
-        .unwrap();
+    let blob = aead::encrypt(&sb(b"secret"), &key, &nonce, &sb(b"correct-aad")).unwrap();
     assert!(aead::decrypt(&blob, &key, &sb(b"Xorrect-aad")).is_err());
 }
 
@@ -575,8 +644,11 @@ fn aead_raw_deterministic_same_inputs() {
     let aad = sb(b"ctx");
     let ct1 = aead::encrypt_raw(&pt, &key, &nonce, &aad).unwrap();
     let ct2 = aead::encrypt_raw(&pt, &key, &nonce, &aad).unwrap();
-    assert_eq!(ct1.expose_as_slice(), ct2.expose_as_slice(),
-        "AEAD-GCM-SIV must be deterministic for identical inputs");
+    assert_eq!(
+        ct1.expose_as_slice(),
+        ct2.expose_as_slice(),
+        "AEAD-GCM-SIV must be deterministic for identical inputs"
+    );
 }
 
 #[test]
@@ -703,8 +775,10 @@ fn sign_ed25519_various_message_sizes() {
     for &size in &[0usize, 1, 31, 32, 33, 100, 1024] {
         let msg = vec![0x5Au8; size];
         let sig = sign::sign_message(&msg, seed.as_slice()).unwrap();
-        assert!(sign::verify_signature(&msg, sig.expose_as_slice(), &pk),
-            "size={size}");
+        assert!(
+            sign::verify_signature(&msg, sig.expose_as_slice(), &pk),
+            "size={size}"
+        );
     }
 }
 
@@ -713,7 +787,11 @@ fn sign_dili_empty_message_roundtrip() {
     let (sk, pk) = keys::random_dilithium_mldsa87_keypair().unwrap();
     let sig = sign::sign_message_dili(b"", sk.expose_as_slice()).unwrap();
     assert!(sign::verify_signature_dili(b"", sig.expose_as_slice(), &pk));
-    assert!(!sign::verify_signature_dili(b"x", sig.expose_as_slice(), &pk));
+    assert!(!sign::verify_signature_dili(
+        b"x",
+        sig.expose_as_slice(),
+        &pk
+    ));
 }
 
 #[test]
@@ -735,8 +813,10 @@ fn sign_dili_various_message_sizes() {
     for &size in &[0usize, 1, 31, 32, 64, 256] {
         let msg = vec![0xA5u8; size];
         let sig = sign::sign_message_dili(&msg, sk.expose_as_slice()).unwrap();
-        assert!(sign::verify_signature_dili(&msg, sig.expose_as_slice(), &pk),
-            "size={size}");
+        assert!(
+            sign::verify_signature_dili(&msg, sig.expose_as_slice(), &pk),
+            "size={size}"
+        );
     }
 }
 
@@ -748,11 +828,22 @@ fn sign_dili_various_message_sizes() {
 fn kyberbox_corrupt_seed_byte_at(offset: usize) {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let mut seed_bytes = wire.seed_enc.expose_as_slice().to_vec();
-    assert!(offset < seed_bytes.len(), "offset {offset} out of range for seed len {}", seed_bytes.len());
+    assert!(
+        offset < seed_bytes.len(),
+        "offset {offset} out of range for seed len {}",
+        seed_bytes.len()
+    );
     seed_bytes[offset] ^= 0xFF;
 
     let corrupted = kyberbox::WirePayload {
@@ -812,8 +903,15 @@ fn kyberbox_truncated_seed_at_header_only_fails() {
     let (alice_x_sk, alice_x_pk, _bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
     let (_, fresh_kyber_sk) = keys::random_kyber_mlkem1024_keypair().unwrap();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     // truncate to 36 bytes — enough for header+salt but no ct_len
     let truncated_seed = SecretBytes::from_slice(&wire.seed_enc.expose_as_slice()[..36]);
@@ -829,8 +927,15 @@ fn kyberbox_truncated_seed_at_header_only_fails() {
 fn kyberbox_empty_seed_enc_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
     let bad = kyberbox::WirePayload {
         seed_enc: sb(b""),
         enc_body: wire.enc_body.clone(),
@@ -843,8 +948,15 @@ fn kyberbox_empty_seed_enc_fails() {
 fn kyberbox_corrupt_enc_body_tag_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let mut body_bytes = wire.enc_body.expose_as_slice().to_vec();
     let last = body_bytes.len() - 1;
@@ -862,8 +974,15 @@ fn kyberbox_corrupt_enc_body_tag_fails() {
 fn kyberbox_corrupt_enc_body_version_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let mut body_bytes = wire.enc_body.expose_as_slice().to_vec();
     body_bytes[0] ^= 0xFF; // corrupt version byte
@@ -880,8 +999,15 @@ fn kyberbox_corrupt_enc_body_version_fails() {
 fn kyberbox_corrupt_enc_headers_tag_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let mut hdr_bytes = wire.enc_headers.expose_as_slice().to_vec();
     let last = hdr_bytes.len() - 1;
@@ -901,13 +1027,20 @@ fn kyberbox_swapped_body_and_headers_fails() {
     // swapping them must fail on both slots.
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body-content"), &sb(b"header-content")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body-content"),
+        &sb(b"header-content"),
+    )
+    .unwrap();
 
     let swapped = kyberbox::WirePayload {
         seed_enc: wire.seed_enc.clone(),
-        enc_body: wire.enc_headers.clone(),    // swapped
-        enc_headers: wire.enc_body.clone(),    // swapped
+        enc_body: wire.enc_headers.clone(), // swapped
+        enc_headers: wire.enc_body.clone(), // swapped
     };
     assert!(kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &swapped).is_err());
 }
@@ -916,8 +1049,15 @@ fn kyberbox_swapped_body_and_headers_fails() {
 fn kyberbox_truncated_enc_body_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let wire = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-        &sb(b"body"), &sb(b"hdr")).unwrap();
+    let wire = kyberbox::encrypt(
+        "ctx",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     // truncate enc_body to 10 bytes (< minimum 29)
     let truncated = SecretBytes::from_slice(&wire.enc_body.expose_as_slice()[..10]);
@@ -936,12 +1076,27 @@ fn kyberbox_roundtrip_various_payload_sizes() {
     for &size in &[0usize, 1, 15, 16, 32, 100, 1024] {
         let body = vec![0xBBu8; size];
         let headers = vec![0xCCu8; size / 2 + 1];
-        let wire = kyberbox::encrypt("sweep", &alice_x_sk, &bob_x_pk, &bob_kyber_pk,
-            &sb(&body), &sb(&headers)).unwrap();
-        let (dec_body, dec_hdr) = kyberbox::decrypt("sweep", &bob_x_sk, &alice_x_pk,
-            &bob_kyber_sk, &wire).unwrap();
-        assert_eq!(dec_body.expose_as_slice(), body.as_slice(), "body size={size}");
-        assert_eq!(dec_hdr.expose_as_slice(), headers.as_slice(), "hdr size={size}");
+        let wire = kyberbox::encrypt(
+            "sweep",
+            &alice_x_sk,
+            &bob_x_pk,
+            &bob_kyber_pk,
+            &sb(&body),
+            &sb(&headers),
+        )
+        .unwrap();
+        let (dec_body, dec_hdr) =
+            kyberbox::decrypt("sweep", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &wire).unwrap();
+        assert_eq!(
+            dec_body.expose_as_slice(),
+            body.as_slice(),
+            "body size={size}"
+        );
+        assert_eq!(
+            dec_hdr.expose_as_slice(),
+            headers.as_slice(),
+            "hdr size={size}"
+        );
     }
 }
 
@@ -996,7 +1151,11 @@ fn cross_dili_sign_verify_cross_keypair_fails() {
     let (_, pk_b) = keys::random_dilithium_mldsa87_keypair().unwrap();
     let msg = b"cross-key dilithium";
     let sig = sign::sign_message_dili(msg, sk_a.expose_as_slice()).unwrap();
-    assert!(!sign::verify_signature_dili(msg, sig.expose_as_slice(), &pk_b));
+    assert!(!sign::verify_signature_dili(
+        msg,
+        sig.expose_as_slice(),
+        &pk_b
+    ));
 }
 
 #[test]
@@ -1010,9 +1169,17 @@ fn cross_ed25519_and_dili_sigs_are_not_interchangeable() {
     let dili_sig = sign::sign_message_dili(msg, dili_sk.expose_as_slice()).unwrap();
 
     // Ed25519 sig does not verify under Dilithium pk
-    assert!(!sign::verify_signature_dili(msg, ed_sig.expose_as_slice(), &dili_pk));
+    assert!(!sign::verify_signature_dili(
+        msg,
+        ed_sig.expose_as_slice(),
+        &dili_pk
+    ));
     // Dilithium sig does not verify under Ed25519 pk (wrong length → false)
-    assert!(!sign::verify_signature(msg, &dili_sig.expose_as_slice()[..64], &ed_pk));
+    assert!(!sign::verify_signature(
+        msg,
+        &dili_sig.expose_as_slice()[..64],
+        &ed_pk
+    ));
 }
 
 #[test]
@@ -1024,12 +1191,17 @@ fn cross_kyberbox_nondeterministic_wire() {
     let body = sb(b"same body");
     let hdr = sb(b"same headers");
 
-    let wire1 = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &hdr).unwrap();
-    let wire2 = kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &hdr).unwrap();
+    let wire1 =
+        kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &hdr).unwrap();
+    let wire2 =
+        kyberbox::encrypt("ctx", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &body, &hdr).unwrap();
 
     // enc_body ciphertexts must differ (fresh nonces + fresh KEM)
-    assert_ne!(wire1.enc_body.expose_as_slice(), wire2.enc_body.expose_as_slice(),
-        "KyberBox must produce non-deterministic ciphertexts");
+    assert_ne!(
+        wire1.enc_body.expose_as_slice(),
+        wire2.enc_body.expose_as_slice(),
+        "KyberBox must produce non-deterministic ciphertexts"
+    );
 }
 
 #[test]
@@ -1041,11 +1213,23 @@ fn kyberbox_cross_ctx_seed_enc_transplant_fails() {
         kyberbox_alice_bob();
 
     let wire_alpha = kyberbox::encrypt(
-        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-alpha",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
     let wire_beta = kyberbox::encrypt(
-        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-beta",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let doctored = kyberbox::WirePayload {
         seed_enc: wire_alpha.seed_enc,
@@ -1067,11 +1251,23 @@ fn kyberbox_cross_ctx_enc_body_transplant_fails() {
         kyberbox_alice_bob();
 
     let wire_alpha = kyberbox::encrypt(
-        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-alpha",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
     let wire_beta = kyberbox::encrypt(
-        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-beta",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let doctored = kyberbox::WirePayload {
         seed_enc: wire_beta.seed_enc,
@@ -1092,11 +1288,23 @@ fn kyberbox_cross_ctx_enc_headers_transplant_fails() {
         kyberbox_alice_bob();
 
     let wire_alpha = kyberbox::encrypt(
-        "ctx-alpha", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-alpha",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
     let wire_beta = kyberbox::encrypt(
-        "ctx-beta", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"body"), &sb(b"hdr"),
-    ).unwrap();
+        "ctx-beta",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"body"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     let doctored = kyberbox::WirePayload {
         seed_enc: wire_beta.seed_enc,
@@ -1116,15 +1324,29 @@ fn kyberbox_wire_replay_to_different_recipient_fails() {
     // Tests that neither the ML-KEM nor the X25519 component crosses session boundaries.
     let (alice_x_sk, alice_x_pk, _bob_kyber_sk, bob_kyber_pk, _bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
-    let (carol_x_sk, carol_x_pk, carol_kyber_sk, carol_kyber_pk, _, _) =
-        kyberbox_alice_bob();
+    let (carol_x_sk, carol_x_pk, carol_kyber_sk, carol_kyber_pk, _, _) = kyberbox_alice_bob();
     let _ = (carol_x_pk, carol_kyber_pk);
 
     let wire = kyberbox::encrypt(
-        "session-a", &alice_x_sk, &bob_x_pk, &bob_kyber_pk, &sb(b"secret"), &sb(b"hdr"),
-    ).unwrap();
+        "session-a",
+        &alice_x_sk,
+        &bob_x_pk,
+        &bob_kyber_pk,
+        &sb(b"secret"),
+        &sb(b"hdr"),
+    )
+    .unwrap();
 
     // carol attempts to decrypt a message that was never addressed to her
-    let result = kyberbox::decrypt("session-b", &carol_x_sk, &alice_x_pk, &carol_kyber_sk, &wire);
-    assert!(result.is_err(), "WirePayload addressed to bob must not decrypt for carol");
+    let result = kyberbox::decrypt(
+        "session-b",
+        &carol_x_sk,
+        &alice_x_pk,
+        &carol_kyber_sk,
+        &wire,
+    );
+    assert!(
+        result.is_err(),
+        "WirePayload addressed to bob must not decrypt for carol"
+    );
 }

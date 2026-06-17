@@ -1,13 +1,13 @@
 use argon2::password_hash::{
-    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+    PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng,
 };
 
 use crate::{
     crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
     labels::{DEK_WRAP_AAD, DEK_WRAP_SALT_LEN, DEK_WRAP_VER},
-    secrets::{Byte32, SecretString},
     secrets::bytes::SecretBytes,
+    secrets::{Byte32, SecretString},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -24,7 +24,7 @@ pub struct PasswordPolicy {
 impl Default for PasswordPolicy {
     fn default() -> Self {
         Self {
-            min_len: 8,
+            min_len: 12,
             max_len: 1024,
             require_lowercase: true,
             require_uppercase: true,
@@ -127,10 +127,7 @@ fn derive_wrap_key(data_password: &SecretString, salt: &[u8]) -> Result<Byte32> 
     Ok(out)
 }
 
-pub fn wrap_dek_for_server_hex(
-    dek: &Byte32,
-    data_password: &SecretString,
-) -> Result<SecretString> {
+pub fn wrap_dek_for_server_hex(dek: &Byte32, data_password: &SecretString) -> Result<SecretString> {
     let salt = keys::random_fixed::<DEK_WRAP_SALT_LEN>()?;
     let key = derive_wrap_key(data_password, salt.as_slice())?;
     let nonce = keys::random_12()?;
@@ -168,11 +165,7 @@ pub fn unwrap_dek_from_server_hex(
     let wrapped = SecretBytes::from_slice(&blob.expose_as_slice()[1 + DEK_WRAP_SALT_LEN..]);
 
     let key = derive_wrap_key(data_password, salt)?;
-    let pt = aead::decrypt(
-        &wrapped,
-        &key,
-        &SecretBytes::from_slice(DEK_WRAP_AAD),
-    )?;
+    let pt = aead::decrypt(&wrapped, &key, &SecretBytes::from_slice(DEK_WRAP_AAD))?;
 
     Byte32::from_slice(pt.expose_as_slice())
 }

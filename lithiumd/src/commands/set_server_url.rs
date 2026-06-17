@@ -4,7 +4,7 @@ use reqwest::Url;
 use serde_json::json;
 
 use crate::{
-    ipc::types::{err_resp, IpcResponse},
+    ipc::types::{IpcResponse, err_resp},
     state::DaemonState,
     util,
 };

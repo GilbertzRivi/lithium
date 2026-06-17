@@ -3,12 +3,12 @@ use std::sync::Arc;
 use serde_json::json;
 
 use lithium_core::passwords::passwords::{
-    generate_dek, validate_passwords_distinct, wrap_dek_for_server_hex, PasswordPolicy,
+    PasswordPolicy, generate_dek, validate_passwords_distinct, wrap_dek_for_server_hex,
 };
 use lithium_core::secrets::Byte32;
 
 use crate::{
-    ipc::types::{crypto_err, err_resp, internal_err, protocol_err, IpcResponse},
+    ipc::types::{IpcResponse, crypto_err, err_resp, internal_err, protocol_err},
     state::DaemonState,
     util,
 };

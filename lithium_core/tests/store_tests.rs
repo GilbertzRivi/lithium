@@ -37,13 +37,19 @@ async fn store_take_removes_value() {
 
     assert!(first.is_some());
     assert_eq!(first.unwrap().expose_as_slice(), b"takeval");
-    assert!(second.is_none(), "second take must return None after removal");
+    assert!(
+        second.is_none(),
+        "second take must return None after removal"
+    );
 }
 
 #[tokio::test]
 async fn store_del_removes_value() {
     let store = EphemeralStoreManager::new().unwrap();
-    store.set("delkey", &sb(b"delval"), Duration::from_secs(60)).await.unwrap();
+    store
+        .set("delkey", &sb(b"delval"), Duration::from_secs(60))
+        .await
+        .unwrap();
 
     store.del("delkey").await.unwrap();
     let result = store.peek("delkey").await.unwrap();
@@ -95,7 +101,11 @@ async fn store_set_if_absent_does_not_overwrite() {
 
     assert!(!inserted, "should return false when key already exists");
     let got = store.peek("dup").await.unwrap().unwrap();
-    assert_eq!(got.expose_as_slice(), b"first", "original value must be unchanged");
+    assert_eq!(
+        got.expose_as_slice(),
+        b"first",
+        "original value must be unchanged"
+    );
 }
 
 #[tokio::test]
@@ -116,7 +126,10 @@ async fn store_peek_does_not_remove() {
 async fn store_expired_entry_not_returned_by_take() {
     let store = EphemeralStoreManager::new().unwrap();
     // TTL of 1 ms — will expire immediately
-    store.set("exp", &sb(b"gone"), Duration::from_millis(1)).await.unwrap();
+    store
+        .set("exp", &sb(b"gone"), Duration::from_millis(1))
+        .await
+        .unwrap();
 
     // Wait long enough for the entry to expire
     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -128,19 +141,28 @@ async fn store_expired_entry_not_returned_by_take() {
 #[tokio::test]
 async fn store_expired_entry_not_returned_by_peek() {
     let store = EphemeralStoreManager::new().unwrap();
-    store.set("exppeek", &sb(b"gone"), Duration::from_millis(1)).await.unwrap();
+    store
+        .set("exppeek", &sb(b"gone"), Duration::from_millis(1))
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(20)).await;
 
     let result = store.peek("exppeek").await.unwrap();
-    assert!(result.is_none(), "expired entry must not be visible via peek");
+    assert!(
+        result.is_none(),
+        "expired entry must not be visible via peek"
+    );
 }
 
 #[tokio::test]
 async fn store_zero_ttl_not_stored() {
     let store = EphemeralStoreManager::new().unwrap();
     // TTL of zero → set() is a no-op per implementation
-    store.set("zero", &sb(b"val"), Duration::ZERO).await.unwrap();
+    store
+        .set("zero", &sb(b"val"), Duration::ZERO)
+        .await
+        .unwrap();
 
     let result = store.peek("zero").await.unwrap();
     assert!(result.is_none(), "zero-TTL entry should not be present");
@@ -155,9 +177,18 @@ async fn store_multiple_independent_keys() {
     store.set("b", &sb(b"beta"), ttl).await.unwrap();
     store.set("c", &sb(b"gamma"), ttl).await.unwrap();
 
-    assert_eq!(store.peek("a").await.unwrap().unwrap().expose_as_slice(), b"alpha");
-    assert_eq!(store.peek("b").await.unwrap().unwrap().expose_as_slice(), b"beta");
-    assert_eq!(store.peek("c").await.unwrap().unwrap().expose_as_slice(), b"gamma");
+    assert_eq!(
+        store.peek("a").await.unwrap().unwrap().expose_as_slice(),
+        b"alpha"
+    );
+    assert_eq!(
+        store.peek("b").await.unwrap().unwrap().expose_as_slice(),
+        b"beta"
+    );
+    assert_eq!(
+        store.peek("c").await.unwrap().unwrap().expose_as_slice(),
+        b"gamma"
+    );
 }
 
 #[tokio::test]
@@ -172,7 +203,10 @@ async fn store_set_if_absent_allows_reinsertion_after_expiry() {
     tokio::time::sleep(Duration::from_millis(30)).await;
 
     // Now should be able to insert again
-    let second = store.set_if_absent("key", &sb(b"v2"), Duration::from_secs(60)).await.unwrap();
+    let second = store
+        .set_if_absent("key", &sb(b"v2"), Duration::from_secs(60))
+        .await
+        .unwrap();
     assert!(second, "should succeed after original TTL expired");
     assert_eq!(
         store.peek("key").await.unwrap().unwrap().expose_as_slice(),

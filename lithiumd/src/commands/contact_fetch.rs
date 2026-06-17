@@ -2,32 +2,27 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use lithium_core::{contract::protocol::field, secrets::SecretString, secrets::bytes::SecretBytes, CryptoErrorKind};
+use lithium_core::{
+    CryptoErrorKind, contract::protocol::field, secrets::SecretString, secrets::bytes::SecretBytes,
+};
 
+use crate::e2e::mark_bootstrap_retire_ready;
 use crate::e2e::state::{MsgMeta, PeerState, SelfState};
 use crate::{
     commands::contact_mailbox::{
-        derive_mailboxes_for_generation_from_values,
-        ensure_mailbox_state,
-        inbound_fetch_generations,
-        note_inbound_generation_seen,
+        derive_mailboxes_for_generation_from_values, ensure_mailbox_state,
+        inbound_fetch_generations, note_inbound_generation_seen,
     },
     commands::stored_message,
-    e2e::{
-        decrypt_for_prekey,
-        decrypt_for_us,
-        drop_bootstrap_private_if_established,
-        ensure_self_keyring,
-        local_remove_public_prekey,
-        peer_set_need_recover,
-        unpack_wire,
-    },
     db::repo::DaemonDbExt,
-    ipc::types::{crypto_err, err_resp, protocol_err, storage_err, IpcResponse},
+    e2e::{
+        decrypt_for_prekey, decrypt_for_us, drop_bootstrap_private_if_established,
+        ensure_self_keyring, local_remove_public_prekey, peer_set_need_recover, unpack_wire,
+    },
+    ipc::types::{IpcResponse, crypto_err, err_resp, protocol_err, storage_err},
     protocol_manager::Endpoint,
     state::DaemonState,
 };
-use crate::e2e::mark_bootstrap_retire_ready;
 
 fn meta_mailbox_gen(ui: &serde_json::Value, fallback: u64) -> u64 {
     serde_json::from_value::<MsgMeta>(ui.clone())
@@ -118,7 +113,11 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
         let mailbox_hex = hex::encode(mbox_in);
 
         let resp = match proto
-            .send(Endpoint::MsgFetch, json!({ field::MAILBOX: mailbox_hex }), json!({}))
+            .send(
+                Endpoint::MsgFetch,
+                json!({ field::MAILBOX: mailbox_hex }),
+                json!({}),
+            )
             .await
         {
             Ok(v) => v,
@@ -209,7 +208,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                         }));
                     }
                     Err(err) => {
-                        if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message") {
+                        if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message")
+                        {
                             out.push(json!({
                                 "ok": false,
                                 "err": "potentially_harmful_message",
@@ -218,7 +218,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                             continue;
                         }
 
-                        if !matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "to_id_unknown") {
+                        if !matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "to_id_unknown")
+                        {
                             out.push(json!({
                                 "ok": false,
                                 "err": "decrypt_failed",
@@ -289,7 +290,13 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 let msg_id = meta_msg_id(&ui);
 
                                 match dm
-                                    .add_message(contact_id.clone(), mbox_in.to_vec(), 0, stored, msg_id)
+                                    .add_message(
+                                        contact_id.clone(),
+                                        mbox_in.to_vec(),
+                                        0,
+                                        stored,
+                                        msg_id,
+                                    )
                                     .await
                                 {
                                     Ok(true) => {}
@@ -312,7 +319,8 @@ pub async fn handle(id: u64, contact_id_hex: String, state: Arc<DaemonState>) ->
                                 }));
                             }
                             Err(err) => {
-                                if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message") {
+                                if matches!(&err.kind, CryptoErrorKind::InvalidCredentials { msg } if *msg == "potentially_harmful_message")
+                                {
                                     out.push(json!({
                                         "ok": false,
                                         "err": "potentially_harmful_message",

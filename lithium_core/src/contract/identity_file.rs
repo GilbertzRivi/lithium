@@ -8,6 +8,11 @@ const TAG_ED25519: &str = "ed25519";
 const TAG_MLKEM1024: &str = "mlkem1024";
 const TAG_MLDSA87: &str = "mldsa87";
 
+const LEN_X25519: usize = 32;
+const LEN_ED25519: usize = 32;
+const LEN_MLKEM1024: usize = 1568;
+const LEN_MLDSA87: usize = 2592;
+
 pub struct ServerIdentityKeys {
     pub x25519: Vec<u8>,
     pub ed25519: Vec<u8>,
@@ -40,10 +45,14 @@ fn append_entry(buf: &mut Vec<u8>, tag: &str, data: &[u8]) {
 
 pub fn decode(data: &[u8]) -> Result<ServerIdentityKeys> {
     if data.len() < 10 || &data[0..8] != MAGIC {
-        return Err(LithiumError::invalid_credentials("server_identity_bad_magic"));
+        return Err(LithiumError::invalid_credentials(
+            "server_identity_bad_magic",
+        ));
     }
     if data[8] != VERSION {
-        return Err(LithiumError::invalid_credentials("server_identity_unknown_version"));
+        return Err(LithiumError::invalid_credentials(
+            "server_identity_unknown_version",
+        ));
     }
 
     let entry_count = data[9] as usize;
@@ -56,13 +65,17 @@ pub fn decode(data: &[u8]) -> Result<ServerIdentityKeys> {
 
     for _ in 0..entry_count {
         if pos + 3 > data.len() {
-            return Err(LithiumError::invalid_credentials("server_identity_truncated"));
+            return Err(LithiumError::invalid_credentials(
+                "server_identity_truncated",
+            ));
         }
         let tag_len = data[pos] as usize;
         pos += 1;
 
         if pos + tag_len + 2 > data.len() {
-            return Err(LithiumError::invalid_credentials("server_identity_truncated"));
+            return Err(LithiumError::invalid_credentials(
+                "server_identity_truncated",
+            ));
         }
         let tag = std::str::from_utf8(&data[pos..pos + tag_len])
             .map_err(|_| LithiumError::invalid_credentials("server_identity_bad_tag"))?;
@@ -72,7 +85,9 @@ pub fn decode(data: &[u8]) -> Result<ServerIdentityKeys> {
         pos += 2;
 
         if pos + data_len > data.len() {
-            return Err(LithiumError::invalid_credentials("server_identity_truncated"));
+            return Err(LithiumError::invalid_credentials(
+                "server_identity_truncated",
+            ));
         }
         let key = data[pos..pos + data_len].to_vec();
         pos += data_len;
@@ -86,16 +101,35 @@ pub fn decode(data: &[u8]) -> Result<ServerIdentityKeys> {
         }
     }
 
+    let x25519 = x25519
+        .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_x25519"))?;
+    let ed25519 = ed25519
+        .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_ed25519"))?;
+    let mlkem1024 = mlkem
+        .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_mlkem1024"))?;
+    let mldsa87 = mldsa
+        .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_mldsa87"))?;
+
+    check_len(x25519.len(), LEN_X25519)?;
+    check_len(ed25519.len(), LEN_ED25519)?;
+    check_len(mlkem1024.len(), LEN_MLKEM1024)?;
+    check_len(mldsa87.len(), LEN_MLDSA87)?;
+
     Ok(ServerIdentityKeys {
-        x25519: x25519
-            .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_x25519"))?,
-        ed25519: ed25519
-            .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_ed25519"))?,
-        mlkem1024: mlkem
-            .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_mlkem1024"))?,
-        mldsa87: mldsa
-            .ok_or_else(|| LithiumError::invalid_credentials("server_identity_missing_mldsa87"))?,
+        x25519,
+        ed25519,
+        mlkem1024,
+        mldsa87,
     })
+}
+
+fn check_len(got: usize, expected: usize) -> Result<()> {
+    if got != expected {
+        return Err(LithiumError::invalid_credentials(
+            "server_identity_bad_key_len",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -151,5 +185,12 @@ mod tests {
     fn truncated_rejected() {
         let buf = encode(&sample());
         assert!(decode(&buf[..buf.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn wrong_key_length_rejected() {
+        let mut keys = sample();
+        keys.x25519 = vec![0x11; 31];
+        assert!(decode(&encode(&keys)).is_err());
     }
 }

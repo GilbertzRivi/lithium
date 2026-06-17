@@ -3,7 +3,10 @@ use std::{collections::HashSet, env, time::Duration};
 use lithium_core::secrets::SecretString;
 
 use lithium_core::error::{LithiumError, Result};
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, Statement, TransactionTrait, Value};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, Statement, TransactionTrait,
+    Value,
+};
 
 pub mod models;
 pub mod repo;
@@ -12,15 +15,15 @@ pub mod repo;
 fn encode_userinfo(s: &str) -> String {
     s.chars()
         .flat_map(|c| match c {
-            '%'  => vec!['%', '2', '5'],
-            '@'  => vec!['%', '4', '0'],
-            ':'  => vec!['%', '3', 'A'],
-            '/'  => vec!['%', '2', 'F'],
-            '?'  => vec!['%', '3', 'F'],
-            '#'  => vec!['%', '2', '3'],
-            '+'  => vec!['%', '2', 'B'],
-            ' '  => vec!['%', '2', '0'],
-            c    => vec![c],
+            '%' => vec!['%', '2', '5'],
+            '@' => vec!['%', '4', '0'],
+            ':' => vec!['%', '3', 'A'],
+            '/' => vec!['%', '2', 'F'],
+            '?' => vec!['%', '3', 'F'],
+            '#' => vec!['%', '2', '3'],
+            '+' => vec!['%', '2', 'B'],
+            ' ' => vec!['%', '2', '0'],
+            c => vec![c],
         })
         .collect()
 }
@@ -30,9 +33,9 @@ fn require(name: &'static str) -> Result<String> {
 }
 
 pub async fn connect_from_env() -> Result<DatabaseConnection> {
-    let host     = require("DB_HOST")?;
-    let port     = env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
-    let user     = require("DB_USER")?;
+    let host = require("DB_HOST")?;
+    let port = env::var("DB_PORT").unwrap_or_else(|_| "5432".to_string());
+    let user = require("DB_USER")?;
     let password = {
         // Read from the file pointed to by DB_PASSWORD_FILE (typically a Docker secret).
         let path = require("DB_PASSWORD_FILE")?;
@@ -40,7 +43,7 @@ pub async fn connect_from_env() -> Result<DatabaseConnection> {
             .map(|s| SecretString::new(s.trim_end_matches(['\n', '\r']).to_string()))
             .map_err(LithiumError::io)?
     };
-    let name     = require("DB_NAME")?;
+    let name = require("DB_NAME")?;
 
     let url = format!(
         "postgres://{}:{}@{}:{}/{}",
@@ -131,7 +134,10 @@ pub async fn migrate(db: &DatabaseConnection) -> Result<()> {
     .map_err(LithiumError::io)?;
 
     let rows = txn
-        .query_all(Statement::from_string(backend, "SELECT name FROM _migrations"))
+        .query_all(Statement::from_string(
+            backend,
+            "SELECT name FROM _migrations",
+        ))
         .await
         .map_err(LithiumError::io)?;
 

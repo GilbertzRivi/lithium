@@ -31,12 +31,17 @@ async fn test_contact_fetch_after_forget() {
     let mut c = IpcClient::connect(&d.socket_path).await;
     let tok = full_setup(&mut c, &srv, &unique_handle("fgtfch")).await;
 
-    let inv = c.send(json!({"cmd": "create_invite", "auth_token": tok})).await;
+    let inv = c
+        .send(json!({"cmd": "create_invite", "auth_token": tok}))
+        .await;
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
-    c.send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok})).await;
+    c.send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok}))
+        .await;
 
-    let r = c.send(json!({"cmd": "contact_fetch", "contact_id": cid, "auth_token": tok})).await;
+    let r = c
+        .send(json!({"cmd": "contact_fetch", "contact_id": cid, "auth_token": tok}))
+        .await;
     assert_eq!(r["error"].as_str().unwrap(), "contact_not_found");
 }
 
@@ -47,12 +52,18 @@ async fn test_contact_forget_twice() {
     let mut c = IpcClient::connect(&d.socket_path).await;
     let tok = full_setup(&mut c, &srv, &unique_handle("fgt2x")).await;
 
-    let inv = c.send(json!({"cmd": "create_invite", "auth_token": tok})).await;
+    let inv = c
+        .send(json!({"cmd": "create_invite", "auth_token": tok}))
+        .await;
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
-    let r1 = c.send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok})).await;
+    let r1 = c
+        .send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok}))
+        .await;
     assert!(r1["ok"].as_bool().unwrap());
 
-    let r2 = c.send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok})).await;
+    let r2 = c
+        .send(json!({"cmd": "contact_forget", "contact_id": cid, "auth_token": tok}))
+        .await;
     assert_eq!(r2["error"].as_str().unwrap(), "contact_not_found");
 }

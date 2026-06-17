@@ -1,5 +1,5 @@
-use poem::{handler, Body, Response};
 use poem::http::StatusCode;
+use poem::{Body, Response, handler};
 use serde_json::json;
 
 use lithium_core::contract::protocol::field;
@@ -9,13 +9,8 @@ use lithium_core::secrets::bytes::SecretBytes;
 use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
 use crate::transport::{
-    login_rate_limit_check,
-    login_rate_limit_fail,
-    login_rate_limit_success,
-    register_rate_limit_check,
-    register_rate_limit_fail,
-    register_rate_limit_success,
-    CryptoReq,
+    CryptoReq, login_rate_limit_check, login_rate_limit_fail, login_rate_limit_success,
+    register_rate_limit_check, register_rate_limit_note,
 };
 
 #[handler]
@@ -37,7 +32,14 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
         let password = ctx.body.take_string(field::PASSWORD)?;
         let dek_hex = ctx.body.take_string(field::DEK)?;
 
-        (ctx.state.clone(), handler, password, dek_hex, ed_key, dili_key)
+        (
+            ctx.state.clone(),
+            handler,
+            password,
+            dek_hex,
+            ed_key,
+            dili_key,
+        )
     };
 
     register_rate_limit_check(&state, handler.expose()).await?;
@@ -45,7 +47,7 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
     let _dek_blob = SecretBytes::from_hex(dek_hex.expose())
         .map_err(|_| AppError::bad_request("invalid_dek"))?;
 
-    let capability = match state
+    let capability = state
         .db
         .create_user(
             handler.expose(),
@@ -54,24 +56,16 @@ pub async fn register(req: CryptoReq) -> Result<Response, AppError> {
             dili_key.expose_as_slice(),
             dek_hex.expose().as_bytes(),
         )
-        .await?
-    {
-        Some(capability) => {
-            register_rate_limit_success(&state, handler.expose()).await?;
-            capability
-        }
-        None => {
-            register_rate_limit_fail(&state, handler.expose()).await?;
-            return Err(AppError::bad_request("user_exists"));
-        }
-    };
+        .await?;
+
+    register_rate_limit_note(&state, handler.expose()).await?;
 
     let mut ctx = req.lock().await;
     ctx.reply_ok(json!({
         field::MSG: "Ok",
         field::CAPABILITY: capability.expose(),
     }))
-        .await
+    .await
 }
 
 #[handler]
@@ -115,7 +109,7 @@ pub async fn login(req: CryptoReq) -> Result<Response, AppError> {
             field::DEK: dek.expose(),
         }),
     )
-        .await
+    .await
 }
 
 #[handler]
@@ -153,5 +147,5 @@ pub async fn delete(req: CryptoReq) -> Result<Response, AppError> {
     ctx.reply_ok(json!({
         field::MSG: "Ok"
     }))
-        .await
+    .await
 }

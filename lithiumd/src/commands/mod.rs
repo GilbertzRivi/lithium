@@ -1,34 +1,34 @@
 use std::sync::Arc;
 
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 use lithium_core::passwords::passwords::PasswordPolicy;
 
 use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse};
 
+mod contact_fetch;
+mod contact_forget;
+mod contact_list;
+pub(crate) mod contact_mailbox;
+mod contact_send;
+mod contact_verify_emoji;
+mod delete_account;
+mod invite_accept;
+pub(crate) mod invite_codec;
+mod invite_create;
+mod lock_keystore;
+mod messages_list;
 mod ping;
+mod register;
+mod remote_delete;
 mod set_credentials;
 mod set_server_identity;
 mod set_server_url;
-mod unlock_keystore;
-mod register;
-mod remote_delete;
-mod unlock_storage;
 mod shutdown;
-mod wipe_local;
-mod invite_create;
-mod invite_accept;
-pub(crate) mod invite_codec;
-pub(crate) mod contact_mailbox;
-mod contact_list;
 pub(crate) mod stored_message;
-mod contact_send;
-mod contact_fetch;
-mod contact_forget;
-mod messages_list;
-mod contact_verify_emoji;
-mod delete_account;
-mod lock_keystore;
+mod unlock_keystore;
+mod unlock_storage;
+mod wipe_local;
 
 use crate::state::DaemonState;
 
@@ -60,23 +60,28 @@ pub async fn dispatch(
         IpcCommand::CreateInvite { contact_id } => {
             invite_create::handle(id, contact_id, state).await
         }
-        IpcCommand::AcceptInvite { code, contact_id, label } => {
-            invite_accept::handle(id, code, contact_id, label, state).await
-        }
+        IpcCommand::AcceptInvite {
+            code,
+            contact_id,
+            label,
+        } => invite_accept::handle(id, code, contact_id, label, state).await,
 
         IpcCommand::ContactsList => contact_list::handle(id, state).await,
-        IpcCommand::ContactSend { contact_id, plaintext } => {
-            contact_send::handle(id, contact_id, plaintext, state).await
-        }
+        IpcCommand::ContactSend {
+            contact_id,
+            plaintext,
+        } => contact_send::handle(id, contact_id, plaintext, state).await,
         IpcCommand::ContactFetch { contact_id } => {
             contact_fetch::handle(id, contact_id, state).await
         }
         IpcCommand::ContactForget { contact_id } => {
             contact_forget::handle(id, contact_id, state).await
         }
-        IpcCommand::MessagesList { contact_id, limit, before_id } => {
-            messages_list::handle(id, contact_id, limit, before_id, state).await
-        }
+        IpcCommand::MessagesList {
+            contact_id,
+            limit,
+            before_id,
+        } => messages_list::handle(id, contact_id, limit, before_id, state).await,
         IpcCommand::ContactVerifyEmoji { contact_id } => {
             contact_verify_emoji::handle(id, contact_id, state).await
         }
@@ -84,8 +89,6 @@ pub async fn dispatch(
         IpcCommand::SetServerIdentity { data } => {
             set_server_identity::handle(id, data, state).await
         }
-        IpcCommand::SetServerUrl { url } => {
-            set_server_url::handle(id, url, state).await
-        }
+        IpcCommand::SetServerUrl { url } => set_server_url::handle(id, url, state).await,
     }
 }

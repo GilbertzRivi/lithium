@@ -21,13 +21,25 @@ fn fixed_bytes_from_slice_ok() {
 #[test]
 fn fixed_bytes_from_slice_wrong_length() {
     let err = Byte32::from_slice(&[0u8; 16]).unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::InvalidLength { expected: 32, got: 16 }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::InvalidLength {
+            expected: 32,
+            got: 16
+        }
+    ));
 }
 
 #[test]
 fn fixed_bytes_from_slice_too_long() {
     let err = Byte32::from_slice(&[0u8; 64]).unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::InvalidLength { expected: 32, got: 64 }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::InvalidLength {
+            expected: 32,
+            got: 64
+        }
+    ));
 }
 
 #[test]
@@ -129,7 +141,10 @@ fn fixed_bytes_from_hex_uppercase_rejected() {
 fn fixed_bytes_from_hex_wrong_length_rejected() {
     let short = "deadbeef"; // only 8 chars, need 64
     let err = Byte32::from_hex(short).unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::InvalidHexLength { expected: 64, .. }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::InvalidHexLength { expected: 64, .. }
+    ));
 }
 
 #[test]
@@ -252,7 +267,10 @@ fn secret_string_new_checked_null_byte_rejected() {
 fn secret_string_debug_redacted() {
     let ss = SecretString::new("sensitive data".to_owned());
     let dbg = format!("{:?}", ss);
-    assert!(!dbg.contains("sensitive"), "Debug must not show value: {dbg}");
+    assert!(
+        !dbg.contains("sensitive"),
+        "Debug must not show value: {dbg}"
+    );
     assert!(dbg.contains("redacted") || dbg.contains("SecretString"));
 }
 
@@ -260,7 +278,10 @@ fn secret_string_debug_redacted() {
 fn secret_string_display_redacted() {
     let ss = SecretString::new("sensitive data".to_owned());
     let disp = format!("{}", ss);
-    assert!(!disp.contains("sensitive"), "Display must not show value: {disp}");
+    assert!(
+        !disp.contains("sensitive"),
+        "Display must not show value: {disp}"
+    );
     assert_eq!(disp, "<redacted>");
 }
 
@@ -341,14 +362,20 @@ fn secret_json_not_an_object() {
 fn secret_json_missing_field() {
     let j = SecretJson::from_str(r#"{"a":"b"}"#).unwrap();
     let err = j.get_string("missing").unwrap_err();
-    assert_eq!(err.kind, CryptoErrorKind::JsonMissingField { key: "missing" });
+    assert_eq!(
+        err.kind,
+        CryptoErrorKind::JsonMissingField { key: "missing" }
+    );
 }
 
 #[test]
 fn secret_json_type_mismatch_string_not_number() {
     let j = SecretJson::from_str(r#"{"n": 42}"#).unwrap();
     let err = j.get_string("n").unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::JsonTypeMismatch { key: "n", .. }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::JsonTypeMismatch { key: "n", .. }
+    ));
 }
 
 #[test]
@@ -409,10 +436,10 @@ fn secret_json_take_u64() {
 #[test]
 fn secret_json_take_f64() {
     use secrecy::ExposeSecret;
-    let mut j = SecretJson::from_str(r#"{"pi": 3.14}"#).unwrap();
+    let mut j = SecretJson::from_str(r#"{"pi": 3.141592653589793}"#).unwrap();
     let v = j.take_f64("pi").unwrap();
     let pi = *v.expose_secret();
-    assert!((pi - 3.14).abs() < 1e-9);
+    assert!((pi - std::f64::consts::PI).abs() < 1e-9);
 }
 
 #[test]
@@ -441,14 +468,20 @@ fn secret_json_take_object() {
 fn secret_json_debug_redacted() {
     let j = SecretJson::from_str(r#"{"secret": "mysecret"}"#).unwrap();
     let dbg = format!("{:?}", j);
-    assert!(!dbg.contains("mysecret"), "Debug must not reveal data: {dbg}");
+    assert!(
+        !dbg.contains("mysecret"),
+        "Debug must not reveal data: {dbg}"
+    );
 }
 
 #[test]
 fn secret_json_display_redacted() {
     let j = SecretJson::from_str(r#"{"secret": "mysecret"}"#).unwrap();
     let disp = format!("{}", j);
-    assert!(!disp.contains("mysecret"), "Display must not reveal data: {disp}");
+    assert!(
+        !disp.contains("mysecret"),
+        "Display must not reveal data: {disp}"
+    );
     assert_eq!(disp, "<redacted>");
 }
 

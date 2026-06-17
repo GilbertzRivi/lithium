@@ -14,11 +14,20 @@ use crate::labels::LABEL_MAILBOX;
 pub const MAILBOX_FETCH_PAST_GENS: u64 = 2;
 pub const MAILBOX_FETCH_FUTURE_GENS: u64 = 1;
 
-fn mailbox_salt(sender_cid: &SecretBytes, receiver_cid: &SecretBytes, generation: u64) -> SecretBytes {
-    let mut salt = SecretBytes::new(Vec::with_capacity(sender_cid.len() + receiver_cid.len() + 8));
-    salt.expose_as_mut_vec().extend_from_slice(sender_cid.expose_as_slice());
-    salt.expose_as_mut_vec().extend_from_slice(receiver_cid.expose_as_slice());
-    salt.expose_as_mut_vec().extend_from_slice(&generation.to_be_bytes());
+fn mailbox_salt(
+    sender_cid: &SecretBytes,
+    receiver_cid: &SecretBytes,
+    generation: u64,
+) -> SecretBytes {
+    let mut salt = SecretBytes::new(Vec::with_capacity(
+        sender_cid.len() + receiver_cid.len() + 8,
+    ));
+    salt.expose_as_mut_vec()
+        .extend_from_slice(sender_cid.expose_as_slice());
+    salt.expose_as_mut_vec()
+        .extend_from_slice(receiver_cid.expose_as_slice());
+    salt.expose_as_mut_vec()
+        .extend_from_slice(&generation.to_be_bytes());
     salt
 }
 
@@ -56,11 +65,16 @@ fn peer_sender_pub_for_generation(peer_st: &PeerState, generation: u64) -> Resul
         return Byte32::from_hex(peer.mbox_out_next_pub.trim());
     }
 
-    Err(LithiumError::invalid_credentials("missing_peer_mailbox_key"))
+    Err(LithiumError::invalid_credentials(
+        "missing_peer_mailbox_key",
+    ))
 }
 
 pub fn current_outbound_mailbox_pubs(self_st: &SelfState) -> (String, String) {
-    (self_st.mbox_out_cur_pub.clone(), self_st.mbox_out_next_pub.clone())
+    (
+        self_st.mbox_out_cur_pub.clone(),
+        self_st.mbox_out_next_pub.clone(),
+    )
 }
 
 pub fn peer_store_mailbox_sender_keys(
@@ -69,11 +83,14 @@ pub fn peer_store_mailbox_sender_keys(
     cur_pub_hex: &str,
     next_pub_hex: &str,
 ) {
-    peer_st.mailbox.sender_pubs.insert(generation.to_string(), cur_pub_hex.to_owned());
     peer_st
         .mailbox
         .sender_pubs
-        .insert(generation.saturating_add(1).to_string(), next_pub_hex.to_owned());
+        .insert(generation.to_string(), cur_pub_hex.to_owned());
+    peer_st.mailbox.sender_pubs.insert(
+        generation.saturating_add(1).to_string(),
+        next_pub_hex.to_owned(),
+    );
 
     if let Some(peer) = peer_st.peer.as_mut() {
         peer.mbox_out_cur_pub = cur_pub_hex.to_owned();
@@ -87,11 +104,18 @@ pub fn ensure_mailbox_state(peer_st: &mut PeerState) -> Result<()> {
             .peer
             .as_ref()
             .ok_or_else(|| LithiumError::json_missing_field("peer.x_pub"))?;
-        (peer.mbox_out_cur_pub.clone(), peer.mbox_out_next_pub.clone())
+        (
+            peer.mbox_out_cur_pub.clone(),
+            peer.mbox_out_next_pub.clone(),
+        )
     };
 
     peer_st.mailbox.sender_pubs.entry("0".into()).or_insert(cur);
-    peer_st.mailbox.sender_pubs.entry("1".into()).or_insert(next);
+    peer_st
+        .mailbox
+        .sender_pubs
+        .entry("1".into())
+        .or_insert(next);
 
     Ok(())
 }
@@ -117,8 +141,20 @@ pub fn derive_mailboxes_for_generation_from_values(
     let peer_in_pub = Byte32::from_hex(peer.mbox_in_pub.trim())?;
     let peer_sender_pub = peer_sender_pub_for_generation(peer_st, generation)?;
 
-    let out = derive_mailbox(&self_out_cur_priv, &peer_in_pub, &self_cid, &peer_cid, generation)?;
-    let inn = derive_mailbox(&self_in_priv, &peer_sender_pub, &peer_cid, &self_cid, generation)?;
+    let out = derive_mailbox(
+        &self_out_cur_priv,
+        &peer_in_pub,
+        &self_cid,
+        &peer_cid,
+        generation,
+    )?;
+    let inn = derive_mailbox(
+        &self_in_priv,
+        &peer_sender_pub,
+        &peer_cid,
+        &self_cid,
+        generation,
+    )?;
 
     Ok((out, inn))
 }
@@ -152,7 +188,11 @@ pub fn mark_outbound_message_sent(self_st: &mut SelfState) -> Result<u64> {
 
 pub fn note_inbound_generation_seen(peer_st: &mut PeerState, generation: u64) {
     if generation > peer_st.mailbox.peer_tx_gen_seen {
-        let cur_pub = peer_st.mailbox.sender_pubs.get(&generation.to_string()).cloned();
+        let cur_pub = peer_st
+            .mailbox
+            .sender_pubs
+            .get(&generation.to_string())
+            .cloned();
         let next_pub = peer_st
             .mailbox
             .sender_pubs
@@ -218,7 +258,9 @@ mod tests {
     fn set_peer_mailbox(p: &mut PeerState, seen: u64, pubs: &[(&str, &str)]) {
         p.mailbox.peer_tx_gen_seen = seen;
         for (k, v) in pubs {
-            p.mailbox.sender_pubs.insert((*k).to_owned(), (*v).to_owned());
+            p.mailbox
+                .sender_pubs
+                .insert((*k).to_owned(), (*v).to_owned());
         }
     }
 
@@ -226,7 +268,10 @@ mod tests {
     fn ensure_mailbox_initializes_peer_fields() {
         let mut p = make_peer();
         ensure_mailbox_state(&mut p).unwrap();
-        assert!(!p.mailbox.sender_pubs.is_empty(), "ensure must seed sender_pubs 0/1");
+        assert!(
+            !p.mailbox.sender_pubs.is_empty(),
+            "ensure must seed sender_pubs 0/1"
+        );
     }
 
     #[test]
@@ -284,7 +329,10 @@ mod tests {
         let next_pub_before = st.mbox_out_next_pub.clone();
         st.mailbox.rotate_every = 1;
         mark_outbound_message_sent(&mut st).unwrap();
-        assert_eq!(st.mbox_out_cur_pub, next_pub_before, "next becomes cur after rotation");
+        assert_eq!(
+            st.mbox_out_cur_pub, next_pub_before,
+            "next becomes cur after rotation"
+        );
     }
 
     #[test]
@@ -330,8 +378,14 @@ mod tests {
         let cur = hex32();
         let next = hex32();
         peer_store_mailbox_sender_keys(&mut p, 2, &cur, &next);
-        assert_eq!(p.mailbox.sender_pubs.get("2").map(String::as_str), Some(cur.as_str()));
-        assert_eq!(p.mailbox.sender_pubs.get("3").map(String::as_str), Some(next.as_str()));
+        assert_eq!(
+            p.mailbox.sender_pubs.get("2").map(String::as_str),
+            Some(cur.as_str())
+        );
+        assert_eq!(
+            p.mailbox.sender_pubs.get("3").map(String::as_str),
+            Some(next.as_str())
+        );
     }
 
     #[test]
@@ -341,8 +395,14 @@ mod tests {
         let new_cur = hex32();
         let new_next = hex32();
         peer_store_mailbox_sender_keys(&mut p, 5, &new_cur, &new_next);
-        assert_eq!(p.mailbox.sender_pubs.get("5").map(String::as_str), Some(new_cur.as_str()));
-        assert_eq!(p.mailbox.sender_pubs.get("6").map(String::as_str), Some(new_next.as_str()));
+        assert_eq!(
+            p.mailbox.sender_pubs.get("5").map(String::as_str),
+            Some(new_cur.as_str())
+        );
+        assert_eq!(
+            p.mailbox.sender_pubs.get("6").map(String::as_str),
+            Some(new_next.as_str())
+        );
     }
 
     #[test]

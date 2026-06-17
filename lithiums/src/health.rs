@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 pub struct HealthState {
     pub reaper_last_ok: AtomicI64,

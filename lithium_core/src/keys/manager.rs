@@ -260,7 +260,9 @@ fn ensure_asymmetric_material(
             let _ = keyfile::load_bytes_decrypted(&priv_path, mk, KT_KYBER_SK)?;
             read_pub_bytes(&pub_path)?
         } else if priv_path.exists() || pub_path.exists() {
-            return Err(LithiumError::invalid_credentials("keystore_layout_inconsistent"));
+            return Err(LithiumError::invalid_credentials(
+                "keystore_layout_inconsistent",
+            ));
         } else {
             let (pk, sk) = mlkem1024::keypair();
             let sk_bytes = SecretBytes::from_slice(sk.as_bytes());
@@ -278,7 +280,9 @@ fn ensure_asymmetric_material(
             let _ = keyfile::load_bytes_decrypted(&priv_path, mk, KT_DILI_SK)?;
             read_pub_bytes(&pub_path)?
         } else if priv_path.exists() || pub_path.exists() {
-            return Err(LithiumError::invalid_credentials("keystore_layout_inconsistent"));
+            return Err(LithiumError::invalid_credentials(
+                "keystore_layout_inconsistent",
+            ));
         } else {
             let (pk, sk) = mldsa87::keypair();
             let sk_bytes = SecretBytes::from_slice(SignSk::as_bytes(&sk));
@@ -321,7 +325,11 @@ fn list_dir_keyfiles(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-fn collect_rewrap_targets(root_dir: &Path, priv_dir: &Path, secrets_dir: &Path) -> Result<Vec<RewrapTarget>> {
+fn collect_rewrap_targets(
+    root_dir: &Path,
+    priv_dir: &Path,
+    secrets_dir: &Path,
+) -> Result<Vec<RewrapTarget>> {
     let mut out = Vec::new();
 
     let fixed = [
@@ -459,11 +467,8 @@ fn recover_pending_rotation_if_any<P: MkProvider>(
             }
         }
     } else {
-        let candidate = keyfile::load_secret32_decrypted(
-            &next_old_path,
-            &current_mk,
-            KT_ROTATE_NEXT_OLD,
-        )?;
+        let candidate =
+            keyfile::load_secret32_decrypted(&next_old_path, &current_mk, KT_ROTATE_NEXT_OLD)?;
         (candidate, false)
     };
 
@@ -565,35 +570,24 @@ impl<P: MkProvider> KeyManager<P> {
         }
 
         let root_mk = self.mk_provider.load_mk()?;
-        self.mk_provider.derive_secret32(&root_mk, label, &self.secrets_dir)
+        self.mk_provider
+            .derive_secret32(&root_mk, label, &self.secrets_dir)
     }
 
     pub fn mk_provider_mut(&mut self) -> &mut P {
         &mut self.mk_provider
     }
 
-    pub fn with_ed_sk<R>(&self, f: impl FnOnce(Byte32) -> Result<R>) -> Result<R> {
+    pub fn with_signing_keys<R>(
+        &self,
+        f: impl FnOnce(Byte32, SecretBytes) -> Result<R>,
+    ) -> Result<R> {
         let mk = self.mk_provider.load_mk()?;
-        let seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(ED_PRIV), &mk, KT_ED_SEED)?;
-        f(seed)
-    }
-
-    pub fn with_x25519_sk<R>(&self, f: impl FnOnce(Byte32) -> Result<R>) -> Result<R> {
-        let mk = self.mk_provider.load_mk()?;
-        let seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(X_PRIV), &mk, KT_X_SEED)?;
-        f(seed)
-    }
-
-    pub fn with_kyber_sk<R>(&self, f: impl FnOnce(SecretBytes) -> Result<R>) -> Result<R> {
-        let mk = self.mk_provider.load_mk()?;
-        let sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(KYBER_PRIV), &mk, KT_KYBER_SK)?;
-        f(sk)
-    }
-
-    pub fn with_dilithium_sk<R>(&self, f: impl FnOnce(SecretBytes) -> Result<R>) -> Result<R> {
-        let mk = self.mk_provider.load_mk()?;
-        let sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(DILI_PRIV), &mk, KT_DILI_SK)?;
-        f(sk)
+        let ed_seed =
+            keyfile::load_secret32_decrypted(&self.priv_dir.join(ED_PRIV), &mk, KT_ED_SEED)?;
+        let dili_sk =
+            keyfile::load_bytes_decrypted(&self.priv_dir.join(DILI_PRIV), &mk, KT_DILI_SK)?;
+        f(ed_seed, dili_sk)
     }
 
     pub fn with_x25519_and_kyber_sk<R>(
@@ -602,7 +596,8 @@ impl<P: MkProvider> KeyManager<P> {
     ) -> Result<R> {
         let mk = self.mk_provider.load_mk()?;
         let x_seed = keyfile::load_secret32_decrypted(&self.priv_dir.join(X_PRIV), &mk, KT_X_SEED)?;
-        let kyber_sk = keyfile::load_bytes_decrypted(&self.priv_dir.join(KYBER_PRIV), &mk, KT_KYBER_SK)?;
+        let kyber_sk =
+            keyfile::load_bytes_decrypted(&self.priv_dir.join(KYBER_PRIV), &mk, KT_KYBER_SK)?;
         f(x_seed, kyber_sk)
     }
 

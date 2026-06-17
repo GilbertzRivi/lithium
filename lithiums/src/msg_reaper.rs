@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use lithium_core::db::manager::DataManager;
 use tokio::{sync::watch, task::JoinHandle};
 use tracing::error;
-use lithium_core::db::manager::DataManager;
 
 use crate::db::repo::ServerDbExt;
 use crate::health::HealthState;
@@ -42,5 +42,8 @@ pub fn spawn_msg_reaper(
         }
     });
 
-    MsgReaperHandle { _stop_tx: stop_tx, _handle: handle }
+    MsgReaperHandle {
+        _stop_tx: stop_tx,
+        _handle: handle,
+    }
 }

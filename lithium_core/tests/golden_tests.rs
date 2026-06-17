@@ -6,7 +6,8 @@ use lithium_core::secrets::{Byte32, SecretBytes};
 
 #[test]
 fn aead_blob_decrypts_to_pinned_plaintext() {
-    let key = Byte32::from_hex("9f2c1b8a4d6e0f3a57c9e1d2b40a8f6e7c5d3b1a09f8e7d6c5b4a39281706152").unwrap();
+    let key = Byte32::from_hex("9f2c1b8a4d6e0f3a57c9e1d2b40a8f6e7c5d3b1a09f8e7d6c5b4a39281706152")
+        .unwrap();
     let aad = SecretBytes::from_slice(b"golden-aad-v1");
     let blob = SecretBytes::from_hex(
         "01a14b7e02c9d3f5081623ab9cf124d1138aab1944639ca1eae2f7c84bb0709ee5c22d2d4ccfba979e3e91a7eb2507a6604e1a5da8",
@@ -37,8 +38,14 @@ fn kyberbox_wire_decrypts_to_pinned_plaintext() {
         seed_enc: SecretBytes::from_hex(vectors["SEED_ENC"]).unwrap(),
     };
 
-    let (body, headers) =
-        kyberbox::decrypt("golden/kyberbox/v1", &rx_x_priv, &msg_x_pub, &kyber_priv, &wire).unwrap();
+    let (body, headers) = kyberbox::decrypt(
+        "golden/kyberbox/v1",
+        &rx_x_priv,
+        &msg_x_pub,
+        &kyber_priv,
+        &wire,
+    )
+    .unwrap();
 
     assert_eq!(body.expose_as_slice(), b"golden-body-v1");
     assert_eq!(headers.expose_as_slice(), b"golden-headers-v1");
@@ -58,6 +65,14 @@ fn mldsa87_signature_verifies_pinned_vector() {
     assert_eq!(dili_pub.expose_as_slice().len(), 2592);
     assert_eq!(dili_sig.expose_as_slice().len(), 4627);
 
-    assert!(sign::verify_signature_dili(msg, dili_sig.expose_as_slice(), &dili_pub));
-    assert!(!sign::verify_signature_dili(b"tampered", dili_sig.expose_as_slice(), &dili_pub));
+    assert!(sign::verify_signature_dili(
+        msg,
+        dili_sig.expose_as_slice(),
+        &dili_pub
+    ));
+    assert!(!sign::verify_signature_dili(
+        b"tampered",
+        dili_sig.expose_as_slice(),
+        &dili_pub
+    ));
 }

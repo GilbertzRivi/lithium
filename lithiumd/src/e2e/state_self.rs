@@ -84,7 +84,10 @@ pub(crate) fn self_find_seq(self_st: &SelfState, to_id: &[u8; 32]) -> Option<u64
     self_st.e2e_rx.keys.get(&hex::encode(to_id)).map(|k| k.seq)
 }
 
-pub(crate) fn self_get_rx_privs(self_st: &SelfState, to_id: &[u8; 32]) -> Option<(Byte32, SecretBytes)> {
+pub(crate) fn self_get_rx_privs(
+    self_st: &SelfState,
+    to_id: &[u8; 32],
+) -> Option<(Byte32, SecretBytes)> {
     let rk = self_st.e2e_rx.keys.get(&hex::encode(to_id))?;
     Some((
         Byte32::from_hex(rk.x_priv.trim()).ok()?,
@@ -95,7 +98,10 @@ pub(crate) fn self_get_rx_privs(self_st: &SelfState, to_id: &[u8; 32]) -> Option
 pub(crate) fn gc_after_ack(self_st: &mut SelfState) {
     let min_keep_seq = self_st.e2e_rx.ack_seq.saturating_sub(self_st.e2e_rx.window);
     // Evicted RxKeys zeroize their privates on drop.
-    self_st.e2e_rx.keys.retain(|_, k| k.seq == 0 || k.seq >= min_keep_seq);
+    self_st
+        .e2e_rx
+        .keys
+        .retain(|_, k| k.seq == 0 || k.seq >= min_keep_seq);
 }
 
 pub(crate) fn next_tx_step(self_st: &mut SelfState) -> u64 {

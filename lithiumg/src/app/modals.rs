@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use super::{draw_invite_box, zero_str, Command, LithiumApp};
+use super::{Command, LithiumApp, draw_invite_box, zero_str};
 
 impl LithiumApp {
     pub(super) fn draw_wipe_modal(&mut self, ctx: &egui::Context) {
@@ -177,10 +177,12 @@ impl LithiumApp {
                         "Request account removal"
                     };
 
-                    if ui.add_enabled(can_submit, egui::Button::new(label)).clicked() {
+                    if ui
+                        .add_enabled(can_submit, egui::Button::new(label))
+                        .clicked()
+                    {
                         if self.confirm_remote_delete {
-                            let capability =
-                                self.remote_delete_capability_input.trim().to_string();
+                            let capability = self.remote_delete_capability_input.trim().to_string();
                             self.confirm_remote_delete = false;
                             zero_str(&mut self.remote_delete_capability_input);
                             self.send(Command::RemoteDelete { capability });
@@ -215,9 +217,7 @@ impl LithiumApp {
             .default_width(480.0)
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.label(
-                    "This deletes the account from the server and wipes all local data.",
-                );
+                ui.label("This deletes the account from the server and wipes all local data.");
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
@@ -236,7 +236,10 @@ impl LithiumApp {
                         "Delete account"
                     };
 
-                    if ui.add_enabled(!self.busy, egui::Button::new(label)).clicked() {
+                    if ui
+                        .add_enabled(!self.busy, egui::Button::new(label))
+                        .clicked()
+                    {
                         if self.confirm_delete_account {
                             self.confirm_delete_account = false;
                             self.send(Command::DeleteAccount);

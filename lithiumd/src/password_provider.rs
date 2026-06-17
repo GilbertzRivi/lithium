@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::{
     crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
-    keys::{keyfile, MkProvider},
+    keys::{MkProvider, keyfile},
     secrets::{Byte32, SecretString},
 };
-use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::labels::{MKFILE_AAD, MKFILE_MAGIC, MKFILE_SALT_LEN, USER_COMBINED_LABEL};
 
@@ -105,7 +105,8 @@ impl PasswordFileMkProvider {
     }
 
     fn encode_file(salt: &Byte32, blob: &SecretBytes) -> SecretBytes {
-        let mut out = Vec::with_capacity(4 + 1 + MKFILE_SALT_LEN + 4 + blob.expose_as_slice().len());
+        let mut out =
+            Vec::with_capacity(4 + 1 + MKFILE_SALT_LEN + 4 + blob.expose_as_slice().len());
         out.extend_from_slice(MKFILE_MAGIC);
         out.push(MKFILE_SALT_LEN as u8);
         out.extend_from_slice(salt.as_slice());
@@ -155,8 +156,8 @@ impl MkProvider for PasswordFileMkProvider {
         let (salt, blob) = Self::decode_file(&buf)?;
         let user_key = self.derive_user_key(&salt)?;
 
-        let pt = aead::decrypt(&blob, &user_key, &SecretBytes::from_slice(MKFILE_AAD))
-            .map_err(|e| {
+        let pt =
+            aead::decrypt(&blob, &user_key, &SecretBytes::from_slice(MKFILE_AAD)).map_err(|e| {
                 if e.kind == lithium_core::error::CryptoErrorKind::AeadFailed {
                     LithiumError::invalid_credentials("bad_data_password")
                 } else {

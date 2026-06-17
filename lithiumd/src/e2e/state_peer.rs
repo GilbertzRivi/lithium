@@ -53,7 +53,12 @@ pub fn ensure_peer_e2e(peer_st: &mut PeerState) -> Result<([u8; 32], String, Str
         && !e2e.k_pub.is_empty()
     {
         let id = Byte32::from_hex(e2e.id.trim())?;
-        return Ok((*id.as_array(), e2e.x_pub.clone(), e2e.k_pub.clone(), e2e.step));
+        return Ok((
+            *id.as_array(),
+            e2e.x_pub.clone(),
+            e2e.k_pub.clone(),
+            e2e.step,
+        ));
     }
 
     Err(LithiumError::invalid_credentials("e2e_peer_not_set"))

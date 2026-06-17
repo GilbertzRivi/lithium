@@ -17,7 +17,9 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
     let tok_c = full_setup(&mut cc, &srv, &unique_handle("two_c")).await;
 
     // B creates invite, A accepts — A gets cid_a_b (A's slot for B), B keeps cid_b_a.
-    let inv_b = cb.send(json!({"cmd": "create_invite", "auth_token": tok_b})).await;
+    let inv_b = cb
+        .send(json!({"cmd": "create_invite", "auth_token": tok_b}))
+        .await;
     assert!(inv_b["ok"].as_bool().unwrap(), "{:?}", inv_b);
     let cid_b_a = inv_b["result"]["contact_id"].as_str().unwrap().to_owned();
     let code_b = inv_b["result"]["code"].as_str().unwrap().to_owned();
@@ -35,7 +37,9 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
     assert!(fin_b["ok"].as_bool().unwrap(), "{:?}", fin_b);
 
     // C creates invite, A accepts.
-    let inv_c = cc.send(json!({"cmd": "create_invite", "auth_token": tok_c})).await;
+    let inv_c = cc
+        .send(json!({"cmd": "create_invite", "auth_token": tok_c}))
+        .await;
     assert!(inv_c["ok"].as_bool().unwrap(), "{:?}", inv_c);
     let cid_c_a = inv_c["result"]["contact_id"].as_str().unwrap().to_owned();
     let code_c = inv_c["result"]["code"].as_str().unwrap().to_owned();
@@ -68,13 +72,19 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .send(json!({"cmd": "contact_fetch", "contact_id": cid_a_b, "auth_token": tok_a}))
         .await;
     assert!(fetch_b["ok"].as_bool().unwrap(), "{:?}", fetch_b);
-    assert_eq!(fetch_b["result"]["messages"][0]["text"].as_str().unwrap(), "from B");
+    assert_eq!(
+        fetch_b["result"]["messages"][0]["text"].as_str().unwrap(),
+        "from B"
+    );
 
     let fetch_c = ca
         .send(json!({"cmd": "contact_fetch", "contact_id": cid_a_c, "auth_token": tok_a}))
         .await;
     assert!(fetch_c["ok"].as_bool().unwrap(), "{:?}", fetch_c);
-    assert_eq!(fetch_c["result"]["messages"][0]["text"].as_str().unwrap(), "from C");
+    assert_eq!(
+        fetch_c["result"]["messages"][0]["text"].as_str().unwrap(),
+        "from C"
+    );
 }
 
 #[tokio::test]
@@ -96,7 +106,10 @@ async fn test_send_fetch_cycles_accumulate_correctly() {
         .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
         .await;
     assert_eq!(f1["result"]["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(f1["result"]["messages"][0]["text"].as_str().unwrap(), "msg1");
+    assert_eq!(
+        f1["result"]["messages"][0]["text"].as_str().unwrap(),
+        "msg1"
+    );
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "msg2", "auth_token": tok_a}))
         .await;
@@ -104,7 +117,10 @@ async fn test_send_fetch_cycles_accumulate_correctly() {
         .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
         .await;
     assert_eq!(f2["result"]["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(f2["result"]["messages"][0]["text"].as_str().unwrap(), "msg2");
+    assert_eq!(
+        f2["result"]["messages"][0]["text"].as_str().unwrap(),
+        "msg2"
+    );
 }
 
 #[tokio::test]

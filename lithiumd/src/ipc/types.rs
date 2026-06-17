@@ -17,25 +17,55 @@ pub struct IpcRequest {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum IpcCommand {
     Ping,
-    UnlockKeystore { data_password: SecretString },
-    SetCredentials { handler: SecretString, password: SecretString },
+    UnlockKeystore {
+        data_password: SecretString,
+    },
+    SetCredentials {
+        handler: SecretString,
+        password: SecretString,
+    },
     Register,
-    RemoteDelete { capability: SecretString },
+    RemoteDelete {
+        capability: SecretString,
+    },
     DeleteAccount,
     UnlockStorage,
     Shutdown,
     WipeLocal,
-    CreateInvite { contact_id: Option<String> },
-    AcceptInvite { code: String, contact_id: Option<String>, label: String },
+    CreateInvite {
+        contact_id: Option<String>,
+    },
+    AcceptInvite {
+        code: String,
+        contact_id: Option<String>,
+        label: String,
+    },
     ContactsList,
-    ContactSend { contact_id: String, plaintext: SecretString },
-    ContactFetch { contact_id: String },
-    ContactForget { contact_id: String },
-    MessagesList { contact_id: String, limit: Option<u64>, before_id: Option<i64> },
-    ContactVerifyEmoji { contact_id: String },
+    ContactSend {
+        contact_id: String,
+        plaintext: SecretString,
+    },
+    ContactFetch {
+        contact_id: String,
+    },
+    ContactForget {
+        contact_id: String,
+    },
+    MessagesList {
+        contact_id: String,
+        limit: Option<u64>,
+        before_id: Option<i64>,
+    },
+    ContactVerifyEmoji {
+        contact_id: String,
+    },
     LockKeystore,
-    SetServerIdentity { data: String },
-    SetServerUrl { url: String },
+    SetServerIdentity {
+        data: String,
+    },
+    SetServerUrl {
+        url: String,
+    },
 }
 
 #[derive(Debug, Serialize)]

@@ -81,7 +81,10 @@ async fn test_revoke_same_capability_twice_is_silent() {
     let mut c = srv.client();
     c.generate_user_keys();
     let reg = c.register(&handle, "Password1!", &dek).await;
-    let cap = reg.body["capability"].as_str().expect("capability").to_owned();
+    let cap = reg.body["capability"]
+        .as_str()
+        .expect("capability")
+        .to_owned();
 
     let mut c1 = srv.client();
     c1.generate_user_keys();

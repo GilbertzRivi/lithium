@@ -36,19 +36,33 @@ struct HeapEntry {
 
 impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.expires_at.cmp(&self.expires_at)
+        other
+            .expires_at
+            .cmp(&self.expires_at)
             .then_with(|| other.version.cmp(&self.version))
             .then_with(|| other.key.cmp(&self.key))
     }
 }
-impl PartialOrd for HeapEntry { fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) } }
-impl PartialEq for HeapEntry { fn eq(&self, other: &Self) -> bool { self.expires_at == other.expires_at && self.version == other.version && self.key == other.key } }
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.expires_at == other.expires_at
+            && self.version == other.version
+            && self.key == other.key
+    }
+}
 impl Eq for HeapEntry {}
 
 impl EphemeralStoreManager {
     pub fn new() -> Result<Self> {
         let inner = Arc::new(Mutex::new(StoreInner::default()));
-        let mgr = Self { inner: inner.clone() };
+        let mgr = Self {
+            inner: inner.clone(),
+        };
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(500)).await;
@@ -62,17 +76,20 @@ impl EphemeralStoreManager {
         let now = Instant::now();
         let mut guard = inner.lock().await;
         loop {
-            let Some(top) = guard.heap.peek().cloned() else { break; };
-            if top.expires_at > now { break; }
+            let Some(top) = guard.heap.peek().cloned() else {
+                break;
+            };
+            if top.expires_at > now {
+                break;
+            }
             guard.heap.pop();
             let should_remove = match guard.map.get(&top.key) {
                 Some(cur) => cur.version == top.version && cur.expires_at <= now,
                 None => false,
             };
-            if should_remove
-                && let Some(mut removed) = guard.map.remove(&top.key) {
-                    removed.ciphertext.expose_as_mut_vec().zeroize();
-                }
+            if should_remove && let Some(mut removed) = guard.map.remove(&top.key) {
+                removed.ciphertext.expose_as_mut_vec().zeroize();
+            }
         }
         Ok(())
     }
@@ -84,25 +101,54 @@ impl EphemeralStoreManager {
     }
 
     pub async fn set(&self, key: &str, value: &SecretBytes, ttl: Duration) -> Result<()> {
-        if ttl.is_zero() { return Ok(()); }
+        if ttl.is_zero() {
+            return Ok(());
+        }
         let expires_at = Instant::now() + ttl;
         let mut guard = self.inner.lock().await;
         let ver = Self::next_version(&mut guard);
-        let entry = StoreEntry { ciphertext: value.clone(), expires_at, version: ver };
+        let entry = StoreEntry {
+            ciphertext: value.clone(),
+            expires_at,
+            version: ver,
+        };
         guard.map.insert(key.to_owned(), entry);
-        guard.heap.push(HeapEntry { expires_at, version: ver, key: key.to_owned() });
+        guard.heap.push(HeapEntry {
+            expires_at,
+            version: ver,
+            key: key.to_owned(),
+        });
         Ok(())
     }
 
-    pub async fn set_if_absent(&self, key: &str, value: &SecretBytes, ttl: Duration) -> Result<bool> {
+    pub async fn set_if_absent(
+        &self,
+        key: &str,
+        value: &SecretBytes,
+        ttl: Duration,
+    ) -> Result<bool> {
         let now = Instant::now();
         let expires_at = now + ttl;
         let mut guard = self.inner.lock().await;
         if let Some(e) = guard.map.get(key)
-            && e.expires_at > now { return Ok(false); }
+            && e.expires_at > now
+        {
+            return Ok(false);
+        }
         let ver = Self::next_version(&mut guard);
-        guard.map.insert(key.to_owned(), StoreEntry { ciphertext: value.clone(), expires_at, version: ver });
-        guard.heap.push(HeapEntry { expires_at, version: ver, key: key.to_owned() });
+        guard.map.insert(
+            key.to_owned(),
+            StoreEntry {
+                ciphertext: value.clone(),
+                expires_at,
+                version: ver,
+            },
+        );
+        guard.heap.push(HeapEntry {
+            expires_at,
+            version: ver,
+            key: key.to_owned(),
+        });
         Ok(true)
     }
 
@@ -122,7 +168,9 @@ impl EphemeralStoreManager {
     pub async fn take(&self, key: &str) -> Result<Option<SecretBytes>> {
         let now = Instant::now();
         let mut guard = self.inner.lock().await;
-        let Some(mut entry) = guard.map.remove(key) else { return Ok(None); };
+        let Some(mut entry) = guard.map.remove(key) else {
+            return Ok(None);
+        };
         if entry.expires_at <= now {
             entry.ciphertext.expose_as_mut_vec().zeroize();
             return Ok(None);
@@ -132,7 +180,9 @@ impl EphemeralStoreManager {
 
     pub async fn del(&self, key: &str) -> Result<()> {
         let mut guard = self.inner.lock().await;
-        if let Some(mut entry) = guard.map.remove(key) { entry.ciphertext.expose_as_mut_vec().zeroize(); }
+        if let Some(mut entry) = guard.map.remove(key) {
+            entry.ciphertext.expose_as_mut_vec().zeroize();
+        }
         Ok(())
     }
 }

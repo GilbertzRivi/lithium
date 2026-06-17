@@ -43,12 +43,16 @@ async fn test_register_new_user_returns_capability() {
     let r = c.register(&handle, "Password1!", &dek).await;
 
     let capability = r.body["capability"].as_str().expect("capability missing");
-    assert_eq!(capability.len(), 64, "capability must be 32 bytes = 64 hex chars");
+    assert_eq!(
+        capability.len(),
+        64,
+        "capability must be 32 bytes = 64 hex chars"
+    );
     assert_eq!(r.body["msg"].as_str().unwrap_or(""), "Ok");
 }
 
 #[tokio::test]
-async fn test_register_duplicate_user_is_rejected() {
+async fn test_register_taken_handle_is_indistinguishable() {
     let srv = TestServer::start().await;
     let handle = unique_handle("bob");
     let dek = random_dek_hex();
@@ -59,10 +63,25 @@ async fn test_register_duplicate_user_is_rejected() {
 
     let mut c2 = srv.client();
     c2.generate_user_keys();
-    let raw = c2.register_raw(&handle, "Password1!", &dek).await;
+    let dek2 = random_dek_hex();
+    let r = c2.register(&handle, "Password1!", &dek2).await;
 
-    assert_eq!(raw.status, 400);
-    assert_eq!(raw.error.as_deref(), Some("user_exists"));
+    assert_eq!(
+        r.body["capability"].as_str().map(str::len),
+        Some(64),
+        "{:?}",
+        r.body
+    );
+    assert_eq!(r.body["msg"].as_str().unwrap_or(""), "Ok");
+
+    let mut login = srv.client();
+    login.copy_keys_from(&c1);
+    let r = login.login(&handle, "Password1!").await;
+    assert_eq!(
+        r.body["dek"].as_str().expect("dek missing"),
+        dek,
+        "second register must not overwrite the original account"
+    );
 }
 
 #[tokio::test]
@@ -82,7 +101,10 @@ async fn test_login_success_returns_dek_and_token() {
     assert_eq!(r.body["msg"].as_str().unwrap_or(""), "Ok");
     let returned_dek = r.body["dek"].as_str().expect("dek missing");
     assert_eq!(returned_dek, dek, "server returned wrong DEK");
-    assert!(!r.body["tok"].as_str().unwrap_or("").is_empty(), "token empty");
+    assert!(
+        !r.body["tok"].as_str().unwrap_or("").is_empty(),
+        "token empty"
+    );
 }
 
 #[tokio::test]
@@ -168,7 +190,9 @@ async fn test_messages_are_deleted_after_fetch() {
     sender.login(&handle, "Password1!").await;
 
     let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
-    sender.send_message(&mailbox, &hex::encode(b"one-time")).await;
+    sender
+        .send_message(&mailbox, &hex::encode(b"one-time"))
+        .await;
 
     let mut f1 = srv.client();
     f1.generate_user_keys();
@@ -208,7 +232,10 @@ async fn test_revoke_with_valid_capability_deletes_account() {
     let mut c = srv.client();
     c.generate_user_keys();
     let reg = c.register(&handle, "Password1!", &dek).await;
-    let capability = reg.body["capability"].as_str().expect("capability").to_owned();
+    let capability = reg.body["capability"]
+        .as_str()
+        .expect("capability")
+        .to_owned();
 
     let mut c2 = srv.client();
     c2.generate_user_keys();
@@ -404,7 +431,8 @@ async fn test_session_keys_consumed_after_use() {
     let ses_k = shake_resp.headers["ses-k"].as_str().unwrap().to_owned();
 
     c.generate_user_keys();
-    c.register(&unique_handle("keyused"), "Password1!", &random_dek_hex()).await;
+    c.register(&unique_handle("keyused"), "Password1!", &random_dek_hex())
+        .await;
 
     let http = reqwest::Client::new();
     let resp = http
@@ -427,7 +455,9 @@ async fn test_register_invalid_dek_rejected() {
     let srv = TestServer::start().await;
     let mut c = srv.client();
     c.generate_user_keys();
-    let raw = c.register_raw(&unique_handle("baddek"), "Password1!", "not-valid-hex").await;
+    let raw = c
+        .register_raw(&unique_handle("baddek"), "Password1!", "not-valid-hex")
+        .await;
     assert_eq!(raw.status, 400);
     assert_eq!(raw.error.as_deref(), Some("invalid_dek"));
 }
@@ -452,7 +482,10 @@ async fn test_login_lockout_blocks_correct_password() {
     let mut cx = srv.client();
     cx.copy_keys_from(&c);
     let raw = cx.login_raw(&handle, "CorrectPassword1!").await;
-    assert_eq!(raw.status, 429, "correct password must be blocked while rate limit lock is active");
+    assert_eq!(
+        raw.status, 429,
+        "correct password must be blocked while rate limit lock is active"
+    );
 }
 
 #[tokio::test]
@@ -494,12 +527,15 @@ async fn test_register_lockout_after_duplicate_threshold() {
     for _ in 0..3 {
         let mut cx = srv.client();
         cx.generate_user_keys();
-        cx.register_raw(&handle, "Password1!", &random_dek_hex()).await;
+        cx.register_raw(&handle, "Password1!", &random_dek_hex())
+            .await;
     }
 
     let mut cx = srv.client();
     cx.generate_user_keys();
-    let raw = cx.register_raw(&handle, "Password1!", &random_dek_hex()).await;
+    let raw = cx
+        .register_raw(&handle, "Password1!", &random_dek_hex())
+        .await;
     assert_eq!(raw.status, 429);
     assert_eq!(raw.error.as_deref(), Some("try_later"));
 }

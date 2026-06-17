@@ -4,7 +4,7 @@ use serde_json::json;
 
 use crate::{
     commands::wipe_local,
-    ipc::types::{err_resp, IpcResponse, protocol_err},
+    ipc::types::{IpcResponse, err_resp, protocol_err},
     state::DaemonState,
 };
 

@@ -7,32 +7,21 @@ use lithium_core::{
     secrets::{Byte32, SecretString},
 };
 
-use crate::e2e::drop_bootstrap_private_if_established;
 use crate::e2e::SelfState;
+use crate::e2e::drop_bootstrap_private_if_established;
 use crate::{
     commands::contact_mailbox::{
-        derive_mailboxes_for_generation_from_values,
-        ensure_mailbox_state,
-        mark_outbound_message_sent,
-        self_tx_generation,
+        derive_mailboxes_for_generation_from_values, ensure_mailbox_state,
+        mark_outbound_message_sent, self_tx_generation,
     },
     commands::stored_message,
-    e2e::{
-        encrypt_for_peer,
-        ensure_self_keyring,
-        gen_local_prekey_material,
-        local_public_prekeys,
-        pack_wire,
-        peer_need_recover,
-        peer_pick_remote_prekey,
-        peer_remove_remote_prekey,
-        prekeys_mark_advertised,
-        prekeys_should_advertise,
-        PeerState,
-        PREKEY_TARGET,
-    },
     db::repo::DaemonDbExt,
-    ipc::types::{crypto_err, err_resp, protocol_err, storage_err, IpcResponse},
+    e2e::{
+        PREKEY_TARGET, PeerState, encrypt_for_peer, ensure_self_keyring, gen_local_prekey_material,
+        local_public_prekeys, pack_wire, peer_need_recover, peer_pick_remote_prekey,
+        peer_remove_remote_prekey, prekeys_mark_advertised, prekeys_should_advertise,
+    },
+    ipc::types::{IpcResponse, crypto_err, err_resp, protocol_err, storage_err},
     protocol_manager::Endpoint,
     state::DaemonState,
 };
@@ -56,7 +45,12 @@ async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 
         };
 
         if dm
-            .put_prekey(contact_id.to_vec(), id.as_slice().to_vec(), priv_blob, PREKEY_TTL)
+            .put_prekey(
+                contact_id.to_vec(),
+                id.as_slice().to_vec(),
+                priv_blob,
+                PREKEY_TTL,
+            )
             .await
             .is_err()
         {
@@ -166,7 +160,11 @@ pub async fn handle(
         field::CONTENT: content_hex
     });
 
-    if proto.send(Endpoint::MsgSend, body, json!({})).await.is_err() {
+    if proto
+        .send(Endpoint::MsgSend, body, json!({}))
+        .await
+        .is_err()
+    {
         return protocol_err(id);
     }
 
@@ -202,10 +200,11 @@ pub async fn handle(
         return storage_err(id);
     }
 
-    let stored = match stored_message::encode(plaintext.expose(), &ui_meta, &mailbox_hex, mailbox_gen) {
-        Ok(v) => v,
-        Err(_) => return err_resp(id, "json_error"),
-    };
+    let stored =
+        match stored_message::encode(plaintext.expose(), &ui_meta, &mailbox_hex, mailbox_gen) {
+            Ok(v) => v,
+            Err(_) => return err_resp(id, "json_error"),
+        };
 
     if dm
         .add_message(contact_id.clone(), mbox_out.to_vec(), 1, stored, None)

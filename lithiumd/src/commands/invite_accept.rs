@@ -12,7 +12,7 @@ use crate::{
         invite_public_from_self,
     },
     db::repo::DaemonDbExt,
-    ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, internal_err, storage_err},
     state::DaemonState,
 };
 

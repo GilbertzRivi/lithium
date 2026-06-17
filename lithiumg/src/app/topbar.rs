@@ -16,7 +16,10 @@ impl LithiumApp {
 
             if has_ipc_auth {
                 ui.separator();
-                if ui.add_enabled(!self.busy, egui::Button::new("Lock")).clicked() {
+                if ui
+                    .add_enabled(!self.busy, egui::Button::new("Lock"))
+                    .clicked()
+                {
                     self.send(Command::LockKeystore);
                 }
             }
@@ -41,7 +44,10 @@ impl LithiumApp {
 
             ui.menu_button("Account", |ui| {
                 if ui
-                    .add_enabled(has_ipc_auth && !self.busy, egui::Button::new("Delete account"))
+                    .add_enabled(
+                        has_ipc_auth && !self.busy,
+                        egui::Button::new("Delete account"),
+                    )
                     .clicked()
                 {
                     self.delete_account_modal_open = true;
@@ -52,7 +58,10 @@ impl LithiumApp {
                 ui.separator();
 
                 if ui
-                    .add_enabled(!self.busy, egui::Button::new("Emergency account removal..."))
+                    .add_enabled(
+                        !self.busy,
+                        egui::Button::new("Emergency account removal..."),
+                    )
                     .clicked()
                 {
                     self.open_remote_delete_modal();
@@ -62,7 +71,10 @@ impl LithiumApp {
                 ui.separator();
 
                 if ui
-                    .add_enabled(has_ipc_auth && !self.busy, egui::Button::new("Reset local data..."))
+                    .add_enabled(
+                        has_ipc_auth && !self.busy,
+                        egui::Button::new("Reset local data..."),
+                    )
                     .clicked()
                 {
                     self.wipe_modal_open = true;
@@ -101,14 +113,17 @@ impl LithiumApp {
                         "Master key rotation failed",
                     );
                     ui.add_space(2.0);
-                    ui.label(egui::RichText::new(
-                        "The keystore could not be re-encrypted. Possible causes: disk full, \
+                    ui.label(
+                        egui::RichText::new(
+                            "The keystore could not be re-encrypted. Possible causes: disk full, \
                          keystore directory missing or not writable, or corrupted key files.\n\
                          \n\
                          To fix: check that the keystore directory exists and is writable. \
                          If the error persists, use Account \u{2192} Reset local data to \
-                         reinitialize (you will need to re-register)."
-                    ).small());
+                         reinitialize (you will need to re-register).",
+                        )
+                        .small(),
+                    );
                 });
         }
     }

@@ -2,22 +2,15 @@ use std::{fs, io, path::Path, sync::Arc};
 
 use tokio::{
     net::{UnixListener, UnixStream},
-    sync::{oneshot, Mutex, Semaphore},
+    sync::{Mutex, Semaphore, oneshot},
 };
 
+use crate::{ipc::IpcPeerMeta, state::DaemonState, util::IpcPolicy};
 use lithium_core::error::{LithiumError, Result};
-use crate::{
-    ipc::IpcPeerMeta,
-    state::DaemonState,
-    util::IpcPolicy,
-};
 
 #[cfg(unix)]
 fn bind_private_listener(socket_path: &Path) -> Result<UnixListener> {
-    use std::os::unix::{
-        fs::FileTypeExt,
-        net::UnixListener as StdUnixListener,
-    };
+    use std::os::unix::{fs::FileTypeExt, net::UnixListener as StdUnixListener};
 
     struct UmaskGuard(libc::mode_t);
 
@@ -51,7 +44,9 @@ fn bind_private_listener(socket_path: &Path) -> Result<UnixListener> {
     let _guard = UmaskGuard(old_umask);
 
     let std_listener = StdUnixListener::bind(socket_path).map_err(LithiumError::io)?;
-    std_listener.set_nonblocking(true).map_err(LithiumError::io)?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(LithiumError::io)?;
 
     UnixListener::from_std(std_listener).map_err(LithiumError::io)
 }
@@ -106,9 +101,10 @@ fn peer_meta(_stream: &UnixStream) -> Result<IpcPeerMeta> {
 #[cfg(target_os = "linux")]
 fn authorize_peer(peer: IpcPeerMeta, policy: &IpcPolicy) -> Result<()> {
     if let Some(allowed_uid) = policy.allowed_uid
-        && peer.uid != Some(allowed_uid) {
-            return Err(LithiumError::invalid_perms("ipc_peer_uid_denied"));
-        }
+        && peer.uid != Some(allowed_uid)
+    {
+        return Err(LithiumError::invalid_perms("ipc_peer_uid_denied"));
+    }
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 use crate::{ipc::types::IpcResponse, state::DaemonState};
 

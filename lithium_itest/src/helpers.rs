@@ -6,7 +6,7 @@ use lithium_core::{
     utils::store::EphemeralStoreManager,
 };
 use lithiums::{build_app, db, health::HealthState, mk_rotator, provider::ServerMkProvider, state};
-use poem::{listener::TcpListener, Server};
+use poem::{Server, listener::TcpListener};
 use tokio::sync::{Mutex, OnceCell};
 use uuid::Uuid;
 
@@ -70,7 +70,10 @@ async fn ensure_postgres() -> &'static SharedPg {
 
             wait_for_postgres(NAME).await;
 
-            SharedPg { port: PORT, container_name: NAME }
+            SharedPg {
+                port: PORT,
+                container_name: NAME,
+            }
         })
         .await
 }
@@ -142,7 +145,10 @@ async fn create_test_db(pg: &'static SharedPg) -> (String, DbGuard) {
     );
 
     let url = format!("postgres://test:test@127.0.0.1:{}/{db_name}", pg.port);
-    let guard = DbGuard { container_name: pg.container_name, db_name };
+    let guard = DbGuard {
+        container_name: pg.container_name,
+        db_name,
+    };
     (url, guard)
 }
 
@@ -227,7 +233,11 @@ impl TestServer {
             ),
         };
 
-        TestServer { addr, bootstrap, _db: db_guard }
+        TestServer {
+            addr,
+            bootstrap,
+            _db: db_guard,
+        }
     }
 
     pub fn client(&self) -> TestLithiumClient {
@@ -241,5 +251,9 @@ pub fn unique_handle(prefix: &str) -> String {
 
 pub fn random_dek_hex() -> String {
     use lithium_core::crypto::keys;
-    keys::random_32().expect("random_32").to_hex().expose().to_string()
+    keys::random_32()
+        .expect("random_32")
+        .to_hex()
+        .expose()
+        .to_string()
 }

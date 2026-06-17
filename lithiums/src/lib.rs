@@ -15,10 +15,10 @@ pub mod transport;
 #[cfg(feature = "tpm")]
 pub mod tpm_provider;
 
-use poem::{get, handler, post, Endpoint, EndpointExt, Route};
-use poem::web::{Data, Json};
-use poem::http::StatusCode;
 use poem::Response;
+use poem::http::StatusCode;
+use poem::web::{Data, Json};
+use poem::{Endpoint, EndpointExt, Route, get, handler, post};
 use serde_json::json;
 
 use lithium_core::contract::protocol::{ctx, path};
@@ -39,8 +39,12 @@ fn health_check(state: Data<&state::SharedState>) -> Response {
     let h = &state.health;
     let reaper_last_ok = h.reaper_last_ok.load(std::sync::atomic::Ordering::Relaxed);
     let reaper_errors = h.reaper_errors.load(std::sync::atomic::Ordering::Relaxed);
-    let mk_last_ok = h.mk_rotation_last_ok.load(std::sync::atomic::Ordering::Relaxed);
-    let mk_errors = h.mk_rotation_errors.load(std::sync::atomic::Ordering::Relaxed);
+    let mk_last_ok = h
+        .mk_rotation_last_ok
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let mk_errors = h
+        .mk_rotation_errors
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     let body = json!({
         "reaper": { "last_ok": reaper_last_ok, "errors_total": reaper_errors },

@@ -14,12 +14,13 @@ fn find_daemon_binary() -> PathBuf {
     let name = "lithiumd";
 
     if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent() {
-            let candidate = dir.join(name);
-            if candidate.exists() {
-                return candidate;
-            }
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join(name);
+        if candidate.exists() {
+            return candidate;
         }
+    }
     PathBuf::from(name)
 }
 

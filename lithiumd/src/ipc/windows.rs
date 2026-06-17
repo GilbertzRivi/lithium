@@ -2,16 +2,12 @@ use std::sync::Arc;
 
 use tokio::{
     net::windows::named_pipe::ServerOptions,
-    sync::{oneshot, Mutex, Semaphore},
+    sync::{Mutex, Semaphore, oneshot},
 };
 
 use lithium_core::error::{LithiumError, Result};
 
-use crate::{
-    ipc::IpcPeerMeta,
-    state::DaemonState,
-    util::IpcPolicy,
-};
+use crate::{ipc::IpcPeerMeta, state::DaemonState, util::IpcPolicy};
 
 fn server_builder(first_instance: bool) -> ServerOptions {
     let mut opts = ServerOptions::new();
@@ -46,7 +42,14 @@ pub async fn run(
 
         tokio::spawn(async move {
             let _permit = permit;
-            let _ = super::handle_conn(first, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await;
+            let _ = super::handle_conn(
+                first,
+                shutdown_tx,
+                state,
+                idle_timeout,
+                IpcPeerMeta::default(),
+            )
+            .await;
         });
     }
 
@@ -68,7 +71,14 @@ pub async fn run(
 
         tokio::spawn(async move {
             let _permit = permit;
-            let _ = super::handle_conn(server, shutdown_tx, state, idle_timeout, IpcPeerMeta::default()).await;
+            let _ = super::handle_conn(
+                server,
+                shutdown_tx,
+                state,
+                idle_timeout,
+                IpcPeerMeta::default(),
+            )
+            .await;
         });
     }
 }

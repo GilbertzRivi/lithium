@@ -1,6 +1,6 @@
 use std::{fs, io, path::Path};
 
-use lithium_core::contract::identity_file::{encode, ServerIdentityKeys};
+use lithium_core::contract::identity_file::{ServerIdentityKeys, encode};
 use lithium_core::keys::PublicKeys;
 
 pub fn write_server_identity(path: &Path, keys: &PublicKeys) -> io::Result<()> {

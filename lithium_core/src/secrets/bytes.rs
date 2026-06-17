@@ -63,7 +63,8 @@ impl<const N: usize> FixedBytes<N> {
         }
 
         let mut out = SecretBox::new(Box::new([0u8; N]));
-        hex::decode_to_slice(s, out.expose_secret_mut().as_mut_slice()).map_err(LithiumError::from)?;
+        hex::decode_to_slice(s, out.expose_secret_mut().as_mut_slice())
+            .map_err(LithiumError::from)?;
         Ok(Self(out))
     }
 
@@ -98,20 +99,30 @@ impl<const N: usize> PartialEq for FixedBytes<N> {
 }
 impl<const N: usize> Eq for FixedBytes<N> {}
 impl<const N: usize> Hash for FixedBytes<N> {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.as_slice().hash(state); }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state);
+    }
 }
 impl<const N: usize> fmt::Debug for FixedBytes<N> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "FixedBytes<{}>(..)", N) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FixedBytes<{}>(..)", N)
+    }
 }
 impl<const N: usize> AsRef<[u8]> for FixedBytes<N> {
-    fn as_ref(&self) -> &[u8] { self.as_slice() }
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
 }
 impl<const N: usize> TryFrom<&[u8]> for FixedBytes<N> {
     type Error = LithiumError;
-    fn try_from(value: &[u8]) -> Result<Self> { Self::from_slice(value) }
+    fn try_from(value: &[u8]) -> Result<Self> {
+        Self::from_slice(value)
+    }
 }
 impl<const N: usize> From<[u8; N]> for FixedBytes<N> {
-    fn from(value: [u8; N]) -> Self { Self::new(value) }
+    fn from(value: [u8; N]) -> Self {
+        Self::new(value)
+    }
 }
 
 pub type Byte12 = FixedBytes<12>;
@@ -127,21 +138,37 @@ pub struct SecretBytes(SecretBox<Vec<u8>>);
 
 impl SecretBytes {
     #[inline]
-    pub fn new(v: Vec<u8>) -> Self { Self(SecretBox::new(Box::new(v))) }
+    pub fn new(v: Vec<u8>) -> Self {
+        Self(SecretBox::new(Box::new(v)))
+    }
     #[inline]
-    pub fn from_slice(v: &[u8]) -> Self { Self::new(v.to_vec()) }
+    pub fn from_slice(v: &[u8]) -> Self {
+        Self::new(v.to_vec())
+    }
     #[inline]
-    pub fn expose_as_slice(&self) -> &[u8] { self.0.expose_secret().as_slice() }
+    pub fn expose_as_slice(&self) -> &[u8] {
+        self.0.expose_secret().as_slice()
+    }
     #[inline]
-    pub fn expose_as_mut_vec(&mut self) -> &mut Vec<u8> { self.0.expose_secret_mut() }
+    pub fn expose_as_mut_vec(&mut self) -> &mut Vec<u8> {
+        self.0.expose_secret_mut()
+    }
     #[inline]
-    pub fn expose_into_vec(self) -> Vec<u8> { self.0.expose_secret().clone() }
+    pub fn expose_into_vec(self) -> Vec<u8> {
+        self.0.expose_secret().clone()
+    }
     #[inline]
-    pub fn to_hex(&self) -> SecretString { SecretString::new(hex::encode(self.expose_as_slice())) }
+    pub fn to_hex(&self) -> SecretString {
+        SecretString::new(hex::encode(self.expose_as_slice()))
+    }
     #[inline]
-    pub fn len(&self) -> usize { self.expose_as_slice().len() }
+    pub fn len(&self) -> usize {
+        self.expose_as_slice().len()
+    }
     #[inline]
-    pub fn is_empty(&self) -> bool { self.expose_as_slice().is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.expose_as_slice().is_empty()
+    }
 
     #[inline]
     pub fn from_hex(s: &str) -> Result<Self> {
@@ -169,13 +196,19 @@ impl SecretBytes {
 }
 
 impl Clone for SecretBytes {
-    fn clone(&self) -> Self { Self::from_slice(self.expose_as_slice()) }
+    fn clone(&self) -> Self {
+        Self::from_slice(self.expose_as_slice())
+    }
 }
 impl fmt::Debug for SecretBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("SecretBytes(..)") }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SecretBytes(..)")
+    }
 }
 impl ExposeSecret<Vec<u8>> for SecretBytes {
-    fn expose_secret(&self) -> &Vec<u8> { self.0.expose_secret() }
+    fn expose_secret(&self) -> &Vec<u8> {
+        self.0.expose_secret()
+    }
 }
 impl AsRef<[u8]> for SecretBytes {
     fn as_ref(&self) -> &[u8] {

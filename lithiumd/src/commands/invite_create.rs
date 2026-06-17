@@ -10,7 +10,7 @@ use crate::{
         decode_contact_id_hex, encode_invite_code, gen_self_state, invite_public_from_self,
     },
     db::repo::DaemonDbExt,
-    ipc::types::{err_resp, internal_err, storage_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, internal_err, storage_err},
     state::DaemonState,
 };
 
@@ -19,7 +19,6 @@ pub async fn handle(
     contact_id_opt: Option<String>,
     state: Arc<DaemonState>,
 ) -> IpcResponse {
-
     let dm_opt = state.local_db.lock().await.clone();
     let Some(dm) = dm_opt else {
         return err_resp(id, "storage_locked");

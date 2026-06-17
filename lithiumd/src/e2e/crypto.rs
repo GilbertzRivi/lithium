@@ -109,7 +109,11 @@ pub(crate) fn verify_e2e_payload(
     let sig_dili = SecretBytes::from_hex(sig_dili_hex.trim())
         .map_err(|_| LithiumError::invalid_credentials("bad_sig_dili_hex"))?;
 
-    if !sign::verify_signature(sig_input.expose_as_slice(), sig_ed.expose_as_slice(), &ed_pub) {
+    if !sign::verify_signature(
+        sig_input.expose_as_slice(),
+        sig_ed.expose_as_slice(),
+        &ed_pub,
+    ) {
         return Err(malicious_message_err());
     }
 

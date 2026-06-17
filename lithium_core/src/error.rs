@@ -176,7 +176,9 @@ impl LithiumError {
         if self.kind != CryptoErrorKind::Io {
             return false;
         }
-        let Some(src) = self.source.as_deref() else { return false; };
+        let Some(src) = self.source.as_deref() else {
+            return false;
+        };
         if let Some(ioe) = src.downcast_ref::<std::io::Error>() {
             return ioe.kind() == std::io::ErrorKind::NotFound;
         }
@@ -186,25 +188,54 @@ impl LithiumError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CryptoErrorKind {
-    InvalidLength { expected: usize, got: usize },
-    InvalidHexLength { expected: usize, got: usize },
+    InvalidLength {
+        expected: usize,
+        got: usize,
+    },
+    InvalidHexLength {
+        expected: usize,
+        got: usize,
+    },
     InvalidHex,
     HexDisallowedPrefix,
     HexMustBeLowercase,
     StringPolicy,
-    MissingHeader { name: &'static str },
-    InvalidUtf8Header { name: &'static str },
+    MissingHeader {
+        name: &'static str,
+    },
+    InvalidUtf8Header {
+        name: &'static str,
+    },
     JsonParse,
     JsonNotObject,
-    JsonMissingField { key: &'static str },
-    JsonTypeMismatch { key: &'static str, expected: &'static str },
-    InvalidCredentials { msg: &'static str },
-    InvalidPermissions { msg: &'static str },
-    InvalidUtf { msg: &'static str },
-    EnvMissing { name: &'static str },
-    EnvInvalid { name: &'static str },
-    StateMissing { name: &'static str },
-    HttpStatus { code: u16 },
+    JsonMissingField {
+        key: &'static str,
+    },
+    JsonTypeMismatch {
+        key: &'static str,
+        expected: &'static str,
+    },
+    InvalidCredentials {
+        msg: &'static str,
+    },
+    InvalidPermissions {
+        msg: &'static str,
+    },
+    InvalidUtf {
+        msg: &'static str,
+    },
+    EnvMissing {
+        name: &'static str,
+    },
+    EnvInvalid {
+        name: &'static str,
+    },
+    StateMissing {
+        name: &'static str,
+    },
+    HttpStatus {
+        code: u16,
+    },
     Timeout,
     Transport,
     KdfFailed,
@@ -249,14 +280,28 @@ impl fmt::Display for LithiumError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if Self::is_verbose() {
             match self.kind {
-                CryptoErrorKind::InvalidLength { expected, got } => write!(f, "invalid length: expected {expected}, got {got}")?,
-                CryptoErrorKind::InvalidHexLength { expected, got } => write!(f, "invalid hex length: expected {expected}, got {got}")?,
+                CryptoErrorKind::InvalidLength { expected, got } => {
+                    write!(f, "invalid length: expected {expected}, got {got}")?
+                }
+                CryptoErrorKind::InvalidHexLength { expected, got } => {
+                    write!(f, "invalid hex length: expected {expected}, got {got}")?
+                }
                 CryptoErrorKind::MissingHeader { name } => write!(f, "missing header: {name}")?,
-                CryptoErrorKind::InvalidUtf8Header { name } => write!(f, "invalid utf-8 in header: {name}")?,
-                CryptoErrorKind::JsonMissingField { key } => write!(f, "json missing field: {key}")?,
-                CryptoErrorKind::JsonTypeMismatch { key, expected } => write!(f, "json type mismatch at {key}: expected {expected}")?,
-                CryptoErrorKind::InvalidCredentials { msg } => write!(f, "invalid credentials: {msg}")?,
-                CryptoErrorKind::InvalidPermissions { msg } => write!(f, "invalid permissions: {msg}")?,
+                CryptoErrorKind::InvalidUtf8Header { name } => {
+                    write!(f, "invalid utf-8 in header: {name}")?
+                }
+                CryptoErrorKind::JsonMissingField { key } => {
+                    write!(f, "json missing field: {key}")?
+                }
+                CryptoErrorKind::JsonTypeMismatch { key, expected } => {
+                    write!(f, "json type mismatch at {key}: expected {expected}")?
+                }
+                CryptoErrorKind::InvalidCredentials { msg } => {
+                    write!(f, "invalid credentials: {msg}")?
+                }
+                CryptoErrorKind::InvalidPermissions { msg } => {
+                    write!(f, "invalid permissions: {msg}")?
+                }
                 CryptoErrorKind::InvalidUtf { msg } => write!(f, "invalid utf-8: {msg}")?,
                 CryptoErrorKind::EnvMissing { name } => write!(f, "missing env var: {name}")?,
                 CryptoErrorKind::EnvInvalid { name } => write!(f, "invalid env var: {name}")?,

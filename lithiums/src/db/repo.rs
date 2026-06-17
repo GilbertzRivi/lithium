@@ -9,6 +9,7 @@ use sea_orm::{
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::{
     crypto::{aead, kdf, keys},
     db::manager::DataManager,
@@ -18,7 +19,6 @@ use lithium_core::{
     secrets::{Byte12, Byte32, SecretString},
     utils::store::EphemeralStoreManager,
 };
-use lithium_core::secrets::bytes::SecretBytes;
 
 use crate::db::models::{messages, users};
 use crate::error::{AppError, AppResult};
@@ -110,33 +110,31 @@ async fn decrypt_user_row<P: MkProvider + Send + Sync + 'static>(
     dm: &DataManager<P>,
     row: users::Model,
 ) -> AppResult<UserRecord> {
-    let password_hash_plain = dm
-        .decrypt_db_blob(
-            &SecretBytes::from_slice(row.password_hash.as_slice()),
-            &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
-        )
-        .await?;
+    let db_dek = dm.load_db_dek().await?;
 
-    let ed_key_plain = dm
-        .decrypt_db_blob(
-            &SecretBytes::from_slice(row.ed_key.as_slice()),
-            &SecretBytes::from_slice(AAD_USER_ED_KEY),
-        )
-        .await?;
+    let password_hash_plain = dm.decrypt_db_blob_with(
+        &db_dek,
+        &SecretBytes::from_slice(row.password_hash.as_slice()),
+        &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
+    )?;
 
-    let dili_key_plain = dm
-        .decrypt_db_blob(
-            &SecretBytes::from_slice(row.dili_key.as_slice()),
-            &SecretBytes::from_slice(AAD_USER_DILI_KEY),
-        )
-        .await?;
+    let ed_key_plain = dm.decrypt_db_blob_with(
+        &db_dek,
+        &SecretBytes::from_slice(row.ed_key.as_slice()),
+        &SecretBytes::from_slice(AAD_USER_ED_KEY),
+    )?;
 
-    let dek_plain = dm
-        .decrypt_db_blob(
-            &SecretBytes::from_slice(row.dek.as_slice()),
-            &SecretBytes::from_slice(AAD_USER_DEK),
-        )
-        .await?;
+    let dili_key_plain = dm.decrypt_db_blob_with(
+        &db_dek,
+        &SecretBytes::from_slice(row.dili_key.as_slice()),
+        &SecretBytes::from_slice(AAD_USER_DILI_KEY),
+    )?;
+
+    let dek_plain = dm.decrypt_db_blob_with(
+        &db_dek,
+        &SecretBytes::from_slice(row.dek.as_slice()),
+        &SecretBytes::from_slice(AAD_USER_DEK),
+    )?;
 
     Ok(UserRecord {
         id: row.id,
@@ -157,7 +155,7 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
-    ) -> AppResult<Option<SecretString>>;
+    ) -> AppResult<SecretString>;
 
     async fn get_user(&self, handler: &str) -> AppResult<Option<UserRecord>>;
     async fn get_user_by_id(&self, id: &[u8]) -> AppResult<Option<UserRecord>>;
@@ -194,18 +192,9 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
-    ) -> AppResult<Option<SecretString>> {
+    ) -> AppResult<SecretString> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
-
-        if users::Entity::find_by_id(id_enc.expose_as_slice().to_vec())
-            .one(self.db())
-            .await
-            .map_err(LithiumError::io)?
-            .is_some()
-        {
-            return Ok(None);
-        }
 
         let pw = SecretString::new(password.to_owned());
         let password_hash = hash_password_phc(&pw)?;
@@ -240,8 +229,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         let remote_delete_capability_raw: Byte32 = keys::random_32()?;
         let remote_delete_capability = remote_delete_capability_raw.to_hex();
-        let delete_token_hash =
-            Sha256::digest(remote_delete_capability_raw.as_slice()).to_vec();
+        let delete_token_hash = Sha256::digest(remote_delete_capability_raw.as_slice()).to_vec();
 
         let am = users::ActiveModel {
             id: Set(id_enc.expose_as_slice().to_vec()),
@@ -253,11 +241,11 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         };
 
         match am.insert(self.db()).await {
-            Ok(_) => Ok(Some(remote_delete_capability)),
+            Ok(_) => Ok(remote_delete_capability),
             Err(e) => {
                 let s = e.to_string();
                 if s.contains("duplicate key") || s.contains("unique") {
-                    Ok(None)
+                    Ok(remote_delete_capability)
                 } else {
                     Err(AppError::from(LithiumError::io(e)))
                 }
@@ -399,7 +387,9 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
                     let ms = q.all(txn).await?;
 
                     for m in &ms {
-                        messages::Entity::delete_by_id(m.id.clone()).exec(txn).await?;
+                        messages::Entity::delete_by_id(m.id.clone())
+                            .exec(txn)
+                            .await?;
                     }
 
                     Ok::<_, sea_orm::DbErr>(ms.into_iter().map(|m| (m.id, m.content)).collect())

@@ -7,8 +7,11 @@ use std::{
     time::Duration,
 };
 
-pub use lithium_itest::{client::ServerBootstrap, helpers::{TestServer, unique_handle}};
-pub use serde_json::{json, Value};
+pub use lithium_itest::{
+    client::ServerBootstrap,
+    helpers::{TestServer, unique_handle},
+};
+pub use serde_json::{Value, json};
 pub use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 pub use tokio::net::UnixStream;
 
@@ -50,7 +53,11 @@ impl DaemonProcess {
         let data_dir = tempfile::tempdir().expect("tempdir");
         let socket_path = data_dir.path().join("daemon.sock");
         let child = Self::spawn_child(data_dir.path(), &socket_path, max_conn).await;
-        DaemonProcess { child: Some(child), socket_path, _data_dir: Some(data_dir) }
+        DaemonProcess {
+            child: Some(child),
+            socket_path,
+            _data_dir: Some(data_dir),
+        }
     }
 
     // Removes any stale socket from a previous daemon so wait_for_socket sees only the new one.
@@ -58,7 +65,11 @@ impl DaemonProcess {
         let socket_path = data_path.join("daemon.sock");
         let _ = tokio::fs::remove_file(&socket_path).await;
         let child = Self::spawn_child(data_path, &socket_path, 4).await;
-        DaemonProcess { child: Some(child), socket_path, _data_dir: None }
+        DaemonProcess {
+            child: Some(child),
+            socket_path,
+            _data_dir: None,
+        }
     }
 
     pub async fn spawn_child(data_path: &Path, socket_path: &Path, max_conn: usize) -> Child {
@@ -109,9 +120,15 @@ pub struct IpcClient {
 
 impl IpcClient {
     pub async fn connect(path: &Path) -> Self {
-        let stream = UnixStream::connect(path).await.expect("connect to daemon socket");
+        let stream = UnixStream::connect(path)
+            .await
+            .expect("connect to daemon socket");
         let (r, w) = tokio::io::split(stream);
-        IpcClient { reader: BufReader::new(r), writer: w, next_id: 1 }
+        IpcClient {
+            reader: BufReader::new(r),
+            writer: w,
+            next_id: 1,
+        }
     }
 
     pub async fn send(&mut self, mut cmd: Value) -> Value {
@@ -119,19 +136,27 @@ impl IpcClient {
         self.next_id += 1;
         cmd["id"] = json!(id);
         let line = serde_json::to_string(&cmd).unwrap() + "\n";
-        self.writer.write_all(line.as_bytes()).await.expect("write ipc");
+        self.writer
+            .write_all(line.as_bytes())
+            .await
+            .expect("write ipc");
         let mut buf = String::new();
         self.reader.read_line(&mut buf).await.expect("read ipc");
         serde_json::from_str(&buf).expect("parse ipc response")
     }
 
     pub async fn send_raw(&mut self, s: &str) {
-        self.writer.write_all(s.as_bytes()).await.expect("write raw ipc");
+        self.writer
+            .write_all(s.as_bytes())
+            .await
+            .expect("write raw ipc");
     }
 
     pub async fn try_read_line(&mut self) -> Option<String> {
         let mut buf = String::new();
-        match tokio::time::timeout(Duration::from_millis(500), self.reader.read_line(&mut buf)).await {
+        match tokio::time::timeout(Duration::from_millis(500), self.reader.read_line(&mut buf))
+            .await
+        {
             Ok(Ok(0)) | Err(_) => None,
             Ok(Ok(_)) => Some(buf),
             Ok(Err(_)) => None,
@@ -140,7 +165,7 @@ impl IpcClient {
 }
 
 pub fn build_server_identity(bs: &ServerBootstrap) -> Vec<u8> {
-    use lithium_core::contract::identity_file::{encode, ServerIdentityKeys};
+    use lithium_core::contract::identity_file::{ServerIdentityKeys, encode};
     encode(&ServerIdentityKeys {
         x25519: bs.shake_pub_x.as_slice().to_vec(),
         ed25519: bs.server_sig_ed.as_slice().to_vec(),
@@ -149,14 +174,17 @@ pub fn build_server_identity(bs: &ServerBootstrap) -> Vec<u8> {
     })
 }
 
-pub const DATA_PASS: &str = "DataPass1!";
-pub const ACCT_PASS: &str = "AcctPass2@";
+pub const DATA_PASS: &str = "DataPass12!@";
+pub const ACCT_PASS: &str = "AcctPass234@";
 
 pub async fn full_setup(c: &mut IpcClient, srv: &TestServer, handler: &str) -> String {
-    c.send(json!({"cmd": "set_server_url",      "url":  format!("http://{}", srv.addr)})).await;
+    c.send(json!({"cmd": "set_server_url",      "url":  format!("http://{}", srv.addr)}))
+        .await;
     c.send(json!({"cmd": "set_server_identity", "data": hex::encode(build_server_identity(&srv.bootstrap))})).await;
 
-    let r = c.send(json!({"cmd": "unlock_keystore", "data_password": DATA_PASS})).await;
+    let r = c
+        .send(json!({"cmd": "unlock_keystore", "data_password": DATA_PASS}))
+        .await;
     assert!(r["ok"].as_bool().unwrap(), "unlock_keystore: {:?}", r);
     let tok = r["result"]["ipc_auth_token"].as_str().unwrap().to_owned();
 
@@ -166,7 +194,9 @@ pub async fn full_setup(c: &mut IpcClient, srv: &TestServer, handler: &str) -> S
     let r = c.send(json!({"cmd": "register", "auth_token": tok})).await;
     assert!(r["ok"].as_bool().unwrap(), "register: {:?}", r);
 
-    let r = c.send(json!({"cmd": "unlock_storage", "auth_token": tok})).await;
+    let r = c
+        .send(json!({"cmd": "unlock_storage", "auth_token": tok}))
+        .await;
     assert!(r["ok"].as_bool().unwrap(), "unlock_storage: {:?}", r);
 
     tok

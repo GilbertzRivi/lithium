@@ -7,13 +7,13 @@ use tokio::sync::{Mutex, watch};
 
 use lithium_core::{
     keys::{KeyManager, KeyStoreKind},
-    passwords::passwords::{validate_password, validate_passwords_distinct, PasswordPolicy},
+    passwords::passwords::{PasswordPolicy, validate_password, validate_passwords_distinct},
     secrets::SecretString,
     utils::store::EphemeralStoreManager,
 };
 
 use crate::{
-    ipc::types::{crypto_err, err_resp, internal_err, IpcResponse},
+    ipc::types::{IpcResponse, crypto_err, err_resp, internal_err},
     password_provider::PasswordFileMkProvider,
     protocol_manager::ProtocolManager,
     state::{DaemonState, MkRotator},
@@ -35,12 +35,14 @@ pub async fn handle(
     if already {
         let current = state.data_pass.lock().await.clone();
         return match current {
-            Some(cur) if bool::from(cur.expose().as_bytes().ct_eq(dp.expose().as_bytes())) => IpcResponse {
-                id,
-                ok: true,
-                result: Some(json!({"unlocked": true})),
-                error: None,
-            },
+            Some(cur) if bool::from(cur.expose().as_bytes().ct_eq(dp.expose().as_bytes())) => {
+                IpcResponse {
+                    id,
+                    ok: true,
+                    result: Some(json!({"unlocked": true})),
+                    error: None,
+                }
+            }
             _ => err_resp(id, "bad_data_password"),
         };
     }
@@ -61,11 +63,7 @@ pub async fn handle(
 
     *state.data_pass.lock().await = Some(dp.clone());
 
-    let mk_path = state
-        .base_dir
-        .join("keystore")
-        .join("user")
-        .join("mk.enc");
+    let mk_path = state.base_dir.join("keystore").join("user").join("mk.enc");
     let mk_provider = PasswordFileMkProvider::new(mk_path, dp);
 
     let km = match KeyManager::start(

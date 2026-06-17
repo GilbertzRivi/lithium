@@ -5,18 +5,14 @@ use std::path::PathBuf;
 use tss_esapi::{
     Context, TctiNameConf,
     attributes::ObjectAttributesBuilder,
-    interface_types::{
-        ecc::EccCurve,
-        resource_handles::Hierarchy,
-        session_handles::AuthSession,
-    },
+    interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm},
+    interface_types::{ecc::EccCurve, resource_handles::Hierarchy, session_handles::AuthSession},
     structures::{
-        Digest, EccPoint, KeyedHashScheme, Private, Public,
-        PublicBuilder, PublicEccParametersBuilder, PublicKeyedHashParameters, SensitiveData,
+        Digest, EccPoint, KeyedHashScheme, Private, Public, PublicBuilder,
+        PublicEccParametersBuilder, PublicKeyedHashParameters, SensitiveData,
         SymmetricDefinitionObject,
     },
     traits::{Marshall, UnMarshall},
-    interface_types::algorithm::{HashingAlgorithm, PublicAlgorithm},
 };
 use zeroize::Zeroizing;
 
@@ -43,8 +39,8 @@ fn tpm_err(e: tss_esapi::Error) -> LithiumError {
 }
 
 fn open_ctx() -> Result<Context> {
-    let tcti_str = std::env::var("LITHIUM_TPM_TCTI")
-        .unwrap_or_else(|_| "device:/dev/tpmrm0".to_string());
+    let tcti_str =
+        std::env::var("LITHIUM_TPM_TCTI").unwrap_or_else(|_| "device:/dev/tpmrm0".to_string());
     let tcti: TctiNameConf = tcti_str.parse().map_err(|_| LithiumError::internal())?;
     Context::new(tcti).map_err(tpm_err)
 }

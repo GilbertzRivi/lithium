@@ -1,17 +1,12 @@
 use hkdf::Hkdf;
 use pqcrypto::kem::mlkem1024::{
-    Ciphertext as KyberCiphertext,
-    PublicKey as KyberPublicKey,
-    SecretKey as KyberSecretKey,
-    SharedSecret as KyberSharedSecret,
-    decapsulate as kyber_decapsulate,
+    Ciphertext as KyberCiphertext, PublicKey as KyberPublicKey, SecretKey as KyberSecretKey,
+    SharedSecret as KyberSharedSecret, decapsulate as kyber_decapsulate,
     encapsulate as kyber_encapsulate,
 };
 use pqcrypto::traits::kem::{
-    Ciphertext as TraitKyberCiphertext,
-    PublicKey as TraitKyberPublicKey,
-    SecretKey as TraitKyberSecretKey,
-    SharedSecret as TraitKyberSharedSecret,
+    Ciphertext as TraitKyberCiphertext, PublicKey as TraitKyberPublicKey,
+    SecretKey as TraitKyberSecretKey, SharedSecret as TraitKyberSharedSecret,
 };
 use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
@@ -20,7 +15,7 @@ use crate::{
     crypto::{aead, kdf, keys},
     error::{LithiumError, Result},
     labels::{
-        AEAD_VERSION, KYBER_AEAD_ID, KYBER_BOX_VERSION, KYBER_KEMDEM_INFO, KYBER_KEM_ID,
+        AEAD_VERSION, KYBER_AEAD_ID, KYBER_BOX_VERSION, KYBER_KEM_ID, KYBER_KEMDEM_INFO,
         KYBER_SALT_LEN, KYBERBOX_AAD_PREFIX,
     },
     secrets::{Byte32, bytes::SecretBytes},
@@ -44,6 +39,10 @@ fn derive_ecdh_key(priv_x: &Byte32, peer_pub_x: &Byte32, ctx: &str) -> Result<By
     let peer_pub = XPublicKey::from(*peer_pub_x.as_array());
     let shared = my_secret.diffie_hellman(&peer_pub);
 
+    if !shared.was_contributory() {
+        return Err(LithiumError::invalid_credentials("x25519_low_order"));
+    }
+
     let shared_secret = Byte32::new(shared.to_bytes());
 
     kdf::derive32(
@@ -58,11 +57,7 @@ fn derive_base_key(ecdh_key: &Byte32, seed_plain: &Byte32, ctx: &str) -> Result<
     let ecdh_input = SecretBytes::from_slice(ecdh_key.as_slice());
     let seed_salt = SecretBytes::from_slice(seed_plain.as_slice());
 
-    kdf::derive32(
-        &ecdh_input,
-        Some(&seed_salt),
-        &label(ctx, "base-key"),
-    )
+    kdf::derive32(&ecdh_input, Some(&seed_salt), &label(ctx, "base-key"))
 }
 
 #[inline]
@@ -83,7 +78,11 @@ fn derive_headers_key(base_key: &Byte32, ctx: &str) -> Result<Byte32> {
     )
 }
 
-fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) -> Result<SecretBytes> {
+fn encrypt_kyber_seed(
+    peer_kyber_pub: &[u8],
+    plaintext: &[u8],
+    user_aad: &[u8],
+) -> Result<SecretBytes> {
     let pk = KyberPublicKey::from_bytes(peer_kyber_pub).map_err(|_| LithiumError::internal())?;
 
     let (ss_bytes, ct_kem) = {
@@ -107,7 +106,8 @@ fn encrypt_kyber_seed(peer_kyber_pub: &[u8], plaintext: &[u8], user_aad: &[u8]) 
     header.push(KYBER_SALT_LEN);
     header.extend_from_slice(salt_arr.as_slice());
 
-    let mut aad_full = Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
+    let mut aad_full =
+        Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
     aad_full.push(AEAD_VERSION);
     aad_full.extend_from_slice(KYBERBOX_AAD_PREFIX);
     aad_full.extend_from_slice(&header);
@@ -174,7 +174,8 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
     }
 
     let ss_bytes = {
-        let sk = KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
+        let sk =
+            KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
         let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
         let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
         Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?
@@ -192,7 +193,8 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
     header.push(KYBER_SALT_LEN);
     header.extend_from_slice(salt);
 
-    let mut aad_full = Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
+    let mut aad_full =
+        Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
     aad_full.push(AEAD_VERSION);
     aad_full.extend_from_slice(KYBERBOX_AAD_PREFIX);
     aad_full.extend_from_slice(&header);
@@ -231,12 +233,7 @@ pub fn encrypt(
     let body_nonce = keys::random_12()?;
     let headers_nonce = keys::random_12()?;
 
-    let enc_body = aead::encrypt(
-        body,
-        &body_key,
-        &body_nonce,
-        &label(ctx, "body"),
-    )?;
+    let enc_body = aead::encrypt(body, &body_key, &body_nonce, &label(ctx, "body"))?;
 
     let enc_headers = aead::encrypt(
         headers,
@@ -271,17 +268,9 @@ pub fn decrypt(
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 
-    let dec_body = aead::decrypt(
-        &wire.enc_body,
-        &body_key,
-        &label(ctx, "body"),
-    )?;
+    let dec_body = aead::decrypt(&wire.enc_body, &body_key, &label(ctx, "body"))?;
 
-    let dec_headers = aead::decrypt(
-        &wire.enc_headers,
-        &headers_key,
-        &label(ctx, "headers"),
-    )?;
+    let dec_headers = aead::decrypt(&wire.enc_headers, &headers_key, &label(ctx, "headers"))?;
 
     Ok((dec_body, dec_headers))
 }

@@ -2,14 +2,14 @@
 
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
 };
 
 use reqwest::Url;
-use tokio::sync::{oneshot, watch, Mutex};
+use tokio::sync::{Mutex, oneshot, watch};
 
 use lithium_core::error::Result;
 
@@ -88,8 +88,7 @@ fn run() -> Result<()> {
     daemon_thread.join().ok();
 
     if action == tray::Action::Restart {
-        let exe = std::env::current_exe()
-            .unwrap_or_else(|_| std::path::PathBuf::from("lithiumd"));
+        let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("lithiumd"));
         let _ = std::process::Command::new(exe).spawn();
     }
 
@@ -128,7 +127,7 @@ async fn daemon_async(
 
     #[cfg(unix)]
     let mut sigterm = {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         signal(SignalKind::terminate()).expect("sigterm handler")
     };
 

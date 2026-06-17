@@ -31,7 +31,9 @@ async fn test_16_byte_mailbox_accepted() {
 async fn test_8_byte_mailbox_rejected_on_send() {
     let srv = TestServer::start().await;
     let mut c = authenticated_client(&srv, "mb8s").await;
-    let raw = c.send_message_raw(&hex::encode([0xaau8; 8]), &hex::encode(b"hi")).await;
+    let raw = c
+        .send_message_raw(&hex::encode([0xaau8; 8]), &hex::encode(b"hi"))
+        .await;
     assert_eq!(raw.status, 400);
     assert_eq!(raw.error.as_deref(), Some("invalid_mailbox"));
 }

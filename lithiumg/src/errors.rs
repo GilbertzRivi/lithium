@@ -5,7 +5,7 @@ pub fn translate(raw: &str) -> String {
     match raw {
         "bad_data_password" | "crypto_error" => return "Wrong password.".into(),
         "bad_account_password" => {
-            return "Account password does not meet the minimum requirements.".into()
+            return "Account password does not meet the minimum requirements.".into();
         }
         _ => {}
     }
@@ -39,13 +39,9 @@ pub fn translate(raw: &str) -> String {
 
     match raw {
         "daemon_closed_connection" => "Daemon closed the connection — please try again.",
-        "ipc_auth_failed" | "ipc_auth_required" => {
-            "Session expired — re-enter your data password."
-        }
+        "ipc_auth_failed" | "ipc_auth_required" => "Session expired — re-enter your data password.",
         // Password / crypto
-        "passwords_must_be_distinct" => {
-            "Data password and account password must be different."
-        }
+        "passwords_must_be_distinct" => "Data password and account password must be different.",
         // Daemon state
         "missing_data_password" => "Data password is not set.",
         "missing_account_credentials" => "Account credentials are not configured.",

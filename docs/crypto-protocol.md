@@ -90,17 +90,20 @@ Każde żądanie jest dual-podpisane (Ed25519 + ML-DSA-87). Klucze podpisujące 
 
 Zachowanie per endpoint:
 
-| Endpoint | Klucze `key-ed`/`key-dili` w nagłówkach | Weryfikacja po stronie serwera |
-|----------|------------------------------------------|-------------------------------|
-| `Shake`, `RemoteDelete`, `MsgFetch` | efemeryczne (generowane per żądanie) | z zaszyfrowanych nagłówków żądania |
-| `Register` | długoterminowe klucze tożsamości | z zaszyfrowanych nagłówków żądania (serwer zapisuje je w DB) |
-| `Login`, `MsgSend` | brak | kluczami zapisanymi w DB przy rejestracji |
+| Endpoint | Klucze `key-ed`/`key-dili` w nagłówkach | `AuthMode` | Weryfikacja po stronie serwera |
+|----------|------------------------------------------|------------|-------------------------------|
+| `Shake`, `RemoteDelete`, `MsgFetch` | efemeryczne (generowane per żądanie) | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania |
+| `Register` | długoterminowe klucze tożsamości | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania (serwer zapisuje je w DB) |
+| `Login` | brak | `LoginByHandler` | kluczami zapisanymi w DB, wyszukanymi po `handler` |
+| `Delete`, `MsgSend` | brak | `JwtUser` | tożsamość użytkownika z JWT wystawionego przy `Login` (nie z kluczy w nagłówkach) |
 
 Serwer dual-podpisuje każdą odpowiedź swoimi kluczami. Klient weryfikuje pod kluczami załadowanymi z pliku `server.identity`.
 
 ### JWT (jednorazowy token autoryzacji)
 
-JWT wystawiany przy pomyślnym logowaniu (`/user/login`), używany wyłącznie przy wysyłaniu wiadomości (`/msg/send`).
+JWT wystawiany przy pomyślnym logowaniu (`/user/login`), wymagany przez endpointy z `AuthMode::JwtUser`: wysłanie wiadomości (`/msg/send`) i usunięcie konta (`/user/delete`).
+
+Nie istnieje żadna komenda IPC `login` i żaden ekran GUI logowania. `/user/login` jest wołane automatycznie i niewidocznie przez `ProtocolManager::ensure_login` (`lithiumd/src/protocol_manager.rs`) za każdym razem, gdy operacja wymagająca JWT (`contact_send`, `delete_account`) albo DEK-a (`unlock_storage`, `get_dek`) nie ma już zcache'owanego, niezużytego tokenu — używając handlera/hasła konta z `set_credentials`, trzymanych tylko w pamięci. Token jest jednorazowy (`store.take`), więc praktycznie każde kolejne wywołanie `contact_send`/`delete_account` po wyczerpaniu poprzedniego tokenu wywoła ponowny, równie niewidoczny `/user/login` w tle.
 
 - Algorytm: HS256
 - Pole `sub`: `hex(HMAC-SHA256(user_id_bytes, random_seed_bytes))` — nieprzejrzysty identyfikator
@@ -116,9 +119,9 @@ Utrata tokenu lub przejęcie sesji nie pozwala na wielokrotne użycie — token 
 |----------|---------|-------------|--------------------------------------------------|
 | Shake | POST `/shake` | Shake | efemeryczne |
 | Rejestracja | POST `/user/register` | Session | tożsamości (zapisywane w DB) |
-| Logowanie | POST `/user/login` | Session | brak (serwer weryfikuje kluczami z DB) |
-| Delete | POST `/user/delete` | Session | brak (serwer weryfikuje kluczami z DB) |
-| Wysłanie | POST `/msg/send` | Session | brak (serwer weryfikuje kluczami z DB) |
+| Logowanie | POST `/user/login` | Session | brak (serwer weryfikuje po `handler` z DB) |
+| Delete | POST `/user/delete` | Session | brak (serwer weryfikuje przez JWT) |
+| Wysłanie | POST `/msg/send` | Session | brak (serwer weryfikuje przez JWT) |
 | Remote delete | POST `/user/revoke` | Session | efemeryczne |
 | Pobranie | POST `/msg/fetch` | Session | efemeryczne |
 | Root | GET `/` | brak | brak |
@@ -245,7 +248,7 @@ Zawartość binarna (hex-encoded):
 
 ```
 [LCI1: 4 bajty magic]
-[VER: 1 bajt = 3]
+[VER: 1 bajt = 1]
 [contact_id: 32 bajty]
 [x_pub: 32 bajty]              X25519 (E2E)
 [k_pub_len: 2 bajty BE = 1568]
@@ -258,7 +261,7 @@ Zawartość binarna (hex-encoded):
 [mbox_out_next_pub: 32 bajty]  nastepny klucz nadawczy mailbox
 ```
 
-Laczny rozmiar danych binarnych: **4363 bajty** — ~**8726 znakow hex** po `lci1:`.
+Laczny rozmiar danych binarnych: **4361 bajtow** — **8722 znaki hex** po `lci1:`.
 
 ### Przebieg wymiany
 
@@ -275,21 +278,38 @@ Serwer nie uczestniczy w wymianie zaproszeń — kody są wymieniane poza serwer
 
 ### Weryfikacja tożsamości out-of-band
 
-Po wymianie obie strony weryfikują 6 emoji fingerprint kanałem głosowym lub osobistym.
+Po wymianie obie strony weryfikują 12-znakowy fingerprint (SAS — Short Authentication String, alfabet 64 znaków: litery, cyfry, symbole, greckie litery) kanałem głosowym lub osobistym.
+
+Każda strona najpierw liczy własny "party transcript" — HKDF po konkatenacji 8 pól tożsamości (własny `cid`, `x_pub`, `ed_pub`, `dili_pub`, `k_pub` oraz 3 klucze mailbox: `mbox_in_pub`, `mbox_out_cur_pub`, `mbox_out_next_pub`) pod etykietą `PARTY_TRANSCRIPT_LABEL` (`"lithiumd/party-transcript/v1"`):
 
 ```
-shared  = ECDH(self_x_priv, peer_x_pub)
-6 bajtow = HKDF(shared, salt=sorted(cid_a || cid_b), info="lithiumd/verify-emoji/v1")
-emoji[i] = EMOJI_TABLE[bajt[i] mod 64]
+bundle  = cid || x_pub || ed_pub || dili_pub || k_pub || mbox_in_pub || mbox_out_cur_pub || mbox_out_next_pub
+t_self  = HKDF(bundle, info="lithiumd/party-transcript/v1")          -> 32 bajty
+t_peer  = HKDF(bundle_peer, info="lithiumd/party-transcript/v1")     -> 32 bajty (te same pola, dla peera)
 ```
 
-Identyczne emoji po obu stronach potwierdza brak MITM przy wymianie.
+Następnie oba transkrypty są sortowane (`t_a, t_b = sorted(t_self, t_peer)`), tak by obie strony liczyły identyczny `info`, i fingerprint liczony jest z ECDH:
+
+```
+shared    = ECDH(self_x_priv, peer_x_pub)
+12 bajtow = HKDF(shared, info="lithiumd/contact-verify-emoji/v1" || t_a || t_b)
+emoji[i]  = EMOJI_TABLE[bajt[i] mod 64]
+```
+
+Włączenie `t_a`/`t_b` do `info` wiąże fingerprint nie tylko z kluczem X25519, ale z całym zestawem tożsamości i kluczy mailbox obu stron — podmiana jakiegokolwiek z 8 pól po jednej ze stron zmienia wynikowy SAS. Identyczne emoji po obu stronach potwierdza brak MITM przy wymianie.
+
+Długość 12 symboli (alfabet 64 → 72 bity) jest parametrem bezpieczeństwa: wymiana zaproszeń nie ma commitmentu kluczy, więc MITM kontrolujący kanał OOB może grindować własny zestaw kluczy offline, aby dopasować SAS ofiary. Grind jest HKDF-zależny (tani na GPU), dlatego jedyną samodzielną obroną (bez commit-reveal) jest dostatecznie długi ciąg — 2^72 ewaluacji jest niewykonalne nawet klastrowo.
 
 ## Cykl życia kluczy
 
 ### Master Key (MK)
 
-MK jest nadrzędnym kluczem szyfrującym wszystkie pliki kluczy na dysku. Przechowywany zaszyfrowany przez `MkProvider` (hasłem danych w przypadku `lithiumd`, plaintext w przypadku `lithiums`).
+MK jest nadrzędnym kluczem szyfrującym wszystkie pliki kluczy na dysku. Przechowywany zaszyfrowany przez `MkProvider`, którego implementacja zależy od komponentu:
+
+- `lithiumd` — `PlainFileMkProvider`: MK zaszyfrowany hasłem danych (Argon2id + AES-256-GCM-SIV), plik `.keyf`.
+- `lithiums` — domyślnie (feature `tpm`, włączona z definicji) `TpmMkProvider`: MK zapieczętowany w TPM jako obiekt KEYEDHASH, pod parent key ECC P-256 derywowanym deterministycznie z owner seed TPM (parent nigdy nie jest persystowany). Zapieczętowany blob trzymany w `LITHIUM_TPM_SEALED_PATH`. Fallback na `PlainFileMkProvider` (plaintext-na-dysku, analogicznie do `lithiumd`) tylko gdy `LITHIUM_MK_PROVIDER=plain` lub feature `tpm` wyłączona przy kompilacji.
+
+`lithiums` nigdy nie trzyma MK w czystym plaintext na dysku w konfiguracji domyślnej.
 
 Rotacja co 3600s (1 godzina), wykrywana i wywoływana przez `MkRotator` budzący się co 30s.
 
@@ -308,10 +328,13 @@ Przy starcie `KeyManager` wykrywa niedokończoną rotację i kontynuuje lub wyco
 DEK szyfrowania lokalnej bazy SQLite jest wyprowadzany z `combined_root`:
 
 ```
-password_root   = Argon2id(data_password, salt="lithium/user-provider/root/v1")
+root_salt       = losowa 32-bajtowa sol, trwale zapisana w pliku root.salt (ensure_root_salt)
+password_root   = Argon2id(data_password, salt=root_salt)
 combined_root   = HKDF(input=server_dek, salt=password_root, info="lithium/user-provider/combined/v1")
 db_dek          = HKDF(combined_root, info="lithium/db-dek/v1")
 ```
+
+Sól nie jest stałą etykietą — jest losowa per instalacja i przechowywana w `root.salt` obok plików `.keyf` (`lithiumd/src/password_provider.rs`).
 
 `server_dek` to blob DEK zaszyfrowany hasłem konta, przechowywany na serwerze jako nieprzejrzysty blob. Serwer go nie używa — zwraca przy logowaniu.
 
@@ -394,17 +417,16 @@ Deszyfruje i re-szyfruje wyłącznie warstwę DEK — payload kryptograficzny po
 
 ## Format pliku server.identity
 
-Plik binarny generowany przez serwer przy pierwszym uruchomieniu. Zawiera cztery klucze publiczne serwera:
+Plik binarny generowany przez serwer przy pierwszym uruchomieniu. Format (`lithium_core/src/contract/identity_file.rs`): magic 8-bajtowy, wersja, licznik wpisów, dalej sekwencja TLV (tag+dlugosc+dane) per klucz — nie sztywny layout:
 
 ```
-[magic: 4 bajty]
-[version: u8]
-[ed25519_pub: 32 bajty]
-[x25519_pub: 32 bajty]
-[kyber_pub_len: u16]
-[kyber_pub: 1568 bajtow]
-[dili_pub_len: u16]
-[dili_pub: 2592 bajtow]
+[magic: 8 bajtow = "LITHIUPK"]
+[version: u8 = 1]
+[count: u8 = 4]
+4x [tag_len: u8][tag: ASCII][data_len: u16 LE][data]
+    tagi: "x25519" (32B), "ed25519" (32B), "mlkem1024" (1568B), "mldsa87" (2592B)
 ```
 
-Klient ładuje ten plik przy starcie i weryfikuje pod nim każdą odpowiedź serwera. Zmiana kluczy serwera bez aktualizacji pliku po stronie klienta zrywa komunikację trwale — jest to celowe.
+Nieznane tagi sa ignorowane przy deserializacji (forward-compat). Cztery znane klucze musza wystapic i miec dokladnie oczekiwana dlugosc (32/32/1568/2592) — `decode` odrzuca plik z brakujacym lub zle dlugim kluczem, zanim zaakceptuje go `set_server_identity`. Rzeczywisty rozmiar pliku z 4 wpisami: **4275 bajtow** (10 bajtow naglowka + 41 bajtow narzutu TLV + 32 + 32 + 1568 + 2592 bajtow danych).
+
+Klient ładuje ten plik przy starcie i weryfikuje pod nim każdą odpowiedź serwera. Zmiana kluczy serwera bez aktualizacji pliku po stronie klienta zrywa komunikację trwale na poziomie kryptograficznym (deszyfrowanie zadania przez serwer lub weryfikacja podpisu odpowiedzi przez klienta zawodzi) — jest to celowe, patrz [security-model.md](security-model.md).

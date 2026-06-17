@@ -309,9 +309,8 @@ mod tests {
 
     async fn temp_dm() -> (tempfile::TempDir, Arc<DataManager<PlainFileMkProvider>>) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let km =
-            KeyManager::<PlainFileMkProvider>::start_plain(dir.path(), KeyStoreKind::User)
-                .expect("keystore");
+        let km = KeyManager::<PlainFileMkProvider>::start_plain(dir.path(), KeyStoreKind::User)
+            .expect("keystore");
         let dm = crate::db::init_local_data_manager(dir.path(), Arc::new(Mutex::new(km)))
             .await
             .expect("data manager");
@@ -330,13 +329,25 @@ mod tests {
         let mid = b"signed-msg-id-1".to_vec();
 
         let first = dm
-            .add_message(cid.clone(), mbox.clone(), 0, body("hello"), Some(mid.clone()))
+            .add_message(
+                cid.clone(),
+                mbox.clone(),
+                0,
+                body("hello"),
+                Some(mid.clone()),
+            )
             .await
             .expect("first insert");
         assert!(first, "first delivery must be stored");
 
         let second = dm
-            .add_message(cid.clone(), mbox.clone(), 0, body("hello-again"), Some(mid.clone()))
+            .add_message(
+                cid.clone(),
+                mbox.clone(),
+                0,
+                body("hello-again"),
+                Some(mid.clone()),
+            )
             .await
             .expect("replayed insert must not surface as an error");
         assert!(!second, "replayed msg_id must be deduplicated (Ok(false))");
@@ -351,14 +362,28 @@ mod tests {
         let cid = vec![9u8; 32];
         let mbox = vec![2u8; 32];
 
-        assert!(dm
-            .add_message(cid.clone(), mbox.clone(), 0, body("a"), Some(b"id-a".to_vec()))
+        assert!(
+            dm.add_message(
+                cid.clone(),
+                mbox.clone(),
+                0,
+                body("a"),
+                Some(b"id-a".to_vec())
+            )
             .await
-            .unwrap());
-        assert!(dm
-            .add_message(cid.clone(), mbox.clone(), 0, body("b"), Some(b"id-b".to_vec()))
+            .unwrap()
+        );
+        assert!(
+            dm.add_message(
+                cid.clone(),
+                mbox.clone(),
+                0,
+                body("b"),
+                Some(b"id-b".to_vec())
+            )
             .await
-            .unwrap());
+            .unwrap()
+        );
 
         let rows = dm.list_messages_page(&cid, None, 100).await.unwrap();
         assert_eq!(rows.len(), 2);
@@ -370,14 +395,16 @@ mod tests {
         let cid = vec![3u8; 32];
         let mbox = vec![4u8; 32];
 
-        assert!(dm
-            .add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
-            .await
-            .unwrap());
-        assert!(dm
-            .add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
-            .await
-            .unwrap());
+        assert!(
+            dm.add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
+                .await
+                .unwrap()
+        );
+        assert!(
+            dm.add_message(cid.clone(), mbox.clone(), 1, body("same"), None)
+                .await
+                .unwrap()
+        );
 
         let rows = dm.list_messages_page(&cid, None, 100).await.unwrap();
         assert_eq!(rows.len(), 2, "NULL msg_id must not collide under UNIQUE");

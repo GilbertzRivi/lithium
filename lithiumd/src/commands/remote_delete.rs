@@ -3,23 +3,16 @@ use std::sync::Arc;
 use reqwest::Client;
 use serde_json::json;
 
-use lithium_core::{
-    secrets::SecretString,
-    utils::store::EphemeralStoreManager,
-};
+use lithium_core::{secrets::SecretString, utils::store::EphemeralStoreManager};
 
 use crate::{
-    ipc::types::{err_resp, internal_err, protocol_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, internal_err, protocol_err},
     password_provider::PasswordFileMkProvider,
     protocol_manager::ProtocolManager,
     state::DaemonState,
 };
 
-pub async fn handle(
-    id: u64,
-    capability: SecretString,
-    state: Arc<DaemonState>,
-) -> IpcResponse {
+pub async fn handle(id: u64, capability: SecretString, state: Arc<DaemonState>) -> IpcResponse {
     let eph = match EphemeralStoreManager::new() {
         Ok(v) => v,
         Err(_) => return internal_err(id),

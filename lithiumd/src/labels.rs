@@ -6,8 +6,8 @@ pub(crate) const KID_LABEL: &[u8] = b"lithiumd/e2e-peer-kid/v1";
 
 pub(crate) const LABEL_MAILBOX: &[u8] = b"lithium/mbox/address/v1";
 
-pub(crate) const PARTY_TRANSCRIPT_LABEL: &[u8] = b"lithiumd/party-transcript/v2";
-pub(crate) const VERIFY_EMOJI_LABEL: &[u8] = b"lithiumd/contact-verify-emoji/v2";
+pub(crate) const PARTY_TRANSCRIPT_LABEL: &[u8] = b"lithiumd/party-transcript/v1";
+pub(crate) const VERIFY_EMOJI_LABEL: &[u8] = b"lithiumd/contact-verify-emoji/v1";
 
 pub(crate) const AAD_CONTACT_SELF: &[u8] = b"lithiumd/contact-self/v1";
 pub(crate) const AAD_CONTACT_PEER: &[u8] = b"lithiumd/contact-peer/v1";
@@ -36,8 +36,8 @@ mod tests {
 
         assert_eq!(LABEL_MAILBOX, b"lithium/mbox/address/v1");
 
-        assert_eq!(PARTY_TRANSCRIPT_LABEL, b"lithiumd/party-transcript/v2");
-        assert_eq!(VERIFY_EMOJI_LABEL, b"lithiumd/contact-verify-emoji/v2");
+        assert_eq!(PARTY_TRANSCRIPT_LABEL, b"lithiumd/party-transcript/v1");
+        assert_eq!(VERIFY_EMOJI_LABEL, b"lithiumd/contact-verify-emoji/v1");
 
         assert_eq!(AAD_CONTACT_SELF, b"lithiumd/contact-self/v1");
         assert_eq!(AAD_CONTACT_PEER, b"lithiumd/contact-peer/v1");

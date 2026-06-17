@@ -11,9 +11,13 @@ async fn test_concurrent_fetch_same_mailbox_atomic() {
     let handle = unique_handle("concsndr");
     let mut sender = srv.client();
     sender.generate_user_keys();
-    sender.register(&handle, "Password1!", &random_dek_hex()).await;
+    sender
+        .register(&handle, "Password1!", &random_dek_hex())
+        .await;
     sender.login(&handle, "Password1!").await;
-    sender.send_message(&mailbox, &hex::encode(b"singleton")).await;
+    sender
+        .send_message(&mailbox, &hex::encode(b"singleton"))
+        .await;
 
     let mut f1 = srv.client();
     let mut f2 = srv.client();
@@ -29,8 +33,6 @@ async fn test_concurrent_fetch_same_mailbox_atomic() {
 
 #[tokio::test]
 async fn test_concurrent_register_same_handle_one_wins() {
-    // Both requests may pass the exists-check before either inserts; the UNIQUE
-    // constraint on the encrypted user ID ensures exactly one INSERT succeeds.
     let srv = TestServer::start().await;
     let handle = unique_handle("concreg");
     let dek = random_dek_hex();
@@ -45,11 +47,19 @@ async fn test_concurrent_register_same_handle_one_wins() {
         c2.register_raw(&handle, "Password1!", &dek)
     );
 
-    let successes = u32::from(r1.status == 200) + u32::from(r2.status == 200);
-    assert_eq!(successes, 1, "statuses: {}, {}", r1.status, r2.status);
+    assert_eq!(r1.status, 200, "{:?}", r1);
+    assert_eq!(r2.status, 200, "{:?}", r2);
 
-    let loser = if r1.status != 200 { &r1 } else { &r2 };
-    assert_eq!(loser.error.as_deref(), Some("user_exists"));
+    let mut l1 = srv.client();
+    l1.copy_keys_from(&c1);
+    let mut l2 = srv.client();
+    l2.copy_keys_from(&c2);
+    let ok1 = l1.login_raw(&handle, "Password1!").await.status == 200;
+    let ok2 = l2.login_raw(&handle, "Password1!").await.status == 200;
+    assert!(
+        ok1 ^ ok2,
+        "exactly one keyset owns the handle: ok1={ok1} ok2={ok2}"
+    );
 }
 
 #[tokio::test]
@@ -77,8 +87,20 @@ async fn test_concurrent_send_both_stored() {
 
     let base = format!("http://{}", srv.addr);
     tokio::join!(
-        send_as(base.clone(), srv.bootstrap.clone(), "concsnd1", mailbox.clone(), b"one"),
-        send_as(base.clone(), srv.bootstrap.clone(), "concsnd2", mailbox.clone(), b"two")
+        send_as(
+            base.clone(),
+            srv.bootstrap.clone(),
+            "concsnd1",
+            mailbox.clone(),
+            b"one"
+        ),
+        send_as(
+            base.clone(),
+            srv.bootstrap.clone(),
+            "concsnd2",
+            mailbox.clone(),
+            b"two"
+        )
     );
 
     let mut f = srv.client();

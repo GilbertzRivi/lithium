@@ -5,12 +5,14 @@ use lithium_core::{
 };
 use serde_json::Value;
 
-use crate::commands::contact_mailbox::{current_outbound_mailbox_pubs, peer_store_mailbox_sender_keys};
+use crate::commands::contact_mailbox::{
+    current_outbound_mailbox_pubs, peer_store_mailbox_sender_keys,
+};
 use crate::labels::E2E_LABEL;
 
 use super::{
     crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
-    header::{Auth, E2eMode, Mailbox, Reply, SignedHeader, SignedHeaderWire, SIGNED_HEADER_V},
+    header::{Auth, E2eMode, Mailbox, Reply, SIGNED_HEADER_V, SignedHeader, SignedHeaderWire},
     prekeys::prekey_blob_to_privs,
     state::{E2ePeer, MsgMeta, PeerState, RxKey, SelfState},
     state_peer::{
@@ -18,9 +20,9 @@ use super::{
         peer_pick_remote_prekey,
     },
     state_self::{
-        advance_ack, drop_bootstrap_private_if_established, gc_after_ack, next_tx_step,
-        self_bootstrap_rx_privs, self_find_seq, self_get_rx_privs, self_next_seq,
-        ensure_self_keyring, mark_bootstrap_retire_ready, set_active_reply_key,
+        advance_ack, drop_bootstrap_private_if_established, ensure_self_keyring, gc_after_ack,
+        mark_bootstrap_retire_ready, next_tx_step, self_bootstrap_rx_privs, self_find_seq,
+        self_get_rx_privs, self_next_seq, set_active_reply_key,
     },
     wire::{PREKEY_TARGET, WireV1},
 };
@@ -190,8 +192,13 @@ pub fn encrypt_for_peer(
 
     let hdr_unsigned_bytes = header.canonical_bytes()?;
 
-    let (sig_ed, sig_dili) =
-        sign_e2e_payload(self_st, &target_id, &from_x_pub, &hdr_unsigned_bytes, plaintext)?;
+    let (sig_ed, sig_dili) = sign_e2e_payload(
+        self_st,
+        &target_id,
+        &from_x_pub,
+        &hdr_unsigned_bytes,
+        plaintext,
+    )?;
 
     let hdr_plain = serde_json::to_vec(&SignedHeaderWire {
         header,
@@ -299,11 +306,15 @@ mod tests {
     }
 
     fn meta_mode(meta: &Value) -> E2eMode {
-        serde_json::from_value::<MsgMeta>(meta.clone()).unwrap().mode
+        serde_json::from_value::<MsgMeta>(meta.clone())
+            .unwrap()
+            .mode
     }
 
     fn meta_step(meta: &Value) -> u64 {
-        serde_json::from_value::<MsgMeta>(meta.clone()).unwrap().step
+        serde_json::from_value::<MsgMeta>(meta.clone())
+            .unwrap()
+            .step
     }
 
     fn make_real_wire() -> (WireV1, SelfState, SelfState, Vec<u8>) {
@@ -311,7 +322,13 @@ mod tests {
         let (bob_cid, bob_st) = gen_self_state().unwrap();
         let mut bob_pv = build_peer_from_state(&bob_st, &bob_cid);
         let (wire, _) = encrypt_for_peer(
-            &mut alice_st, &mut bob_pv, b"mutation-test", "text", &[], false, 0,
+            &mut alice_st,
+            &mut bob_pv,
+            b"mutation-test",
+            "text",
+            &[],
+            false,
+            0,
         )
         .unwrap();
         let packed = pack_wire(&wire);
@@ -326,11 +343,21 @@ mod tests {
         let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
 
         let (wire, meta) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer, b"bootstrap message", "text", &[], false, 0,
+            &mut alice_st,
+            &mut bob_peer,
+            b"bootstrap message",
+            "text",
+            &[],
+            false,
+            0,
         )
         .unwrap();
 
-        assert_eq!(meta_mode(&meta), E2eMode::Bootstrap, "first message must use bootstrap mode");
+        assert_eq!(
+            meta_mode(&meta),
+            E2eMode::Bootstrap,
+            "first message must use bootstrap mode"
+        );
 
         let (decrypted, _ui) = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire).unwrap();
         assert_eq!(decrypted, b"bootstrap message");
@@ -348,10 +375,8 @@ mod tests {
         };
         let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
 
-        let (wire, _) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer, b"data", "text", &[], false, 0,
-        )
-        .unwrap();
+        let (wire, _) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer, b"data", "text", &[], false, 0).unwrap();
 
         let result = decrypt_for_us(&mut wrong_st, &mut alice_peer, &wire);
         assert!(result.is_err(), "decryption with wrong state must fail");
@@ -364,7 +389,13 @@ mod tests {
         let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
 
         let (wire, _) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer, b"payload", "text", &[], false, 0,
+            &mut alice_st,
+            &mut bob_peer,
+            b"payload",
+            "text",
+            &[],
+            false,
+            0,
         )
         .unwrap();
 
@@ -384,15 +415,23 @@ mod tests {
 
         let (bob_cid, bob_st) = gen_self_state().unwrap();
         let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
-        bob_peer.prekeys_remote.push(crate::e2e::state::RemotePrekey {
-            id: pub_item.id.clone(),
-            x_pub: pub_item.x_pub.clone(),
-            k_pub: pub_item.k_pub.clone(),
-            seen_at_ms: 0,
-        });
+        bob_peer
+            .prekeys_remote
+            .push(crate::e2e::state::RemotePrekey {
+                id: pub_item.id.clone(),
+                x_pub: pub_item.x_pub.clone(),
+                k_pub: pub_item.k_pub.clone(),
+                seen_at_ms: 0,
+            });
 
         let (wire, meta) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer, b"prekey message", "text", &[], true, 0,
+            &mut alice_st,
+            &mut bob_peer,
+            b"prekey message",
+            "text",
+            &[],
+            true,
+            0,
         )
         .unwrap();
 
@@ -579,9 +618,12 @@ mod tests {
         let (bob_cid, bob_st) = gen_self_state().unwrap();
         let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
 
-        let (_, m1) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg1", "text", &[], false, 0).unwrap();
-        let (_, m2) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg2", "text", &[], false, 0).unwrap();
-        let (_, m3) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg3", "text", &[], false, 0).unwrap();
+        let (_, m1) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg1", "text", &[], false, 0).unwrap();
+        let (_, m2) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg2", "text", &[], false, 0).unwrap();
+        let (_, m3) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer, b"msg3", "text", &[], false, 0).unwrap();
 
         assert_eq!(meta_step(&m1), 1);
         assert_eq!(meta_step(&m2), 2);
@@ -595,8 +637,26 @@ mod tests {
         let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
         let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
 
-        let (wire1, m1) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"first", "text", &[], false, 0).unwrap();
-        let (wire2, m2) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"second", "text", &[], false, 0).unwrap();
+        let (wire1, m1) = encrypt_for_peer(
+            &mut alice_st,
+            &mut bob_peer,
+            b"first",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+        let (wire2, m2) = encrypt_for_peer(
+            &mut alice_st,
+            &mut bob_peer,
+            b"second",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
 
         assert_eq!(meta_mode(&m1), E2eMode::Bootstrap);
         assert_eq!(meta_mode(&m2), E2eMode::Bootstrap);
@@ -616,16 +676,33 @@ mod tests {
         let mut alice_peer_for_bob = build_peer_from_state(&alice_st, &alice_cid);
 
         let (wire_a, _) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer_for_alice, b"bootstrap", "text", &[], false, 0,
-        ).unwrap();
+            &mut alice_st,
+            &mut bob_peer_for_alice,
+            b"bootstrap",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
 
         decrypt_for_us(&mut bob_st, &mut alice_peer_for_bob, &wire_a).unwrap();
 
         let (wire_b, meta_b) = encrypt_for_peer(
-            &mut bob_st, &mut alice_peer_for_bob, b"ratchet-reply", "text", &[], false, 0,
-        ).unwrap();
-        assert_eq!(meta_mode(&meta_b), E2eMode::Ratchet,
-            "after receiving bootstrap, next send must be ratchet");
+            &mut bob_st,
+            &mut alice_peer_for_bob,
+            b"ratchet-reply",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            meta_mode(&meta_b),
+            E2eMode::Ratchet,
+            "after receiving bootstrap, next send must be ratchet"
+        );
 
         let mut bob_peer_for_alice2 = build_peer_from_state(&bob_st, &bob_cid);
         let (pt, _) = decrypt_for_us(&mut alice_st, &mut bob_peer_for_alice2, &wire_b).unwrap();
@@ -640,20 +717,37 @@ mod tests {
         let mut alice_peer_for_bob = build_peer_from_state(&alice_st, &alice_cid);
 
         let (wire_a, _) = encrypt_for_peer(
-            &mut alice_st, &mut bob_peer, b"hello", "text", &[], false, 0,
-        ).unwrap();
+            &mut alice_st,
+            &mut bob_peer,
+            b"hello",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
         decrypt_for_us(&mut bob_st, &mut alice_peer_for_bob, &wire_a).unwrap();
 
         let (wire_b, _) = encrypt_for_peer(
-            &mut bob_st, &mut alice_peer_for_bob, b"reply", "text", &[], false, 0,
-        ).unwrap();
+            &mut bob_st,
+            &mut alice_peer_for_bob,
+            b"reply",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
 
         let ack_before = alice_st.e2e_rx.ack_seq;
         let mut bob_peer2 = build_peer_from_state(&bob_st, &bob_cid);
         decrypt_for_us(&mut alice_st, &mut bob_peer2, &wire_b).unwrap();
         let ack_after = alice_st.e2e_rx.ack_seq;
 
-        assert!(ack_after > ack_before, "ack_seq must advance: {ack_before} -> {ack_after}");
+        assert!(
+            ack_after > ack_before,
+            "ack_seq must advance: {ack_before} -> {ack_after}"
+        );
     }
 
     #[test]
@@ -667,33 +761,66 @@ mod tests {
         let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
         let mut alice_peer_for_bob = build_peer_from_state(&alice_st, &alice_cid);
 
-        let (wire_a1, _) = encrypt_for_peer(&mut alice_st, &mut bob_peer, b"a1", "text", &[], false, 0).unwrap();
+        let (wire_a1, _) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer, b"a1", "text", &[], false, 0).unwrap();
         decrypt_for_us(&mut bob_st, &mut alice_peer_for_bob, &wire_a1).unwrap();
 
-        let (wire_r1, _) = encrypt_for_peer(&mut bob_st, &mut alice_peer_for_bob, b"r1", "text", &[], false, 0).unwrap();
+        let (wire_r1, _) = encrypt_for_peer(
+            &mut bob_st,
+            &mut alice_peer_for_bob,
+            b"r1",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
         let wire_r1_copy = wire_r1.clone();
         let mut bob_peer2 = build_peer_from_state(&bob_st, &bob_cid);
         decrypt_for_us(&mut alice_st, &mut bob_peer2, &wire_r1).unwrap();
 
         let mut bob_peer3 = build_peer_from_state(&bob_st, &bob_cid);
-        let (wire_a2, _) = encrypt_for_peer(&mut alice_st, &mut bob_peer3, b"a2", "text", &[], false, 0).unwrap();
+        let (wire_a2, _) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer3, b"a2", "text", &[], false, 0).unwrap();
         decrypt_for_us(&mut bob_st, &mut alice_peer_for_bob, &wire_a2).unwrap();
 
-        let (wire_r2, _) = encrypt_for_peer(&mut bob_st, &mut alice_peer_for_bob, b"r2", "text", &[], false, 0).unwrap();
+        let (wire_r2, _) = encrypt_for_peer(
+            &mut bob_st,
+            &mut alice_peer_for_bob,
+            b"r2",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
         let mut bob_peer4 = build_peer_from_state(&bob_st, &bob_cid);
         decrypt_for_us(&mut alice_st, &mut bob_peer4, &wire_r2).unwrap();
 
         let mut bob_peer5 = build_peer_from_state(&bob_st, &bob_cid);
-        let (wire_a3, _) = encrypt_for_peer(&mut alice_st, &mut bob_peer5, b"a3", "text", &[], false, 0).unwrap();
+        let (wire_a3, _) =
+            encrypt_for_peer(&mut alice_st, &mut bob_peer5, b"a3", "text", &[], false, 0).unwrap();
         decrypt_for_us(&mut bob_st, &mut alice_peer_for_bob, &wire_a3).unwrap();
 
-        let (wire_r3, _) = encrypt_for_peer(&mut bob_st, &mut alice_peer_for_bob, b"r3", "text", &[], false, 0).unwrap();
+        let (wire_r3, _) = encrypt_for_peer(
+            &mut bob_st,
+            &mut alice_peer_for_bob,
+            b"r3",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
         let mut bob_peer6 = build_peer_from_state(&bob_st, &bob_cid);
         decrypt_for_us(&mut alice_st, &mut bob_peer6, &wire_r3).unwrap();
 
         let mut bob_peer7 = build_peer_from_state(&bob_st, &bob_cid);
         let replay_result = decrypt_for_us(&mut alice_st, &mut bob_peer7, &wire_r1_copy);
-        assert!(replay_result.is_err(), "replayed message must fail after GC removes its key");
+        assert!(
+            replay_result.is_err(),
+            "replayed message must fail after GC removes its key"
+        );
     }
 
     #[test]
@@ -701,7 +828,10 @@ mod tests {
         let (_cid, mut st) = gen_self_state().unwrap();
         let mut peer = PeerState::empty();
         let result = encrypt_for_peer(&mut st, &mut peer, b"x", "text", &[], true, 0);
-        assert!(result.is_err(), "encrypt with use_recovery=true and no prekeys must fail");
+        assert!(
+            result.is_err(),
+            "encrypt with use_recovery=true and no prekeys must fail"
+        );
     }
 
     #[test]
@@ -709,6 +839,9 @@ mod tests {
         let (_cid, mut st) = gen_self_state().unwrap();
         let mut peer = PeerState::empty();
         let result = encrypt_for_peer(&mut st, &mut peer, b"x", "text", &[], false, 0);
-        assert!(result.is_err(), "encrypt without any peer key material must fail");
+        assert!(
+            result.is_err(),
+            "encrypt without any peer key material must fail"
+        );
     }
 }

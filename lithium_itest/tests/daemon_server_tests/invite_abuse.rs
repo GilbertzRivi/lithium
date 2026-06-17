@@ -9,7 +9,9 @@ async fn test_contact_send_to_pending_invite_fails() {
     let mut c = IpcClient::connect(&d.socket_path).await;
     let tok = full_setup(&mut c, &srv, &unique_handle("psnd")).await;
 
-    let inv = c.send(json!({"cmd": "create_invite", "auth_token": tok})).await;
+    let inv = c
+        .send(json!({"cmd": "create_invite", "auth_token": tok}))
+        .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
@@ -28,7 +30,9 @@ async fn test_contact_fetch_on_pending_invite_fails() {
     let mut c = IpcClient::connect(&d.socket_path).await;
     let tok = full_setup(&mut c, &srv, &unique_handle("pfch")).await;
 
-    let inv = c.send(json!({"cmd": "create_invite", "auth_token": tok})).await;
+    let inv = c
+        .send(json!({"cmd": "create_invite", "auth_token": tok}))
+        .await;
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
     let r = c
@@ -48,7 +52,9 @@ async fn test_accept_invite_with_unknown_contact_id_fails() {
     let tok_a = full_setup(&mut ca, &srv, &unique_handle("ucid_a")).await;
     let tok_b = full_setup(&mut cb, &srv, &unique_handle("ucid_b")).await;
 
-    let inv = ca.send(json!({"cmd": "create_invite", "auth_token": tok_a})).await;
+    let inv = ca
+        .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
+        .await;
     let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
 
     // B provides a contact_id that does not exist in B's local DB.
@@ -81,7 +87,9 @@ async fn test_peer_takeover_rejected() {
     let tok_b = full_setup(&mut cb, &srv, &unique_handle("ptk_b")).await;
     let tok_c = full_setup(&mut cc, &srv, &unique_handle("ptk_c")).await;
 
-    let inv = ca.send(json!({"cmd": "create_invite", "auth_token": tok_a})).await;
+    let inv = ca
+        .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
+        .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
     let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
@@ -106,7 +114,12 @@ async fn test_peer_takeover_rejected() {
     let fin_c = ca
         .send(json!({"cmd": "accept_invite", "code": code_c, "contact_id": cid_a, "label": "C", "auth_token": tok_a}))
         .await;
-    assert_eq!(fin_c["error"].as_str().unwrap(), "peer_already_set", "{:?}", fin_c);
+    assert_eq!(
+        fin_c["error"].as_str().unwrap(),
+        "peer_already_set",
+        "{:?}",
+        fin_c
+    );
 }
 
 #[tokio::test]
@@ -116,10 +129,14 @@ async fn test_pending_invite_visible_in_contacts_list() {
     let mut c = IpcClient::connect(&d.socket_path).await;
     let tok = full_setup(&mut c, &srv, &unique_handle("pcl")).await;
 
-    let inv = c.send(json!({"cmd": "create_invite", "auth_token": tok})).await;
+    let inv = c
+        .send(json!({"cmd": "create_invite", "auth_token": tok}))
+        .await;
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
-    let list = c.send(json!({"cmd": "contacts_list", "auth_token": tok})).await;
+    let list = c
+        .send(json!({"cmd": "contacts_list", "auth_token": tok}))
+        .await;
     assert!(list["ok"].as_bool().unwrap(), "{:?}", list);
     let contacts = list["result"]["contacts"].as_array().unwrap();
     assert_eq!(contacts.len(), 1);

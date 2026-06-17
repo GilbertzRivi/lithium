@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::{
     commands::stored_message,
     db::repo::DaemonDbExt,
-    ipc::types::{err_resp, storage_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, storage_err},
     state::DaemonState,
 };
 

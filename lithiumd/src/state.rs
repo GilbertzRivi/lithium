@@ -86,7 +86,8 @@ impl DaemonState {
     pub async fn contact_fetch_lock(&self, contact_id: &[u8]) -> Arc<Mutex<()>> {
         let key = hex::encode(contact_id);
         let mut locks = self.contact_fetch_locks.lock().await;
-        locks.entry(key)
+        locks
+            .entry(key)
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     }
@@ -124,5 +125,4 @@ impl DaemonState {
     pub async fn clear_needs_register(&self) {
         *self.needs_register.lock().await = false;
     }
-
 }

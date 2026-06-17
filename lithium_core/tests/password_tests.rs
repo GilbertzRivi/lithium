@@ -1,7 +1,7 @@
 use lithium_core::error::CryptoErrorKind;
 use lithium_core::passwords::passwords::{
-    hash_password_phc, validate_password, validate_passwords_distinct, verify_password_phc,
-    wrap_dek_for_server_hex, unwrap_dek_from_server_hex, generate_dek, PasswordPolicy,
+    PasswordPolicy, generate_dek, hash_password_phc, unwrap_dek_from_server_hex, validate_password,
+    validate_passwords_distinct, verify_password_phc, wrap_dek_for_server_hex,
 };
 use lithium_core::secrets::SecretString;
 
@@ -19,8 +19,7 @@ fn default_policy() -> PasswordPolicy {
 
 #[test]
 fn password_valid_default_policy() {
-    // Meets all requirements: lower, upper, digit, special, no whitespace, ≥8 chars
-    assert!(validate_password(&pass("Passw0rd!"), default_policy()).is_ok());
+    assert!(validate_password(&pass("Passw0rd!Abc"), default_policy()).is_ok());
 }
 
 #[test]
@@ -39,32 +38,32 @@ fn password_too_long() {
 #[test]
 fn password_missing_lowercase() {
     // All uppercase + digit + special
-    let err = validate_password(&pass("PASSW0RD!"), default_policy()).unwrap_err();
+    let err = validate_password(&pass("PASSW0RD!ABC"), default_policy()).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::StringPolicy);
 }
 
 #[test]
 fn password_missing_uppercase() {
-    let err = validate_password(&pass("passw0rd!"), default_policy()).unwrap_err();
+    let err = validate_password(&pass("passw0rd!abc"), default_policy()).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::StringPolicy);
 }
 
 #[test]
 fn password_missing_digit() {
-    let err = validate_password(&pass("Password!"), default_policy()).unwrap_err();
+    let err = validate_password(&pass("Password!Abc"), default_policy()).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::StringPolicy);
 }
 
 #[test]
 fn password_missing_special() {
-    let err = validate_password(&pass("Password1"), default_policy()).unwrap_err();
+    let err = validate_password(&pass("Password1Abc"), default_policy()).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::StringPolicy);
 }
 
 #[test]
 fn password_with_whitespace_rejected_by_default() {
     // Default policy: allow_whitespace = false
-    let err = validate_password(&pass("Pass w0rd!"), default_policy()).unwrap_err();
+    let err = validate_password(&pass("Pass w0rd!Ab"), default_policy()).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::StringPolicy);
 }
 
@@ -72,7 +71,7 @@ fn password_with_whitespace_rejected_by_default() {
 fn password_with_whitespace_allowed_when_permitted() {
     let mut pol = default_policy();
     pol.allow_whitespace = true;
-    assert!(validate_password(&pass("Pass w0rd!"), pol).is_ok());
+    assert!(validate_password(&pass("Pass w0rd!Ab"), pol).is_ok());
 }
 
 #[test]
@@ -81,7 +80,7 @@ fn password_custom_policy_no_special_required() {
         require_special: false,
         ..default_policy()
     };
-    assert!(validate_password(&pass("Password1"), pol).is_ok());
+    assert!(validate_password(&pass("Password1Abc"), pol).is_ok());
 }
 
 #[test]
@@ -98,8 +97,8 @@ fn password_custom_policy_short_min() {
 
 #[test]
 fn password_exactly_min_length() {
-    // min_len = 8, exactly 8 chars that satisfy all requirements
-    assert!(validate_password(&pass("Passw0r!"), default_policy()).is_ok());
+    // min_len = 12, exactly 12 chars that satisfy all requirements
+    assert!(validate_password(&pass("Passw0rd!Ab2"), default_policy()).is_ok());
 }
 
 // ── distinctness ─────────────────────────────────────────────────────────────
@@ -112,7 +111,10 @@ fn passwords_distinct_ok() {
 #[test]
 fn passwords_distinct_same_fails() {
     let err = validate_passwords_distinct(&pass("same"), &pass("same")).unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::InvalidCredentials { .. }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::InvalidCredentials { .. }
+    ));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -123,7 +125,10 @@ fn passwords_distinct_same_fails() {
 fn hash_password_and_verify_correct() {
     let pw = pass("Correct!Horse7Battery");
     let phc = hash_password_phc(&pw).unwrap();
-    assert!(phc.starts_with("$argon2id$"), "PHC string must use argon2id");
+    assert!(
+        phc.starts_with("$argon2id$"),
+        "PHC string must use argon2id"
+    );
     assert!(verify_password_phc(&phc, &pw).unwrap());
 }
 
@@ -147,7 +152,10 @@ fn hash_password_unique_salts() {
 #[test]
 fn verify_invalid_phc_string() {
     let err = verify_password_phc("not-a-phc-string", &pass("Passw0rd!")).unwrap_err();
-    assert!(matches!(err.kind, CryptoErrorKind::InvalidCredentials { .. }));
+    assert!(matches!(
+        err.kind,
+        CryptoErrorKind::InvalidCredentials { .. }
+    ));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

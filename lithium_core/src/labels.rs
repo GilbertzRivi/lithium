@@ -39,7 +39,10 @@ mod tests {
         assert_eq!(KYBER_KEM_ID, 1);
         assert_eq!(KYBER_AEAD_ID, 1);
         assert_eq!(KYBER_SALT_LEN, 32);
-        assert_eq!(KYBERBOX_AAD_PREFIX, b"kyberbox/v1|kem=mlkem1024|aead=aes256-gcm-siv|");
+        assert_eq!(
+            KYBERBOX_AAD_PREFIX,
+            b"kyberbox/v1|kem=mlkem1024|aead=aes256-gcm-siv|"
+        );
         assert_eq!(KYBER_KEMDEM_INFO, b"kemdem/kyber-mlkem1024/v1");
 
         assert_eq!(AEAD_BLOB_VERSION, 1);
@@ -53,7 +56,10 @@ mod tests {
         assert_eq!(JWT_LABEL, b"lithium/jwt-secret/v1");
 
         assert_eq!(DB_DEK_LABEL, b"lithium/db-dek/v1");
-        assert_eq!(USERS_UUID_NAMESPACE_LABEL, b"lithium/users-uuid-namespace/v1");
+        assert_eq!(
+            USERS_UUID_NAMESPACE_LABEL,
+            b"lithium/users-uuid-namespace/v1"
+        );
 
         assert_eq!(DEK_WRAP_VER, 1);
         assert_eq!(DEK_WRAP_AAD, b"lithium/dek-wrap/v1");

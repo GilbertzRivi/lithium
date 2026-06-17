@@ -71,7 +71,13 @@ pub fn unpack_wire(b: &[u8]) -> Result<WireV1> {
     let body_len = read_u32_be(b, &mut i)?;
     let enc_body = take_bytes(b, &mut i, body_len)?.to_vec();
 
-    Ok(WireV1 { to_id, from_x_pub, seed, enc_headers, enc_body })
+    Ok(WireV1 {
+        to_id,
+        from_x_pub,
+        seed,
+        enc_headers,
+        enc_body,
+    })
 }
 
 fn read_u16_be(b: &[u8], i: &mut usize) -> Result<usize> {

@@ -6,6 +6,7 @@
 - [kyberbox.md](kyberbox.md) — analiza bezpieczeństwa schematu KyberBox: przepływ kluczy, właściwości, założenia, otwarte pytania
 - [crypto-protocol.md](crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport (Shake/Session), E2E (WireV1), mailbox, cykl życia kluczy
 - [ipc-reference.md](ipc-reference.md) — referencja protokołu IPC daemona: format, autoryzacja, pełna lista komend
+- [deploy-instructions.md](deploy-instructions.md) — wdrożenie `lithiums`: zmienne środowiskowe, providery master key, Docker/Docker Compose, zmienne `lithiumd`
 
 ## Dokumentacja komponentów
 

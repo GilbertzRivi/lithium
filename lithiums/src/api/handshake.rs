@@ -1,4 +1,4 @@
-use poem::{handler, Response};
+use poem::{Response, handler};
 use serde_json::json;
 
 use lithium_core::contract::protocol::field;

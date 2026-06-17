@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::{
-    ipc::types::{err_resp, internal_err, IpcResponse},
+    ipc::types::{IpcResponse, err_resp, internal_err},
     state::DaemonState,
 };
 
@@ -18,9 +18,10 @@ pub async fn handle(id: u64, data: String, state: Arc<DaemonState>) -> IpcRespon
     }
 
     if let Some(parent) = state.identity_path.parent()
-        && std::fs::create_dir_all(parent).is_err() {
-            return internal_err(id);
-        }
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return internal_err(id);
+    }
 
     if std::fs::write(&state.identity_path, &bytes).is_err() {
         return internal_err(id);

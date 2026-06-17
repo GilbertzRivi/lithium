@@ -2,17 +2,26 @@ use lithium_core::{
     crypto::{keys, kyberbox, sign},
     secrets::bytes::SecretBytes,
 };
-use lithium_itest::{client::{RawShakeBuilder, ServerBootstrap}, helpers::TestServer};
+use lithium_itest::{
+    client::{RawShakeBuilder, ServerBootstrap},
+    helpers::TestServer,
+};
 use reqwest::{Client, header::HeaderMap};
 use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }
 
 fn raw(srv: &TestServer) -> RawShakeBuilder {
-    RawShakeBuilder { bootstrap: srv.bootstrap.clone(), base: format!("http://{}", srv.addr) }
+    RawShakeBuilder {
+        bootstrap: srv.bootstrap.clone(),
+        base: format!("http://{}", srv.addr),
+    }
 }
 
 #[tokio::test]

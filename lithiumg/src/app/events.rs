@@ -115,7 +115,9 @@ impl LithiumApp {
                     if self.register_capability.is_empty() {
                         self.set_status("Registered successfully.");
                     } else {
-                        self.set_status("Registered. Save your delete capability — it will be shown now.");
+                        self.set_status(
+                            "Registered. Save your delete capability — it will be shown now.",
+                        );
                     }
 
                     self.send(Command::Ping);
@@ -152,7 +154,10 @@ impl LithiumApp {
                         self.delete_account_modal_open = false;
                         self.set_error(errors::translate(&e));
                     } else {
-                        self.set_error(format!("Account deletion failed: {}", errors::translate(&e)));
+                        self.set_error(format!(
+                            "Account deletion failed: {}",
+                            errors::translate(&e)
+                        ));
                     }
                 }
             },
@@ -183,9 +188,14 @@ impl LithiumApp {
                         self.screen = Screen::Credentials;
                         self.account_password.clear();
                         self.account_password_confirm.clear();
-                        self.set_error("Wrong username or password — please re-enter your credentials.");
+                        self.set_error(
+                            "Wrong username or password — please re-enter your credentials.",
+                        );
                     } else {
-                        self.set_error(format!("Could not unlock storage: {}", errors::translate(&e)));
+                        self.set_error(format!(
+                            "Could not unlock storage: {}",
+                            errors::translate(&e)
+                        ));
                     }
                 }
             },
@@ -199,10 +209,11 @@ impl LithiumApp {
                     } else if self.selected_contact_id.is_none() && !self.contacts.is_empty() {
                         self.selected_contact_id = Some(self.contacts[0].contact_id.clone());
                     } else if let Some(selected) = &self.selected_contact_id
-                        && !self.contacts.iter().any(|c| &c.contact_id == selected) {
-                            self.selected_contact_id =
-                                self.contacts.first().map(|c| c.contact_id.clone());
-                        }
+                        && !self.contacts.iter().any(|c| &c.contact_id == selected)
+                    {
+                        self.selected_contact_id =
+                            self.contacts.first().map(|c| c.contact_id.clone());
+                    }
 
                     if let Some(cid) = self.pending_verify_contact_id.clone() {
                         let ready = self
@@ -224,34 +235,42 @@ impl LithiumApp {
                         self.set_status("No contacts yet.");
                     }
                 }
-                Err(e) => self.set_error(format!("Could not load contacts: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Could not load contacts: {}",
+                    errors::translate(&e)
+                )),
             },
 
-            WorkerEvent::Messages { contact_id, result, note } => match result {
+            WorkerEvent::Messages {
+                contact_id,
+                result,
+                note,
+            } => match result {
                 Ok(page) => {
-                    let should_probe_verify = if self.selected_contact_id.as_deref()
-                        == Some(contact_id.as_str())
-                    {
-                        self.messages = page.messages.clone();
+                    let should_probe_verify =
+                        if self.selected_contact_id.as_deref() == Some(contact_id.as_str()) {
+                            self.messages = page.messages.clone();
 
-                        let has_outbound = page.messages.iter().any(|m| m.direction == "out");
-                        let peer_set = self
-                            .contacts
-                            .iter()
-                            .find(|c| c.contact_id == contact_id)
-                            .map(|c| c.peer_set)
-                            .unwrap_or(false);
+                            let has_outbound = page.messages.iter().any(|m| m.direction == "out");
+                            let peer_set = self
+                                .contacts
+                                .iter()
+                                .find(|c| c.contact_id == contact_id)
+                                .map(|c| c.peer_set)
+                                .unwrap_or(false);
 
-                        peer_set
-                            && !has_outbound
-                            && !self.verify_modal_open
-                            && !self.shown_verify_for_contact_ids.contains(&contact_id)
-                    } else {
-                        false
-                    };
+                            peer_set
+                                && !has_outbound
+                                && !self.verify_modal_open
+                                && !self.shown_verify_for_contact_ids.contains(&contact_id)
+                        } else {
+                            false
+                        };
 
                     if should_probe_verify {
-                        self.send(Command::LoadVerifyEmoji { contact_id: contact_id.clone() });
+                        self.send(Command::LoadVerifyEmoji {
+                            contact_id: contact_id.clone(),
+                        });
                         return;
                     }
 
@@ -261,7 +280,10 @@ impl LithiumApp {
                         self.set_status("Ready.");
                     }
                 }
-                Err(e) => self.set_error(format!("Could not load messages: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Could not load messages: {}",
+                    errors::translate(&e)
+                )),
             },
 
             WorkerEvent::VerifyEmoji { contact_id, result } => match result {
@@ -274,7 +296,10 @@ impl LithiumApp {
                 }
                 Err(e) => {
                     self.clear_verify_modal();
-                    self.set_error(format!("Could not load safety codes: {}", errors::translate(&e)));
+                    self.set_error(format!(
+                        "Could not load safety codes: {}",
+                        errors::translate(&e)
+                    ));
                 }
             },
 
@@ -286,7 +311,10 @@ impl LithiumApp {
                     self.set_status("Invite created — share the code below with your contact.");
                     self.send(Command::LoadContacts);
                 }
-                Err(e) => self.set_error(format!("Could not create invite: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Could not create invite: {}",
+                    errors::translate(&e)
+                )),
             },
 
             WorkerEvent::AcceptInvite(res) => match res {
@@ -298,7 +326,10 @@ impl LithiumApp {
                     self.set_status("Contact added.");
                     self.send(Command::LoadContacts);
                 }
-                Err(e) => self.set_error(format!("Could not accept invite: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Could not accept invite: {}",
+                    errors::translate(&e)
+                )),
             },
 
             WorkerEvent::ForgetContact { contact_id, result } => match result {
@@ -312,7 +343,10 @@ impl LithiumApp {
                     self.set_status("Contact removed.");
                     self.send(Command::LoadContacts);
                 }
-                Err(e) => self.set_error(format!("Could not remove contact: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Could not remove contact: {}",
+                    errors::translate(&e)
+                )),
             },
 
             WorkerEvent::LockKeystore(res) => match res {
@@ -335,7 +369,10 @@ impl LithiumApp {
                     self.set_status("Server URL saved.");
                     self.send(Command::Ping);
                 }
-                Err(e) => self.set_error(format!("Failed to save server URL: {}", errors::translate(&e))),
+                Err(e) => self.set_error(format!(
+                    "Failed to save server URL: {}",
+                    errors::translate(&e)
+                )),
             },
 
             WorkerEvent::SetServerIdentity(res) => match res {
@@ -420,7 +457,11 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
 
         Command::LoadMessages { contact_id } => {
             let res = ipc::messages_list(&contact_id, 100, None).await;
-            WorkerEvent::Messages { contact_id, result: res, note: None }
+            WorkerEvent::Messages {
+                contact_id,
+                result: res,
+                note: None,
+            }
         }
 
         Command::LoadVerifyEmoji { contact_id } => WorkerEvent::VerifyEmoji {
@@ -428,7 +469,10 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
             result: ipc::contact_verify_emoji(&contact_id).await,
         },
 
-        Command::SendMessage { contact_id, plaintext } => {
+        Command::SendMessage {
+            contact_id,
+            plaintext,
+        } => {
             let res = match ipc::contact_send(&contact_id, &plaintext).await {
                 Ok(()) => ipc::messages_list(&contact_id, 100, None).await,
                 Err(e) => Err(e),
@@ -447,25 +491,34 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
             };
 
             let res = ipc::messages_list(&contact_id, 100, None).await;
-            WorkerEvent::Messages { contact_id, result: res, note: Some(fetch_note) }
+            WorkerEvent::Messages {
+                contact_id,
+                result: res,
+                note: Some(fetch_note),
+            }
         }
 
         Command::CreateInvite { contact_id } => {
             WorkerEvent::CreateInvite(ipc::create_invite(contact_id.as_deref()).await)
         }
 
-        Command::AcceptInvite { code, label, contact_id } => WorkerEvent::AcceptInvite(
+        Command::AcceptInvite {
+            code,
+            label,
+            contact_id,
+        } => WorkerEvent::AcceptInvite(
             ipc::accept_invite(&code, &label, contact_id.as_deref()).await,
         ),
 
         Command::ForgetContact { contact_id } => {
             let res = ipc::contact_forget(&contact_id).await;
-            WorkerEvent::ForgetContact { contact_id, result: res }
+            WorkerEvent::ForgetContact {
+                contact_id,
+                result: res,
+            }
         }
 
-        Command::SetServerUrl { url } => {
-            WorkerEvent::SetServerUrl(ipc::set_server_url(&url).await)
-        }
+        Command::SetServerUrl { url } => WorkerEvent::SetServerUrl(ipc::set_server_url(&url).await),
 
         Command::SetServerIdentity { data } => {
             WorkerEvent::SetServerIdentity(ipc::set_server_identity(&data).await)

@@ -1,10 +1,10 @@
+use lithium_core::error::{LithiumError, Result};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
-use lithium_core::error::{LithiumError, Result};
 
 #[derive(Clone, Debug)]
 pub enum IpcEndpoint {
@@ -28,7 +28,10 @@ pub fn default_data_dir() -> PathBuf {
             return PathBuf::from(v).join("Lithiumd");
         }
         if let Some(v) = std::env::var_os("USERPROFILE") {
-            return PathBuf::from(v).join("AppData").join("Local").join("Lithiumd");
+            return PathBuf::from(v)
+                .join("AppData")
+                .join("Local")
+                .join("Lithiumd");
         }
         return PathBuf::from(".").join("lithiumd-data");
     }
@@ -39,7 +42,10 @@ pub fn default_data_dir() -> PathBuf {
             return PathBuf::from(xdg).join("lithiumd");
         }
         if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(".local").join("share").join("lithiumd");
+            return PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("lithiumd");
         }
         PathBuf::from(".").join(".lithiumd")
     }
@@ -111,7 +117,6 @@ pub fn mark_registered(base_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-
 fn overwrite_regular_file_best_effort(path: &Path, len: u64) -> io::Result<()> {
     use rand::TryRng;
     use rand::rngs::SysRng;
@@ -122,7 +127,9 @@ fn overwrite_regular_file_best_effort(path: &Path, len: u64) -> io::Result<()> {
 
     while remaining > 0 {
         let n = remaining.min(buf.len() as u64) as usize;
-        SysRng.try_fill_bytes(&mut buf[..n]).map_err(|_| io::Error::other("rng failed"))?;
+        SysRng
+            .try_fill_bytes(&mut buf[..n])
+            .map_err(|_| io::Error::other("rng failed"))?;
         f.write_all(&buf[..n])?;
         remaining -= n as u64;
     }
@@ -203,7 +210,7 @@ pub fn load_ipc_policy() -> Result<IpcPolicy> {
             .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_MAX_CONNECTIONS"))?,
         Err(_) => 1,
     }
-        .max(1);
+    .max(1);
 
     let idle_timeout_secs = match std::env::var("LITHIUMD_IPC_IDLE_TIMEOUT_SECS") {
         Ok(v) => v
@@ -211,7 +218,7 @@ pub fn load_ipc_policy() -> Result<IpcPolicy> {
             .map_err(|_| LithiumError::env_invalid("LITHIUMD_IPC_IDLE_TIMEOUT_SECS"))?,
         Err(_) => 300,
     }
-        .max(5);
+    .max(5);
 
     #[cfg(target_os = "linux")]
     let allowed_uid = match std::env::var("LITHIUMD_IPC_ALLOWED_UID") {
@@ -237,8 +244,7 @@ pub fn prepare_private_dir(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(LithiumError::io)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(LithiumError::io)?;
     }
 
     Ok(())

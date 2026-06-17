@@ -28,22 +28,50 @@ pub use events::handle_command;
 #[derive(Debug, Clone)]
 pub enum Command {
     Ping,
-    UnlockKeystore { data_password: String },
-    SetCredentials { username: String, password: String },
+    UnlockKeystore {
+        data_password: String,
+    },
+    SetCredentials {
+        username: String,
+        password: String,
+    },
     Register,
-    RemoteDelete { capability: String },
+    RemoteDelete {
+        capability: String,
+    },
     DeleteAccount,
     UnlockStorage,
     LoadContacts,
-    LoadMessages { contact_id: String },
-    SendMessage { contact_id: String, plaintext: String },
-    FetchMessages { contact_id: String },
-    CreateInvite { contact_id: Option<String> },
-    AcceptInvite { code: String, label: String, contact_id: Option<String> },
-    ForgetContact { contact_id: String },
-    LoadVerifyEmoji { contact_id: String },
-    SetServerUrl { url: String },
-    SetServerIdentity { data: Vec<u8> },
+    LoadMessages {
+        contact_id: String,
+    },
+    SendMessage {
+        contact_id: String,
+        plaintext: String,
+    },
+    FetchMessages {
+        contact_id: String,
+    },
+    CreateInvite {
+        contact_id: Option<String>,
+    },
+    AcceptInvite {
+        code: String,
+        label: String,
+        contact_id: Option<String>,
+    },
+    ForgetContact {
+        contact_id: String,
+    },
+    LoadVerifyEmoji {
+        contact_id: String,
+    },
+    SetServerUrl {
+        url: String,
+    },
+    SetServerIdentity {
+        data: Vec<u8>,
+    },
     WipeLocal,
     LockKeystore,
 }
@@ -260,7 +288,6 @@ impl LithiumApp {
             self.remote_delete_capability_input = self.register_capability.clone();
         }
     }
-
 }
 
 /// Shared invite / capability text box used in contacts panel and modals.

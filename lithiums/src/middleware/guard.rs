@@ -18,7 +18,6 @@ const PRE_REPLAY_LOCK_BASE_SECS: u64 = 5;
 const PRE_REPLAY_LOCK_MAX_SECS: u64 = 60;
 const PRE_REPLAY_THRESHOLD: u32 = 200;
 
-
 #[inline]
 fn normalize_guard_remote(remote: &str) -> String {
     let remote = remote.trim();
@@ -51,10 +50,7 @@ fn pre_replay_backoff_secs(hits: u32) -> u64 {
         .min(PRE_REPLAY_LOCK_MAX_SECS)
 }
 
-async fn pre_replay_rate_limit_check(
-    state: &SharedState,
-    remote: &str,
-) -> Result<(), AppError> {
+async fn pre_replay_rate_limit_check(state: &SharedState, remote: &str) -> Result<(), AppError> {
     let lock_key = pre_replay_lock_key(remote);
 
     if state.store.peek(&lock_key).await?.is_some() {
@@ -64,10 +60,7 @@ async fn pre_replay_rate_limit_check(
     Ok(())
 }
 
-async fn pre_replay_rate_limit_hit(
-    state: &SharedState,
-    remote: &str,
-) -> Result<(), AppError> {
+async fn pre_replay_rate_limit_hit(state: &SharedState, remote: &str) -> Result<(), AppError> {
     let fail_key = pre_replay_fail_key(remote);
 
     let current = match state.store.peek(&fail_key).await? {
@@ -170,7 +163,9 @@ impl<E: Endpoint> Endpoint for GuardEndpoint<E> {
 
         let headers_total: usize = headers.iter().map(|(k, v)| k.len() + v.len()).sum();
         if headers_total > 1024 * 1024 {
-            return Err(poem::Error::from_response(AppError::bad_request("headers_too_large").into_response()));
+            return Err(poem::Error::from_response(
+                AppError::bad_request("headers_too_large").into_response(),
+            ));
         }
 
         let bytes = req.take_body().into_bytes().await.map_err(|_| {
@@ -178,7 +173,9 @@ impl<E: Endpoint> Endpoint for GuardEndpoint<E> {
         })?;
 
         if bytes.len() > 1024 * 1024 {
-            return Err(poem::Error::from_response(AppError::bad_request("body_too_large").into_response()));
+            return Err(poem::Error::from_response(
+                AppError::bad_request("body_too_large").into_response(),
+            ));
         }
 
         pre_replay_rate_limit_hit(&self.state, &remote)

@@ -2,6 +2,12 @@
 
 `lithiums` is the relay server. It binds plain HTTP; put nginx, Caddy, or another TLS-terminating reverse proxy in front of it. TLS at the proxy secures the transport channel, but it is not the application-level trust anchor — clients authenticate the server via `server.identity`, which is distributed out-of-band.
 
+## Reverse proxy and client IP
+
+The DoS pre-replay guard rate-limits by the peer address of the incoming TCP connection (`remote_addr`). Behind a reverse proxy that address is the **proxy's** IP, not the client's, so without further configuration the guard degenerates into a single global counter (one abusive client can trip the limit for everyone) or a useless one (everyone shares the proxy address). `lithiums` does not read `X-Forwarded-For` itself — it must not trust a client-settable header.
+
+If you run behind a proxy and want per-client throttling, terminate the rate-limiting at the proxy (nginx `limit_req`, Caddy equivalents) where the real client IP is known, or have the proxy enforce it and treat the application guard as a coarse backstop. Do not expose `lithiums` directly such that `remote_addr` is attacker-spoofable.
+
 ## Prerequisites
 
 - PostgreSQL 14+
@@ -20,7 +26,9 @@
 | `DB_PORT`                          | `5432`              | PostgreSQL port                                                                            |
 | `DB_USER`                          | —                   | PostgreSQL user                                                                            |
 | `DB_NAME`                          | —                   | PostgreSQL database                                                                        |
-| `DB_PASSWORD` / `DB_PASSWORD_FILE` | —                   | PostgreSQL password or path to file containing it; prefer `DB_PASSWORD_FILE` in production |
+| `DB_PASSWORD_FILE`                 | —                   | Path to a file containing the PostgreSQL password (e.g. a Docker secret). There is no plain `DB_PASSWORD` variable — the password is only ever read from a file. |
+| `DB_MAX_CONNECTIONS`               | `20`                | Postgres connection pool max size                                                          |
+| `DB_MIN_CONNECTIONS`               | `2`                 | Postgres connection pool min size                                                          |
 
 ### TPM variables (only when using the default `tpm` feature)
 
@@ -40,6 +48,8 @@ Requirements:
 - A TPM 2.0 accessible via the resource manager device (`/dev/tpmrm0` preferred over `/dev/tpm0`)
 - `libtss2-esys` present at runtime (package `libtss2-esys-3.0.2-0` on Debian bookworm)
 
+Trust boundary: the sealed blob carries no PCR policy and no auth value (it is sealed under the empty owner-hierarchy password). It therefore protects against **offline** compromise only — a stolen disk or backup is useless without the same physical TPM and owner seed. It does **not** protect against an attacker who already has root on the live host: that attacker can ask the TPM to unseal (and can read the process memory anyway). PCR binding is deliberately not used because it tends to break across firmware/kernel updates. If you need defense against live-root, that is out of scope for TPM sealing here and must come from host hardening.
+
 **PlainFileMkProvider** (fallback): writes the master key as a raw file under `{LITHIUM_KEYS_DIR}/server/mk`. Use only in environments without a TPM (CI, local dev). Set `LITHIUM_MK_PROVIDER=plain` to activate.
 
 ## Docker
@@ -56,7 +66,8 @@ Run with TPM passthrough:
 
 ```bash
 docker run --device /dev/tpmrm0 \
-  -e DB_HOST=... -e DB_USER=... -e DB_NAME=... -e DB_PASSWORD=... \
+  -e DB_HOST=... -e DB_USER=... -e DB_NAME=... \
+  -e DB_PASSWORD_FILE=/run/secrets/db_password \
   -v lithium_keys:/var/lib/lithiums \
   -p 4108:4108 \
   lithiums
@@ -72,13 +83,15 @@ docker run \
 
 ## Docker Compose
 
-Production compose should use the pre-built image from `lithiums/Dockerfile`, not a dev `cargo run` setup. Minimal example:
+`docker/docker-compose.yml` in this repo is a **local development** setup, not a production one: the `app` service runs `image: rust:latest` with `command: [cargo, run, --release]`, bind-mounts `lithium_core`/`lithiums` sources from the host, and keeps a `cargo_target` volume to avoid rebuilding from scratch on every restart. It is meant for iterating on `lithiums` against a real Postgres without writing a Dockerfile build each time, not for deploying to a server.
 
 ```yaml
 services:
   postgres:
     image: postgres:17
     restart: unless-stopped
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: lithium
       POSTGRES_DB: lithium
@@ -86,7 +99,7 @@ services:
     secrets:
       - db_password
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lithium -d lithium"]
       interval: 5s
@@ -94,15 +107,14 @@ services:
       retries: 20
 
   app:
-    build:
-      context: ..
-      dockerfile: lithiums/Dockerfile
+    image: rust:latest
+    working_dir: /app
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:4108:4108"
+      - "4108:4108"
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -113,22 +125,31 @@ services:
     secrets:
       - db_password
     volumes:
+      - ../lithium_core:/lithium_core
+      - ../lithiums:/app
       - lithium_keys:/var/lib/lithiums
+      - cargo_target:/app/target
+    command:
+      - /usr/local/cargo/bin/cargo
+      - run
+      - --release
     devices:
       - /dev/tpmrm0:/dev/tpmrm0
     group_add:
-      - "tss"
+      - 107
 
 secrets:
   db_password:
     file: ./secrets/db_password.txt
 
 volumes:
-  pgdata:
   lithium_keys:
+  cargo_target:
 ```
 
-`group_add: ["tss"]` gives the container access to `/dev/tpmrm0` without running as root — on Debian/Ubuntu the resource manager device is owned by group `tss`. Check the actual group on the host with `stat /dev/tpmrm0` and adjust if different.
+`group_add: [107]` gives the container access to `/dev/tpmrm0` without running as root. `107` is the `tss` GID on the image this compose file was written against — it is **not** portable across distros/images. Check the actual group on the host with `stat /dev/tpmrm0` and replace `107` with whatever GID owns it there (or with the group name, e.g. `tss`, if your Compose/Docker version resolves names inside the container).
+
+**Production** should not use this file as-is. Build `lithiums/Dockerfile` into an image ahead of time (`docker build -f lithiums/Dockerfile -t lithiums .`) and reference that image from `app` (`image: lithiums` instead of `image: rust:latest` + bind mounts + `command`), so the running container doesn't depend on a writable source checkout or a `rust:latest` toolchain at runtime. No such production compose file ships in this repo yet — adapt the dev file above if you need one.
 
 ## First run
 
@@ -154,3 +175,19 @@ cargo build -p lithiums --no-default-features --release
 ```
 
 This produces a binary with only `PlainFileMkProvider`. Set `LITHIUM_MK_PROVIDER=plain` when running it (or omit — there is no TPM code path in this build).
+
+## lithiumd
+
+`lithiumd` is not deployed to a server — it runs locally on each user's machine alongside `lithiumg`, manages that user's keys, and talks to `lithiums` as a regular HTTPS client. It is documented here only because it is configured through environment variables the same way `lithiums` is, and someone packaging it (e.g. into a Linux distro package or an installer) needs them.
+
+| Variable                       | Default                                              | Description                                                                 |
+|---------------------------------|-------------------------------------------------------|------------------------------------------------------------------------------|
+| `LITHIUMD_DATA_DIR`             | platform data dir (e.g. `~/.local/share/lithiumd`)     | Where keys, the local SQLite DB, `server.identity`, and `server_url` live    |
+| `LITHIUMD_SOCKET_PATH`          | `{XDG_RUNTIME_DIR}/lithiumd.sock`                      | Unix socket path for IPC (Linux/macOS)                                       |
+| `LITHIUMD_PIPE_NAME`            | `\\.\pipe\lithiumd`                                    | Named pipe for IPC (Windows)                                                 |
+| `LITHIUMD_SERVER_IDENTITY`      | `{LITHIUMD_DATA_DIR}/server.identity`                  | Path to the server identity file (see [crypto-protocol.md](crypto-protocol.md#format-pliku-serveridentity)) |
+| `LITHIUMD_IPC_MAX_CONNECTIONS`  | `1`                                                     | Max concurrent IPC connections                                               |
+| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`| `300` (min `5`)                                        | IPC connection idle timeout                                                  |
+| `LITHIUMD_IPC_ALLOWED_UID`      | unset (no restriction)                                 | Linux only. Restricts IPC connections to a specific UID; mismatches are dropped silently before any IPC request is read |
+
+There is no `LITHIUMD_BASE_URL` or similar variable for the relay server address — the server URL is set at runtime via the IPC command `set_server_url` and persisted to `{LITHIUMD_DATA_DIR}/server_url`, not read from the environment. See [ipc-reference.md](ipc-reference.md#set_server_url).
