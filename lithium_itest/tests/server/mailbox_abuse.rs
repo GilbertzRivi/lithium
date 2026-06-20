@@ -1,5 +1,6 @@
 use lithium_core::crypto::keys;
-use lithium_itest::helpers::{TestServer, random_dek_hex, unique_handle};
+use lithium_core::pow;
+use lithium_itest::helpers::{TEST_SEND_POW_BITS, TestServer, random_dek_hex, unique_handle};
 
 async fn authenticated_client(
     srv: &TestServer,
@@ -119,11 +120,38 @@ async fn test_messages_persist_after_sender_deletes_account() {
 }
 
 #[tokio::test]
-async fn test_send_with_poisoned_jwt_rejected() {
+async fn test_send_rejected_without_valid_pow() {
+    let srv = TestServer::start().await;
+    let mut c = authenticated_client(&srv, "powgate").await;
+    let mailbox = hex::encode(keys::random_32().unwrap().as_slice());
+    let content = hex::encode(b"flood");
+
+    let challenge = pow::challenge(
+        &hex::decode(&mailbox).unwrap(),
+        &hex::decode(&content).unwrap(),
+    );
+    let mut bad_nonce = 0u64;
+    while pow::verify(&challenge, bad_nonce, TEST_SEND_POW_BITS) {
+        bad_nonce += 1;
+    }
+
+    let raw = c
+        .send_message_with_nonce(&mailbox, &content, bad_nonce)
+        .await;
+    assert_eq!(raw.status, 429);
+    assert_eq!(raw.error.as_deref(), Some("pow_required"));
+
+    let ok = c.send_message_raw(&mailbox, &content).await;
+    assert_eq!(ok.status, 200);
+}
+
+#[tokio::test]
+async fn test_send_ignores_poisoned_jwt() {
     let srv = TestServer::start().await;
     let mut c = authenticated_client(&srv, "poisonsend").await;
     let mailbox = hex::encode(keys::random_32().unwrap().as_slice());
+    // A2: send is anonymous (KeysInHeaders), so a garbage JWT must not block delivery.
     c.poison_jwt().await;
     let raw = c.send_message_raw(&mailbox, &hex::encode(b"nope")).await;
-    assert_eq!(raw.status, 401);
+    assert_eq!(raw.status, 200);
 }

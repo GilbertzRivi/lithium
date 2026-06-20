@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use lithium_core::passwords::passwords::{
-    PasswordPolicy, generate_dek, validate_passwords_distinct, wrap_dek_for_server_hex,
+    PasswordPolicy, generate_dek, validate_passwords_distinct,
 };
 use lithium_core::secrets::Byte32;
 
@@ -47,12 +47,7 @@ pub async fn handle(id: u64, state: Arc<DaemonState>, _pol: &PasswordPolicy) -> 
                 Err(_) => return crypto_err(id),
             };
 
-            let dek_blob_hex = match wrap_dek_for_server_hex(&dek_b32, &dp) {
-                Ok(v) => v,
-                Err(_) => return crypto_err(id),
-            };
-
-            let capability = match proto.register(dek_blob_hex.expose()).await {
+            let capability = match proto.register(&dek_b32).await {
                 Ok(v) => v,
                 Err(_) => return protocol_err(id),
             };

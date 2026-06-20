@@ -13,7 +13,9 @@ pub mod header {
 
 pub mod field {
     pub const HANDLER: &str = "handler";
-    pub const PASSWORD: &str = "password";
+    pub const OPAQUE: &str = "opaque";
+    pub const FLOW: &str = "flow";
+    pub const POW: &str = "pow";
     pub const DEK: &str = "dek";
     pub const TOKEN: &str = "token";
     pub const TOK: &str = "tok";
@@ -27,8 +29,10 @@ pub mod field {
 
 pub mod path {
     pub const SHAKE: &str = "/shake";
-    pub const REGISTER: &str = "/user/register";
-    pub const LOGIN: &str = "/user/login";
+    pub const REGISTER_START: &str = "/user/register/start";
+    pub const REGISTER_FINISH: &str = "/user/register/finish";
+    pub const LOGIN_START: &str = "/user/login/start";
+    pub const LOGIN_FINISH: &str = "/user/login/finish";
     pub const REVOKE: &str = "/user/revoke";
     pub const DELETE: &str = "/user/delete";
     pub const MSG_SEND: &str = "/msg/send";
@@ -37,12 +41,18 @@ pub mod path {
 
 pub mod ctx {
     pub const SHAKE: &str = "shake";
-    pub const REGISTER: &str = "register";
-    pub const LOGIN: &str = "login";
+    pub const REGISTER_START: &str = "register_start";
+    pub const REGISTER_FINISH: &str = "register_finish";
+    pub const LOGIN_START: &str = "login_start";
+    pub const LOGIN_FINISH: &str = "login_finish";
     pub const REVOKE: &str = "revoke";
     pub const DELETE: &str = "delete";
     pub const MSG_SEND: &str = "msg_send";
     pub const MSG_FETCH: &str = "msg_fetch";
+}
+
+pub fn normalize_handler(handler: &str) -> String {
+    handler.trim().to_lowercase()
 }
 
 pub fn ctx_req(base: &str) -> String {
@@ -75,7 +85,9 @@ mod tests {
         assert_eq!(header::KEY_DILI, "key-dili");
 
         assert_eq!(field::HANDLER, "handler");
-        assert_eq!(field::PASSWORD, "password");
+        assert_eq!(field::OPAQUE, "opaque");
+        assert_eq!(field::FLOW, "flow");
+        assert_eq!(field::POW, "pow");
         assert_eq!(field::DEK, "dek");
         assert_eq!(field::TOKEN, "token");
         assert_eq!(field::TOK, "tok");
@@ -87,16 +99,20 @@ mod tests {
         assert_eq!(field::MSG, "msg");
 
         assert_eq!(path::SHAKE, "/shake");
-        assert_eq!(path::REGISTER, "/user/register");
-        assert_eq!(path::LOGIN, "/user/login");
+        assert_eq!(path::REGISTER_START, "/user/register/start");
+        assert_eq!(path::REGISTER_FINISH, "/user/register/finish");
+        assert_eq!(path::LOGIN_START, "/user/login/start");
+        assert_eq!(path::LOGIN_FINISH, "/user/login/finish");
         assert_eq!(path::REVOKE, "/user/revoke");
         assert_eq!(path::DELETE, "/user/delete");
         assert_eq!(path::MSG_SEND, "/msg/send");
         assert_eq!(path::MSG_FETCH, "/msg/fetch");
 
         assert_eq!(ctx::SHAKE, "shake");
-        assert_eq!(ctx::REGISTER, "register");
-        assert_eq!(ctx::LOGIN, "login");
+        assert_eq!(ctx::REGISTER_START, "register_start");
+        assert_eq!(ctx::REGISTER_FINISH, "register_finish");
+        assert_eq!(ctx::LOGIN_START, "login_start");
+        assert_eq!(ctx::LOGIN_FINISH, "login_finish");
         assert_eq!(ctx::REVOKE, "revoke");
         assert_eq!(ctx::DELETE, "delete");
         assert_eq!(ctx::MSG_SEND, "msg_send");

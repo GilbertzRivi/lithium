@@ -90,7 +90,7 @@ const MIGRATIONS: &[Migration] = &[
         steps: &[
             "CREATE TABLE IF NOT EXISTS users (
                 id               BYTEA PRIMARY KEY,
-                password_hash    BYTEA NOT NULL,
+                opaque_record    BYTEA NOT NULL,
                 ed_key           BYTEA NOT NULL,
                 dili_key         BYTEA NOT NULL,
                 dek              BYTEA NOT NULL,

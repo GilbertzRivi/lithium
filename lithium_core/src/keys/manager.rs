@@ -220,6 +220,24 @@ fn load_or_create_label_secret32(
     Ok(v)
 }
 
+fn load_or_create_label_bytes(
+    secrets_dir: &Path,
+    mk: &MasterKey32,
+    label: &[u8],
+    generate: impl FnOnce() -> Result<SecretBytes>,
+) -> Result<SecretBytes> {
+    let path = label_secret_path(secrets_dir, label);
+    let key_type = label_key_type(label);
+
+    if path.exists() {
+        return keyfile::load_bytes_decrypted(&path, mk, &key_type);
+    }
+
+    let v = generate()?;
+    keyfile::save_bytes_encrypted(&path, mk, v.expose_as_slice(), &key_type)?;
+    Ok(v)
+}
+
 fn derive_ed25519_pub(seed: &Byte32) -> Byte32 {
     let sk = SigningKey::from_bytes(seed.as_array());
     Byte32::new(sk.verifying_key().to_bytes())
@@ -576,6 +594,15 @@ impl<P: MkProvider> KeyManager<P> {
 
     pub fn mk_provider_mut(&mut self) -> &mut P {
         &mut self.mk_provider
+    }
+
+    pub fn load_or_create_sealed_blob(
+        &self,
+        label: &[u8],
+        generate: impl FnOnce() -> Result<SecretBytes>,
+    ) -> Result<SecretBytes> {
+        let root_mk = self.mk_provider.load_mk()?;
+        load_or_create_label_bytes(&self.secrets_dir, &root_mk, label, generate)
     }
 
     pub fn with_signing_keys<R>(

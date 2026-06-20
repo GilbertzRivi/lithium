@@ -2,8 +2,13 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use lithium_core::{
-    contract::protocol::{self, ctx, field, header, path},
+    contract::protocol::{self, ctx, field, header, normalize_handler, path},
     crypto::{keys, kyberbox, sign},
+    opaque::client::{
+        client_login_finish, client_login_start, client_registration_finish,
+        client_registration_start,
+    },
+    pow,
     secrets::{Byte32, SecretString, bytes::SecretBytes},
     utils::store::EphemeralStoreManager,
 };
@@ -39,8 +44,10 @@ pub struct RawResponse {
 #[derive(Clone, Copy)]
 enum Ep {
     Shake,
-    Register,
-    Login,
+    RegisterStart,
+    RegisterFinish,
+    LoginStart,
+    LoginFinish,
     RemoteDelete,
     Delete,
     MsgSend,
@@ -51,8 +58,10 @@ impl Ep {
     fn path(self) -> &'static str {
         match self {
             Ep::Shake => path::SHAKE,
-            Ep::Register => path::REGISTER,
-            Ep::Login => path::LOGIN,
+            Ep::RegisterStart => path::REGISTER_START,
+            Ep::RegisterFinish => path::REGISTER_FINISH,
+            Ep::LoginStart => path::LOGIN_START,
+            Ep::LoginFinish => path::LOGIN_FINISH,
             Ep::RemoteDelete => path::REVOKE,
             Ep::Delete => path::DELETE,
             Ep::MsgSend => path::MSG_SEND,
@@ -63,8 +72,10 @@ impl Ep {
     fn ctx_base(self) -> &'static str {
         match self {
             Ep::Shake => ctx::SHAKE,
-            Ep::Register => ctx::REGISTER,
-            Ep::Login => ctx::LOGIN,
+            Ep::RegisterStart => ctx::REGISTER_START,
+            Ep::RegisterFinish => ctx::REGISTER_FINISH,
+            Ep::LoginStart => ctx::LOGIN_START,
+            Ep::LoginFinish => ctx::LOGIN_FINISH,
             Ep::RemoteDelete => ctx::REVOKE,
             Ep::Delete => ctx::DELETE,
             Ep::MsgSend => ctx::MSG_SEND,
@@ -85,12 +96,20 @@ impl Ep {
         matches!(self, Ep::RemoteDelete)
     }
     fn sign_ephemeral(self) -> bool {
-        matches!(self, Ep::Shake | Ep::RemoteDelete | Ep::MsgFetch)
+        matches!(
+            self,
+            Ep::Shake | Ep::RemoteDelete | Ep::MsgFetch | Ep::MsgSend
+        )
     }
     fn include_identity_keys(self) -> bool {
         matches!(
             self,
-            Ep::Shake | Ep::Register | Ep::MsgFetch | Ep::RemoteDelete
+            Ep::Shake
+                | Ep::RegisterStart
+                | Ep::RegisterFinish
+                | Ep::MsgFetch
+                | Ep::MsgSend
+                | Ep::RemoteDelete
         )
     }
 }
@@ -112,6 +131,8 @@ pub struct TestLithiumClient {
     // Dilithium-87: keys are large; use SecretBytes.
     pub user_dili_priv: Option<SecretBytes>,
     pub user_dili_pub: Option<SecretBytes>,
+
+    pow_bits: u32,
 }
 
 impl TestLithiumClient {
@@ -125,6 +146,7 @@ impl TestLithiumClient {
             user_ed_pub: None,
             user_dili_priv: None,
             user_dili_pub: None,
+            pow_bits: 0,
         }
     }
 
@@ -158,17 +180,69 @@ impl TestLithiumClient {
 
     pub async fn register(&mut self, handler: &str, password: &str, dek_hex: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body =
-            json!({ field::HANDLER: handler, field::PASSWORD: password, field::DEK: dek_hex });
-        self.send(Ep::Register, body)
+        let pw = SecretString::new(password.to_owned());
+
+        let (request, state) = client_registration_start(&pw).expect("opaque reg start");
+        let r1 = self
+            .send(
+                Ep::RegisterStart,
+                json!({ field::HANDLER: handler, field::OPAQUE: hex::encode(request) }),
+            )
             .await
-            .expect("register failed")
+            .expect("register start failed");
+        let response = hex::decode(r1.body[field::OPAQUE].as_str().expect("opaque resp"))
+            .expect("opaque resp hex");
+
+        let (upload, _export_key) = client_registration_finish(
+            state,
+            &response,
+            &pw,
+            normalize_handler(handler).as_bytes(),
+        )
+        .expect("opaque reg finish");
+
+        self.send(
+            Ep::RegisterFinish,
+            json!({
+                field::HANDLER: handler,
+                field::OPAQUE: hex::encode(upload),
+                field::DEK: dek_hex,
+            }),
+        )
+        .await
+        .expect("register finish failed")
     }
 
     pub async fn login(&mut self, handler: &str, password: &str) -> TestResponse {
         self.ensure_shake().await;
-        let body = json!({ field::HANDLER: handler, field::PASSWORD: password });
-        self.send(Ep::Login, body).await.expect("login failed")
+        let pw = SecretString::new(password.to_owned());
+
+        let (request, state) = client_login_start(&pw).expect("opaque login start");
+        let r1 = self
+            .send(
+                Ep::LoginStart,
+                json!({ field::HANDLER: handler, field::OPAQUE: hex::encode(request) }),
+            )
+            .await
+            .expect("login start failed");
+        let response = hex::decode(r1.body[field::OPAQUE].as_str().expect("opaque resp"))
+            .expect("opaque resp hex");
+        let flow = r1.body[field::FLOW].as_str().expect("flow").to_owned();
+
+        let (finalization, _export_key) =
+            client_login_finish(state, &response, &pw, normalize_handler(handler).as_bytes())
+                .expect("opaque login finish");
+
+        self.send(
+            Ep::LoginFinish,
+            json!({
+                field::HANDLER: handler,
+                field::FLOW: flow,
+                field::OPAQUE: hex::encode(finalization),
+            }),
+        )
+        .await
+        .expect("login failed")
     }
 
     pub async fn delete(&mut self) -> TestResponse {
@@ -192,14 +266,27 @@ impl TestLithiumClient {
     }
 
     pub async fn send_message(&mut self, mailbox_hex: &str, content_hex: &str) -> TestResponse {
-        let tok = self
-            .st_take_str(ST_JWT)
-            .await
-            .expect("JWT must be present; call login() first");
-        let body = json!({ field::TOKEN: tok.expose(), field::MAILBOX: mailbox_hex, field::CONTENT: content_hex });
+        self.ensure_shake().await;
+        let body = self.send_body_with_pow(mailbox_hex, content_hex);
         self.send(Ep::MsgSend, body)
             .await
             .expect("send_message failed")
+    }
+
+    fn send_body_with_pow(&self, mailbox_hex: &str, content_hex: &str) -> Value {
+        // Malformed hex is rejected server-side before the PoW check, so a placeholder
+        // nonce is fine for those negative tests.
+        let nonce = match (hex::decode(mailbox_hex), hex::decode(content_hex)) {
+            (Ok(mailbox), Ok(content)) => {
+                pow::solve(&pow::challenge(&mailbox, &content), self.pow_bits)
+            }
+            _ => 0,
+        };
+        json!({
+            field::MAILBOX: mailbox_hex,
+            field::CONTENT: content_hex,
+            field::POW: nonce.to_string(),
+        })
     }
 
     pub async fn fetch_messages(&mut self, mailbox_hex: &str) -> TestResponse {
@@ -217,9 +304,35 @@ impl TestLithiumClient {
         dek_hex: &str,
     ) -> RawResponse {
         self.ensure_shake().await;
-        let body =
-            json!({ field::HANDLER: handler, field::PASSWORD: password, field::DEK: dek_hex });
-        match self.send(Ep::Register, body).await {
+        let pw = SecretString::new(password.to_owned());
+
+        let (request, state) = client_registration_start(&pw).expect("opaque reg start");
+        let r1 = match self
+            .send(
+                Ep::RegisterStart,
+                json!({ field::HANDLER: handler, field::OPAQUE: hex::encode(request) }),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(raw) => return raw,
+        };
+        let response = hex::decode(r1.body[field::OPAQUE].as_str().unwrap_or_default())
+            .expect("opaque resp hex");
+        let (upload, _export_key) = client_registration_finish(
+            state,
+            &response,
+            &pw,
+            normalize_handler(handler).as_bytes(),
+        )
+        .expect("opaque reg finish");
+
+        let body = json!({
+            field::HANDLER: handler,
+            field::OPAQUE: hex::encode(upload),
+            field::DEK: dek_hex,
+        });
+        match self.send(Ep::RegisterFinish, body).await {
             Ok(_) => RawResponse {
                 status: 200,
                 error: None,
@@ -230,8 +343,38 @@ impl TestLithiumClient {
 
     pub async fn login_raw(&mut self, handler: &str, password: &str) -> RawResponse {
         self.ensure_shake().await;
-        let body = json!({ field::HANDLER: handler, field::PASSWORD: password });
-        match self.send(Ep::Login, body).await {
+        let pw = SecretString::new(password.to_owned());
+
+        let (request, state) = client_login_start(&pw).expect("opaque login start");
+        let r1 = match self
+            .send(
+                Ep::LoginStart,
+                json!({ field::HANDLER: handler, field::OPAQUE: hex::encode(request) }),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(raw) => return raw,
+        };
+        let response = hex::decode(r1.body[field::OPAQUE].as_str().unwrap_or_default())
+            .expect("opaque resp hex");
+        let flow = r1.body[field::FLOW].as_str().unwrap_or_default().to_owned();
+
+        // A wrong password makes the OPAQUE client finish fail locally; send a
+        // garbage finalization so the server still exercises rejection + rate limiting.
+        let finalization_hex =
+            match client_login_finish(state, &response, &pw, normalize_handler(handler).as_bytes())
+            {
+                Ok((finalization, _export_key)) => hex::encode(finalization),
+                Err(_) => hex::encode([0u8; 64]),
+            };
+
+        let body = json!({
+            field::HANDLER: handler,
+            field::FLOW: flow,
+            field::OPAQUE: finalization_hex,
+        });
+        match self.send(Ep::LoginFinish, body).await {
             Ok(_) => RawResponse {
                 status: 200,
                 error: None,
@@ -260,21 +403,35 @@ impl TestLithiumClient {
     }
 
     pub async fn send_message_raw(&mut self, mailbox_hex: &str, content_hex: &str) -> RawResponse {
-        match self.st_take_str(ST_JWT).await {
-            None => RawResponse {
-                status: 401,
-                error: Some("no_jwt".to_owned()),
+        self.ensure_shake().await;
+        let body = self.send_body_with_pow(mailbox_hex, content_hex);
+        match self.send(Ep::MsgSend, body).await {
+            Ok(_) => RawResponse {
+                status: 200,
+                error: None,
             },
-            Some(tok) => {
-                let body = json!({ field::TOKEN: tok.expose(), field::MAILBOX: mailbox_hex, field::CONTENT: content_hex });
-                match self.send(Ep::MsgSend, body).await {
-                    Ok(_) => RawResponse {
-                        status: 200,
-                        error: None,
-                    },
-                    Err(r) => r,
-                }
-            }
+            Err(r) => r,
+        }
+    }
+
+    pub async fn send_message_with_nonce(
+        &mut self,
+        mailbox_hex: &str,
+        content_hex: &str,
+        nonce: u64,
+    ) -> RawResponse {
+        self.ensure_shake().await;
+        let body = json!({
+            field::MAILBOX: mailbox_hex,
+            field::CONTENT: content_hex,
+            field::POW: nonce.to_string(),
+        });
+        match self.send(Ep::MsgSend, body).await {
+            Ok(_) => RawResponse {
+                status: 200,
+                error: None,
+            },
+            Err(r) => r,
         }
     }
 
@@ -304,6 +461,9 @@ impl TestLithiumClient {
         }
         if let Some(sk) = r.headers.get(header::SES_K).and_then(|v| v.as_str()) {
             self.store_str(ST_SES_K, sk, SESSION_TTL).await;
+        }
+        if let Some(bits) = r.body.get(field::POW).and_then(|v| v.as_u64()) {
+            self.pow_bits = bits as u32;
         }
         r
     }

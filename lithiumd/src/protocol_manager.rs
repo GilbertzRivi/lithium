@@ -14,8 +14,13 @@ use lithium_core::{
     crypto::{keys, kyberbox, sign},
     error::{LithiumError, Result},
     keys::{KeyManager, MkProvider},
+    opaque::client::{
+        client_login_finish, client_login_start, client_registration_finish,
+        client_registration_start,
+    },
+    pow,
     secrets::bytes::SecretBytes,
-    secrets::{Byte32, SecretString},
+    secrets::{Byte32, Byte64, SecretString},
     utils::store::EphemeralStoreManager,
 };
 
@@ -25,6 +30,7 @@ const ST_SES_X: &str = "proto/server/ses_x";
 const ST_SES_K: &str = "proto/server/ses_k";
 const ST_JWT: &str = "proto/server/jwt";
 const ST_DEK_ENC: &str = "proto/server/dek_enc";
+const ST_EXPORT: &str = "proto/server/export_key";
 
 const DEK_TTL: Duration = Duration::from_secs(3600);
 
@@ -36,8 +42,10 @@ fn obj_mut(v: &mut Value) -> Result<&mut Map<String, Value>> {
 #[serde(rename_all = "snake_case")]
 pub enum Endpoint {
     Shake,
-    Register,
-    Login,
+    RegisterStart,
+    RegisterFinish,
+    LoginStart,
+    LoginFinish,
     RemoteDelete,
     Delete,
     MsgSend,
@@ -48,8 +56,10 @@ impl Endpoint {
     pub fn path(&self) -> &str {
         match self {
             Endpoint::Shake => path::SHAKE,
-            Endpoint::Register => path::REGISTER,
-            Endpoint::Login => path::LOGIN,
+            Endpoint::RegisterStart => path::REGISTER_START,
+            Endpoint::RegisterFinish => path::REGISTER_FINISH,
+            Endpoint::LoginStart => path::LOGIN_START,
+            Endpoint::LoginFinish => path::LOGIN_FINISH,
             Endpoint::RemoteDelete => path::REVOKE,
             Endpoint::Delete => path::DELETE,
             Endpoint::MsgSend => path::MSG_SEND,
@@ -60,8 +70,10 @@ impl Endpoint {
     pub fn ctx_base(&self) -> &str {
         match self {
             Endpoint::Shake => ctx::SHAKE,
-            Endpoint::Register => ctx::REGISTER,
-            Endpoint::Login => ctx::LOGIN,
+            Endpoint::RegisterStart => ctx::REGISTER_START,
+            Endpoint::RegisterFinish => ctx::REGISTER_FINISH,
+            Endpoint::LoginStart => ctx::LOGIN_START,
+            Endpoint::LoginFinish => ctx::LOGIN_FINISH,
             Endpoint::RemoteDelete => ctx::REVOKE,
             Endpoint::Delete => ctx::DELETE,
             Endpoint::MsgSend => ctx::MSG_SEND,
@@ -82,23 +94,23 @@ impl Endpoint {
     }
 
     pub fn requires_jwt(&self) -> bool {
-        match self {
-            Endpoint::Shake | Endpoint::Register | Endpoint::Login | Endpoint::RemoteDelete => {
-                false
-            }
-            Endpoint::Delete | Endpoint::MsgSend => true,
-            Endpoint::MsgFetch => false,
-        }
+        matches!(self, Endpoint::Delete)
+    }
+
+    // send/fetch carry no account identity, so they ride a throwaway session
+    // never shared with an identity-bound login.
+    pub fn is_anonymous(&self) -> bool {
+        matches!(self, Endpoint::MsgSend | Endpoint::MsgFetch)
     }
 
     pub fn include_identity_keys_in_app_headers(&self) -> bool {
-        matches!(self, Endpoint::Register)
+        matches!(self, Endpoint::RegisterStart | Endpoint::RegisterFinish)
     }
 
     pub fn sign_with_ephemeral_keys(&self) -> bool {
         matches!(
             self,
-            Endpoint::Shake | Endpoint::RemoteDelete | Endpoint::MsgFetch
+            Endpoint::Shake | Endpoint::RemoteDelete | Endpoint::MsgFetch | Endpoint::MsgSend
         )
     }
 }
@@ -174,25 +186,25 @@ impl<P: MkProvider> ProtocolManager<P> {
         *self.creds.lock().await = Some((handler, password));
     }
 
-    pub async fn register(&self, dek_enc_hex: &str) -> Result<SecretString> {
+    pub async fn register(&self, dek: &Byte32) -> Result<SecretString> {
         let creds = self.creds.lock().await.clone();
         let Some((handler, password)) = creds else {
             return Err(LithiumError::invalid_credentials(
                 "handler/password missing",
             ));
         };
-        self.register_with(handler, password, dek_enc_hex).await
+        self.register_with(handler, password, dek).await
     }
 
     pub async fn register_with(
         &self,
         handler: SecretString,
         password: SecretString,
-        dek_enc_hex: &str,
+        dek: &Byte32,
     ) -> Result<SecretString> {
         let _g = self.lock.lock().await;
         self.ensure_shake().await?;
-        self.do_register(handler, password, dek_enc_hex).await
+        self.do_register(handler, password, dek).await
     }
 
     pub async fn remote_delete(&self, capability: &SecretString) -> Result<()> {
@@ -230,6 +242,15 @@ impl<P: MkProvider> ProtocolManager<P> {
             .ok_or_else(|| LithiumError::state_missing(ST_DEK_ENC))
     }
 
+    pub async fn get_export_key(&self) -> Result<Byte64> {
+        let _g = self.lock.lock().await;
+        let v = self
+            .peek_bytes(ST_EXPORT)
+            .await?
+            .ok_or_else(|| LithiumError::state_missing(ST_EXPORT))?;
+        Byte64::from_slice(v.expose_as_slice())
+    }
+
     pub async fn send(
         &self,
         ep: Endpoint,
@@ -238,12 +259,21 @@ impl<P: MkProvider> ProtocolManager<P> {
     ) -> Result<ProtocolResponse> {
         let _g = self.lock.lock().await;
 
+        let mut body_try = body;
+
+        if ep.is_anonymous() {
+            let bits = self.fresh_anon_shake().await?;
+            if matches!(ep, Endpoint::MsgSend) {
+                self.attach_pow(&mut body_try, bits)?;
+            }
+            let result = self.send_once(&ep, body_try, app_headers).await;
+            let _ = self.clear_anon_session().await;
+            return result;
+        }
+
         if ep.requires_session() {
             self.ensure_shake().await?;
         }
-
-        let mut body_try = body.clone();
-        let app_headers_try = app_headers.clone();
 
         if ep.requires_jwt() {
             self.ensure_login().await?;
@@ -257,7 +287,49 @@ impl<P: MkProvider> ProtocolManager<P> {
                 .insert(field::TOKEN.into(), Value::String(tok.expose().to_owned()));
         }
 
-        self.send_once(&ep, body_try, app_headers_try).await
+        self.send_once(&ep, body_try, app_headers).await
+    }
+
+    async fn fresh_anon_shake(&self) -> Result<u32> {
+        self.clear_anon_session().await?;
+        let resp = self
+            .send_once(&Endpoint::Shake, json!({}), json!({}))
+            .await?;
+        let bits = resp
+            .body
+            .get(field::POW)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        Ok(bits)
+    }
+
+    async fn clear_anon_session(&self) -> Result<()> {
+        let _ = self.store.del(ST_SES_X).await;
+        let _ = self.store.del(ST_SES_K).await;
+        let _ = self.store.del(ST_SERVER_PEER_X).await;
+        let _ = self.store.del(ST_SERVER_PEER_K).await;
+        Ok(())
+    }
+
+    fn attach_pow(&self, body: &mut Value, bits: u32) -> Result<()> {
+        let obj = obj_mut(body)?;
+        let mailbox = hex::decode(
+            obj.get(field::MAILBOX)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| LithiumError::json_missing_field(field::MAILBOX))?,
+        )
+        .map_err(LithiumError::invalid_hex)?;
+        let content = hex::decode(
+            obj.get(field::CONTENT)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| LithiumError::json_missing_field(field::CONTENT))?,
+        )
+        .map_err(LithiumError::invalid_hex)?;
+
+        let challenge = pow::challenge(&mailbox, &content);
+        let nonce = pow::solve(&challenge, bits);
+        obj.insert(field::POW.into(), Value::String(nonce.to_string()));
+        Ok(())
     }
 
     async fn ensure_shake(&self) -> Result<()> {
@@ -311,40 +383,46 @@ impl<P: MkProvider> ProtocolManager<P> {
     }
 
     async fn do_login(&self, handler: SecretString, password: SecretString) -> Result<()> {
-        let body = json!({
+        let handler_norm = protocol::normalize_handler(handler.expose());
+
+        let (request, client_state) = client_login_start(&password)?;
+        let body1 = json!({
             field::HANDLER: handler.expose(),
-            field::PASSWORD: password.expose(),
+            field::OPAQUE: hex::encode(request),
         });
+        let resp1 = self
+            .send_once(&Endpoint::LoginStart, body1, json!({}))
+            .await?;
 
-        let resp = self.send_once(&Endpoint::Login, body, json!({})).await?;
-
-        let tok = resp
+        let response = hex::decode(
+            resp1
+                .body
+                .get(field::OPAQUE)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| LithiumError::json_missing_field(field::OPAQUE))?,
+        )
+        .map_err(LithiumError::invalid_hex)?;
+        let flow = resp1
             .body
-            .get(field::TOK)
+            .get(field::FLOW)
             .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field(field::TOK))?;
-        let dek = resp
-            .body
-            .get(field::DEK)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field(field::DEK))?;
+            .ok_or_else(|| LithiumError::json_missing_field(field::FLOW))?
+            .to_owned();
 
-        let ses_x = resp
-            .headers
-            .get(header::SES_X)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field(header::SES_X))?;
-        let ses_k = resp
-            .headers
-            .get(header::SES_K)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field(header::SES_K))?;
+        let (finalization, export_key) =
+            client_login_finish(client_state, &response, &password, handler_norm.as_bytes())?;
 
-        self.store_string(ST_SES_X, ses_x, self.session_ttl).await?;
-        self.store_string(ST_SES_K, ses_k, self.session_ttl).await?;
+        let body2 = json!({
+            field::HANDLER: handler.expose(),
+            field::FLOW: flow,
+            field::OPAQUE: hex::encode(finalization),
+        });
+        let _ = self
+            .send_once(&Endpoint::LoginFinish, body2, json!({}))
+            .await?;
 
-        self.store_string(ST_JWT, tok, self.jwt_ttl).await?;
-        self.store_string(ST_DEK_ENC, dek, DEK_TTL).await?;
+        self.store_bytes(ST_EXPORT, export_key.as_slice(), DEK_TTL)
+            .await?;
         Ok(())
     }
 
@@ -352,29 +430,56 @@ impl<P: MkProvider> ProtocolManager<P> {
         &self,
         handler: SecretString,
         password: SecretString,
-        dek_enc_hex: &str,
+        dek: &Byte32,
     ) -> Result<SecretString> {
-        let body = json!({
+        let handler_norm = protocol::normalize_handler(handler.expose());
+
+        let (request, client_state) = client_registration_start(&password)?;
+        let body1 = json!({
             field::HANDLER: handler.expose(),
-            field::PASSWORD: password.expose(),
-            field::DEK: dek_enc_hex,
+            field::OPAQUE: hex::encode(request),
         });
+        let resp1 = self
+            .send_once(&Endpoint::RegisterStart, body1, json!({}))
+            .await?;
 
-        let resp = self.send_once(&Endpoint::Register, body, json!({})).await?;
+        let response = hex::decode(
+            resp1
+                .body
+                .get(field::OPAQUE)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| LithiumError::json_missing_field(field::OPAQUE))?,
+        )
+        .map_err(LithiumError::invalid_hex)?;
 
-        let _msg = resp
-            .body
-            .get(field::MSG)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| LithiumError::json_missing_field(field::MSG))?;
+        let (upload, export_key) = client_registration_finish(
+            client_state,
+            &response,
+            &password,
+            handler_norm.as_bytes(),
+        )?;
 
-        let capability = resp
+        let dek_enc_hex = lithium_core::opaque::dek::wrap_dek_under_export_key(dek, &export_key)?;
+
+        let body2 = json!({
+            field::HANDLER: handler.expose(),
+            field::OPAQUE: hex::encode(upload),
+            field::DEK: dek_enc_hex.expose(),
+        });
+        let resp2 = self
+            .send_once(&Endpoint::RegisterFinish, body2, json!({}))
+            .await?;
+
+        let capability = resp2
             .body
             .get(field::CAPABILITY)
             .and_then(|v| v.as_str())
             .ok_or_else(|| LithiumError::json_missing_field(field::CAPABILITY))?;
 
-        self.store_string(ST_DEK_ENC, dek_enc_hex, DEK_TTL).await?;
+        self.store_string(ST_DEK_ENC, dek_enc_hex.expose(), DEK_TTL)
+            .await?;
+        self.store_bytes(ST_EXPORT, export_key.as_slice(), DEK_TTL)
+            .await?;
         Ok(SecretString::new(capability.to_owned()))
     }
 

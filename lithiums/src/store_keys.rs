@@ -32,6 +32,10 @@ pub(crate) fn token(token: &str) -> String {
     format!("token:{token}")
 }
 
+pub(crate) fn opaque_login(flow: &str) -> String {
+    format!("opaque:login:{flow}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,5 +50,6 @@ mod tests {
         assert_eq!(pre_replay_lock("r"), "guard:pre-replay:lock:r");
         assert_eq!(replay("ab"), "replay:ab");
         assert_eq!(token("t"), "token:t");
+        assert_eq!(opaque_login("f"), "opaque:login:f");
     }
 }

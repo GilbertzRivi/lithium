@@ -6,6 +6,7 @@ use crate::error::AppError;
 use crate::transport::CryptoReq;
 
 use lithium_core::contract::protocol::field;
+use lithium_core::pow;
 use lithium_core::secrets::bytes::SecretBytes;
 
 fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
@@ -19,23 +20,28 @@ fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
 
 #[handler]
 pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
-    let (state, mailbox_hex, content_hex) = {
+    let (state, mailbox_hex, content_hex, pow_nonce) = {
         let mut ctx = req.lock().await;
-
-        let _user = ctx
-            .user
-            .clone()
-            .ok_or(AppError::unauthorized("unauthorized"))?;
 
         let mailbox_hex = ctx.body.take_string(field::MAILBOX)?;
         let content_hex = ctx.body.take_string(field::CONTENT)?;
+        let pow_nonce = ctx.body.take_string(field::POW)?;
 
-        (ctx.state.clone(), mailbox_hex, content_hex)
+        (ctx.state.clone(), mailbox_hex, content_hex, pow_nonce)
     };
 
     let mailbox = decode_mailbox(mailbox_hex.expose())?;
     let content_sb = SecretBytes::from_hex(content_hex.expose())
         .map_err(|_| AppError::bad_request("invalid_content"))?;
+
+    let nonce: u64 = pow_nonce
+        .expose()
+        .parse()
+        .map_err(|_| AppError::bad_request("invalid_pow"))?;
+    let challenge = pow::challenge(&mailbox, content_sb.expose_as_slice());
+    if !pow::verify(&challenge, nonce, state.send_pow_bits) {
+        return Err(AppError::too_many_requests("pow_required"));
+    }
 
     state
         .db
@@ -48,12 +54,9 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
         .await?;
 
     let mut ctx = req.lock().await;
-    ctx.reply_ok_authed(
-        120,
-        json!({
-            field::MSG: "Message sent"
-        }),
-    )
+    ctx.reply_ok(json!({
+        field::MSG: "Message sent"
+    }))
     .await
 }
 

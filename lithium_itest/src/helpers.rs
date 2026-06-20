@@ -12,6 +12,9 @@ use uuid::Uuid;
 
 use crate::client::{ServerBootstrap, TestLithiumClient};
 
+// Low difficulty keeps the test suite fast while still exercising the PoW path.
+pub const TEST_SEND_POW_BITS: u32 = 8;
+
 // One Docker container (lithium_itest_pg, port 15432) is shared across all test
 // binaries in a cargo test run. The container is not removed on exit because multiple
 // binaries run concurrently - the first to exit would kill it for the rest. Reuse on
@@ -181,6 +184,21 @@ impl TestServer {
 
         let pub_keys = km.public_keys().clone();
         km.set_rotate_interval(Duration::from_secs(3600));
+
+        let opaque_setup = {
+            let blob = km
+                .load_or_create_sealed_blob(lithium_core::opaque::SERVER_SETUP_LABEL, || {
+                    Ok(lithium_core::secrets::bytes::SecretBytes::new(
+                        lithium_core::opaque::server::ServerSetup::generate().serialize(),
+                    ))
+                })
+                .expect("opaque setup");
+            Arc::new(
+                lithium_core::opaque::server::ServerSetup::deserialize(blob.expose_as_slice())
+                    .expect("opaque setup deserialize"),
+            )
+        };
+
         let key_manager = Arc::new(Mutex::new(km));
 
         let health = HealthState::new();
@@ -199,6 +217,8 @@ impl TestServer {
             store: EphemeralStoreManager::new().expect("store"),
             db: dbm,
             health,
+            opaque_setup,
+            send_pow_bits: TEST_SEND_POW_BITS,
         });
 
         let port = {

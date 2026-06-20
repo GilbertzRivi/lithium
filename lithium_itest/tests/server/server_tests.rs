@@ -407,7 +407,7 @@ async fn test_session_with_nonexistent_ses_keys_rejected() {
     let http = reqwest::Client::new();
     // Valid header set for session mode, but ses-x/ses-k IDs don't exist in server store.
     let resp = http
-        .post(format!("http://{}/user/register", srv.addr))
+        .post(format!("http://{}/user/register/start", srv.addr))
         .header("ses-x", "aa".repeat(32))
         .header("ses-k", "bb".repeat(32))
         .header("key-x", "cc".repeat(32))
@@ -436,7 +436,7 @@ async fn test_session_keys_consumed_after_use() {
 
     let http = reqwest::Client::new();
     let resp = http
-        .post(format!("http://{}/user/login", srv.addr))
+        .post(format!("http://{}/user/login/start", srv.addr))
         .header("ses-x", &ses_x)
         .header("ses-k", &ses_k)
         .header("key-x", "cc".repeat(32))
@@ -637,11 +637,11 @@ async fn test_multiple_senders_all_messages_fetched() {
 }
 
 #[tokio::test]
-async fn test_jwt_single_use() {
+async fn test_send_is_anonymous_without_jwt() {
     use lithium_core::crypto::keys;
 
     let srv = TestServer::start().await;
-    let handle = unique_handle("jwtonce");
+    let handle = unique_handle("anonsend");
     let dek = random_dek_hex();
     let mailbox = hex::encode(keys::random_32().expect("random").as_slice());
     let content = hex::encode(b"test");
@@ -649,15 +649,10 @@ async fn test_jwt_single_use() {
     let mut c = srv.client();
     c.generate_user_keys();
     c.register(&handle, "Password1!", &dek).await;
-    c.login(&handle, "Password1!").await;
 
-    c.send_message(&mailbox, &content).await;
-
-    // send_message_raw: the client got a fresh JWT from the server's reply_ok_authed
-    // in the first send, so a second call is expected to succeed with that new token.
-    // To test that the ORIGINAL token cannot be reused, we instead poison the fresh
-    // token the client holds and verify the server rejects the garbage.
+    // After A2 the send endpoint is KeysInHeaders, not JwtUser: a missing or garbage
+    // JWT must not affect delivery. No login at all, plus a poisoned token, still sends.
     c.poison_jwt().await;
     let raw = c.send_message_raw(&mailbox, &content).await;
-    assert_eq!(raw.status, 401);
+    assert_eq!(raw.status, 200);
 }

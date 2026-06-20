@@ -7,6 +7,9 @@ use lithium_core::{
     db::manager::DataManager,
     error::LithiumError,
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
+    opaque::{self, server::ServerSetup},
+    pow,
+    secrets::bytes::SecretBytes,
     utils::store::EphemeralStoreManager,
 };
 use lithiums::{
@@ -49,6 +52,18 @@ async fn main() -> AppResult<()> {
     let mut km = KeyManager::start(&keys_dir, KeyStoreKind::Server, make_provider(&keys_dir))?;
     km.set_rotate_interval(Duration::from_secs(rotate_secs));
 
+    let opaque_setup = {
+        let blob = km.load_or_create_sealed_blob(opaque::SERVER_SETUP_LABEL, || {
+            Ok(SecretBytes::new(ServerSetup::generate().serialize()))
+        })?;
+        Arc::new(ServerSetup::deserialize(blob.expose_as_slice())?)
+    };
+
+    let send_pow_bits: u32 = env::var("LITHIUMS_SEND_POW_BITS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(pow::DEFAULT_SEND_POW_BITS);
+
     let identity_path = keys_dir.join("server.identity");
     if !identity_path.exists() {
         identity::write_server_identity(&identity_path, km.public_keys())
@@ -79,6 +94,8 @@ async fn main() -> AppResult<()> {
         store: EphemeralStoreManager::new()?,
         db: dbm,
         health,
+        opaque_setup,
+        send_pow_bits,
     });
 
     let app = build_app(app_state);

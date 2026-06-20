@@ -6,7 +6,9 @@ pub mod db;
 pub mod error;
 pub mod keys;
 pub(crate) mod labels;
+pub mod opaque;
 pub mod passwords;
+pub mod pow;
 pub mod secrets;
 pub mod utils;
 

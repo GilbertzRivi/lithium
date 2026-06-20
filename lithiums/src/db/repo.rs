@@ -15,7 +15,6 @@ use lithium_core::{
     db::manager::DataManager,
     error::{LithiumError, Result},
     keys::MkProvider,
-    passwords::passwords::hash_password_phc,
     secrets::{Byte12, Byte32, SecretString},
     utils::store::EphemeralStoreManager,
 };
@@ -23,7 +22,7 @@ use lithium_core::{
 use crate::db::models::{messages, users};
 use crate::error::{AppError, AppResult};
 use crate::labels::{
-    AAD_MSG, AAD_UIDENC, AAD_USER_DEK, AAD_USER_DILI_KEY, AAD_USER_ED_KEY, AAD_USER_PASSWORD_HASH,
+    AAD_MSG, AAD_UIDENC, AAD_USER_DEK, AAD_USER_DILI_KEY, AAD_USER_ED_KEY, AAD_USER_OPAQUE_RECORD,
     MSG_VER, UIDENC_NONCE_LABEL, UIDENC_VER,
 };
 
@@ -32,7 +31,7 @@ const MSG_KEY_TTL: Duration = Duration::from_secs(24 * 3600);
 #[derive(Clone, Debug)]
 pub struct UserRecord {
     pub id: Vec<u8>,
-    pub password_hash: SecretString,
+    pub opaque_record: SecretBytes,
     pub ed_key: Byte32,
     pub dili_key: SecretBytes,
     pub dek: SecretString,
@@ -112,10 +111,10 @@ async fn decrypt_user_row<P: MkProvider + Send + Sync + 'static>(
 ) -> AppResult<UserRecord> {
     let db_dek = dm.load_db_dek().await?;
 
-    let password_hash_plain = dm.decrypt_db_blob_with(
+    let opaque_record_plain = dm.decrypt_db_blob_with(
         &db_dek,
-        &SecretBytes::from_slice(row.password_hash.as_slice()),
-        &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
+        &SecretBytes::from_slice(row.opaque_record.as_slice()),
+        &SecretBytes::from_slice(AAD_USER_OPAQUE_RECORD),
     )?;
 
     let ed_key_plain = dm.decrypt_db_blob_with(
@@ -138,8 +137,7 @@ async fn decrypt_user_row<P: MkProvider + Send + Sync + 'static>(
 
     Ok(UserRecord {
         id: row.id,
-        password_hash: SecretString::from_utf8_bytes(password_hash_plain.expose_as_slice())
-            .map_err(AppError::from)?,
+        opaque_record: opaque_record_plain,
         ed_key: Byte32::from_slice(ed_key_plain.expose_as_slice()).map_err(AppError::from)?,
         dili_key: dili_key_plain,
         dek: SecretString::from_utf8_bytes(dek_plain.expose_as_slice()).map_err(AppError::from)?,
@@ -151,7 +149,7 @@ pub trait ServerDbExt<P: MkProvider + Send + Sync + 'static> {
     async fn create_user(
         &self,
         handler: &str,
-        password: &str,
+        opaque_record: &[u8],
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
@@ -188,7 +186,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
     async fn create_user(
         &self,
         handler: &str,
-        password: &str,
+        opaque_record: &[u8],
         ed_key: &[u8],
         dili_key: &[u8],
         dek: &[u8],
@@ -196,13 +194,10 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let uid = uuid5_from_handler(self, handler).await?;
         let id_enc = id_enc_from_uuid(self, &uid).await?;
 
-        let pw = SecretString::new(password.to_owned());
-        let password_hash = hash_password_phc(&pw)?;
-
-        let password_hash_enc = self
+        let opaque_record_enc = self
             .encrypt_db_blob(
-                &SecretBytes::from_slice(password_hash.as_bytes()),
-                &SecretBytes::from_slice(AAD_USER_PASSWORD_HASH),
+                &SecretBytes::from_slice(opaque_record),
+                &SecretBytes::from_slice(AAD_USER_OPAQUE_RECORD),
             )
             .await?;
 
@@ -233,7 +228,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         let am = users::ActiveModel {
             id: Set(id_enc.expose_as_slice().to_vec()),
-            password_hash: Set(password_hash_enc.expose_as_slice().to_vec()),
+            opaque_record: Set(opaque_record_enc.expose_as_slice().to_vec()),
             ed_key: Set(ed_key_enc.expose_as_slice().to_vec()),
             dili_key: Set(dili_key_enc.expose_as_slice().to_vec()),
             dek: Set(dek_enc.expose_as_slice().to_vec()),

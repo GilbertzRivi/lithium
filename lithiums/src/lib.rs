@@ -76,17 +76,31 @@ pub fn build_app(state: state::SharedState) -> impl Endpoint {
             )),
         )
         .at(
-            path::REGISTER,
-            post(api::user::register).with(CryptoMiddleware::new(
+            path::REGISTER_START,
+            post(api::user::register_start).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session(ctx::REGISTER).auth(AuthMode::KeysInHeaders),
+                CryptoCfg::session(ctx::REGISTER_START).auth(AuthMode::KeysInHeaders),
             )),
         )
         .at(
-            path::LOGIN,
-            post(api::user::login).with(CryptoMiddleware::new(
+            path::REGISTER_FINISH,
+            post(api::user::register_finish).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session(ctx::LOGIN).auth(AuthMode::LoginByHandler),
+                CryptoCfg::session(ctx::REGISTER_FINISH).auth(AuthMode::KeysInHeaders),
+            )),
+        )
+        .at(
+            path::LOGIN_START,
+            post(api::user::login_start).with(CryptoMiddleware::new(
+                state.clone(),
+                CryptoCfg::session(ctx::LOGIN_START).auth(AuthMode::LoginByHandler),
+            )),
+        )
+        .at(
+            path::LOGIN_FINISH,
+            post(api::user::login_finish).with(CryptoMiddleware::new(
+                state.clone(),
+                CryptoCfg::session(ctx::LOGIN_FINISH).auth(AuthMode::LoginByHandler),
             )),
         )
         .at(
@@ -107,7 +121,7 @@ pub fn build_app(state: state::SharedState) -> impl Endpoint {
             path::MSG_SEND,
             post(api::messages::send).with(CryptoMiddleware::new(
                 state.clone(),
-                CryptoCfg::session(ctx::MSG_SEND).auth(AuthMode::JwtUser),
+                CryptoCfg::session(ctx::MSG_SEND).auth(AuthMode::KeysInHeaders),
             )),
         )
         .at(
