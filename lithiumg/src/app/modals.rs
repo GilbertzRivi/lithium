@@ -1,8 +1,191 @@
 use eframe::egui;
 
-use super::{Command, LithiumApp, draw_invite_box, zero_str};
+use super::{Command, LithiumApp, PairingStep, draw_invite_box, zero_str};
 
 impl LithiumApp {
+    pub(super) fn draw_pairing_modal(&mut self, ctx: &egui::Context) {
+        if !self.pairing_modal_open {
+            return;
+        }
+
+        let mut open = self.pairing_modal_open;
+
+        egui::Window::new("Add contact")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(560.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                match self.pairing_step {
+                    PairingStep::ChooseRole => {
+                        ui.label("How are you adding this contact?");
+                        ui.add_space(8.0);
+                        if ui
+                            .add_enabled(!self.busy, egui::Button::new("I'm inviting someone"))
+                            .clicked()
+                        {
+                            self.pairing_error = None;
+                            self.send(Command::CreateInvite { contact_id: None });
+                        }
+                        ui.add_space(4.0);
+                        if ui
+                            .add_enabled(!self.busy, egui::Button::new("I received an invitation"))
+                            .clicked()
+                        {
+                            self.pairing_error = None;
+                            self.pairing_step = PairingStep::ResponderCommitment;
+                        }
+                    }
+
+                    PairingStep::InitiatorCommitment => {
+                        ui.label("Step 1 — send this commitment to your contact:");
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_commitment_out",
+                            &mut self.pairing_artifact,
+                            "",
+                            false,
+                        );
+
+                        ui.add_space(8.0);
+                        ui.label("Step 2 — paste the code they send back:");
+                        ui.add_space(4.0);
+                        ui.add_sized(
+                            [ui.available_width(), 24.0],
+                            egui::TextEdit::singleline(&mut self.pairing_name_input)
+                                .hint_text("Contact name"),
+                        );
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_peer_in_initiator",
+                            &mut self.pairing_peer_input,
+                            "Paste their code",
+                            true,
+                        );
+
+                        let can = !self.busy
+                            && !self.pairing_name_input.trim().is_empty()
+                            && !self.pairing_peer_input.trim().is_empty();
+                        ui.add_space(8.0);
+                        if ui
+                            .add_enabled(can, egui::Button::new("Reveal my code"))
+                            .clicked()
+                            && let Some(cid) = self.pairing_contact_id.clone()
+                        {
+                            self.pairing_error = None;
+                            self.send(Command::RevealInvite {
+                                contact_id: cid,
+                                peer_code: self.pairing_peer_input.trim().to_string(),
+                                label: self.pairing_name_input.trim().to_string(),
+                            });
+                        }
+                    }
+
+                    PairingStep::InitiatorReveal => {
+                        ui.label(
+                            "Send this code to your contact. Pairing completes on their side.",
+                        );
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_reveal_out",
+                            &mut self.pairing_artifact,
+                            "",
+                            false,
+                        );
+                        ui.add_space(8.0);
+                        if ui.button("Done").clicked() {
+                            let cid = self.pairing_contact_id.clone();
+                            self.clear_pairing_modal();
+                            if let Some(cid) = cid {
+                                self.pending_select_contact_id = Some(cid.clone());
+                                self.pending_verify_contact_id = Some(cid);
+                            }
+                            self.send(Command::LoadContacts);
+                        }
+                    }
+
+                    PairingStep::ResponderCommitment => {
+                        ui.label("Paste the commitment your contact sent, and name them:");
+                        ui.add_space(4.0);
+                        ui.add_sized(
+                            [ui.available_width(), 24.0],
+                            egui::TextEdit::singleline(&mut self.pairing_name_input)
+                                .hint_text("Contact name"),
+                        );
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_commitment_in",
+                            &mut self.pairing_peer_input,
+                            "Paste commitment",
+                            true,
+                        );
+
+                        let can = !self.busy
+                            && !self.pairing_name_input.trim().is_empty()
+                            && !self.pairing_peer_input.trim().is_empty();
+                        ui.add_space(8.0);
+                        if ui.add_enabled(can, egui::Button::new("Continue")).clicked() {
+                            self.pairing_error = None;
+                            self.send(Command::AcceptCommitment {
+                                commitment: self.pairing_peer_input.trim().to_string(),
+                                label: self.pairing_name_input.trim().to_string(),
+                            });
+                        }
+                    }
+
+                    PairingStep::ResponderCode => {
+                        ui.label("Step 1 — send this code back to your contact:");
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_code_out",
+                            &mut self.pairing_artifact,
+                            "",
+                            false,
+                        );
+
+                        ui.add_space(8.0);
+                        ui.label("Step 2 — paste their final code to finish:");
+                        ui.add_space(4.0);
+                        draw_invite_box(
+                            ui,
+                            "pairing_peer_in_responder",
+                            &mut self.pairing_peer_input,
+                            "Paste their final code",
+                            true,
+                        );
+
+                        let can = !self.busy && !self.pairing_peer_input.trim().is_empty();
+                        ui.add_space(8.0);
+                        if ui
+                            .add_enabled(can, egui::Button::new("Finish pairing"))
+                            .clicked()
+                            && let Some(cid) = self.pairing_contact_id.clone()
+                        {
+                            self.pairing_error = None;
+                            self.send(Command::FinalizePairing {
+                                contact_id: cid,
+                                peer_code: self.pairing_peer_input.trim().to_string(),
+                            });
+                        }
+                    }
+                }
+
+                if let Some(err) = &self.pairing_error {
+                    ui.add_space(8.0);
+                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), err);
+                }
+            });
+
+        if !open {
+            self.clear_pairing_modal();
+        }
+    }
+
     pub(super) fn draw_wipe_modal(&mut self, ctx: &egui::Context) {
         if !self.wipe_modal_open {
             return;

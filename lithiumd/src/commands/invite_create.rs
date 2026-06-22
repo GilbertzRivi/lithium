@@ -7,7 +7,8 @@ use lithium_core::secrets::SecretString;
 use crate::e2e::PeerState;
 use crate::{
     commands::invite_codec::{
-        decode_contact_id_hex, encode_invite_code, gen_self_state, invite_public_from_self,
+        decode_contact_id_hex, encode_invite_code, gen_self_state, invite_commitment,
+        invite_public_from_self,
     },
     db::repo::DaemonDbExt,
     ipc::types::{IpcResponse, err_resp, internal_err, storage_err},
@@ -55,12 +56,17 @@ pub async fn handle(
             Err(_) => return internal_err(id),
         };
 
+        let commitment = match invite_commitment(&code) {
+            Ok(v) => v,
+            Err(_) => return internal_err(id),
+        };
+
         return IpcResponse {
             id,
             ok: true,
             result: Some(json!({
                 "contact_id": hex::encode(contact_id),
-                "code": code.expose()
+                "commitment": commitment
             })),
             error: None,
         };
@@ -101,12 +107,17 @@ pub async fn handle(
         Err(_) => return internal_err(id),
     };
 
+    let commitment = match invite_commitment(&code) {
+        Ok(v) => v,
+        Err(_) => return internal_err(id),
+    };
+
     IpcResponse {
         id,
         ok: true,
         result: Some(json!({
             "contact_id": hex::encode(contact_id),
-            "code": code.expose()
+            "commitment": commitment
         })),
         error: None,
     }

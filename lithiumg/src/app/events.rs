@@ -1,6 +1,6 @@
 use crate::{errors, ipc};
 
-use super::{Command, LithiumApp, Screen, WorkerEvent};
+use super::{Command, LithiumApp, PairingStep, Screen, WorkerEvent};
 
 impl LithiumApp {
     pub(super) fn handle_ping(&mut self, ping: ipc::PingResult) {
@@ -305,31 +305,48 @@ impl LithiumApp {
 
             WorkerEvent::CreateInvite(res) => match res {
                 Ok(v) => {
-                    self.generated_invite_code = v.code;
-                    self.pending_select_contact_id = Some(v.contact_id.clone());
-                    self.pending_verify_contact_id = Some(v.contact_id);
-                    self.set_status("Invite created — share the code below with your contact.");
+                    self.pairing_contact_id = Some(v.contact_id);
+                    self.pairing_artifact = v.commitment;
+                    self.pairing_error = None;
+                    self.pairing_step = PairingStep::InitiatorCommitment;
                     self.send(Command::LoadContacts);
                 }
-                Err(e) => self.set_error(format!(
-                    "Could not create invite: {}",
-                    errors::translate(&e)
-                )),
+                Err(e) => self.pairing_error = Some(errors::translate(&e)),
             },
 
-            WorkerEvent::AcceptInvite(res) => match res {
+            WorkerEvent::AcceptCommitment(res) => match res {
                 Ok(v) => {
-                    self.generated_invite_code.clear();
-                    self.pending_select_contact_id = Some(v.contact_id.clone());
-                    self.pending_verify_contact_id = Some(v.contact_id);
-                    self.invite_code_input.clear();
-                    self.set_status("Contact added.");
+                    self.pairing_contact_id = Some(v.contact_id);
+                    self.pairing_artifact = v.code;
+                    self.pairing_peer_input.clear();
+                    self.pairing_error = None;
+                    self.pairing_step = PairingStep::ResponderCode;
                     self.send(Command::LoadContacts);
                 }
-                Err(e) => self.set_error(format!(
-                    "Could not accept invite: {}",
-                    errors::translate(&e)
-                )),
+                Err(e) => self.pairing_error = Some(errors::translate(&e)),
+            },
+
+            WorkerEvent::RevealInvite(res) => match res {
+                Ok(v) => {
+                    self.pairing_artifact = v.code;
+                    self.pairing_error = None;
+                    self.pairing_step = PairingStep::InitiatorReveal;
+                }
+                Err(e) => self.pairing_error = Some(errors::translate(&e)),
+            },
+
+            WorkerEvent::FinalizePairing(res) => match res {
+                Ok(_) => {
+                    let cid = self.pairing_contact_id.clone();
+                    self.clear_pairing_modal();
+                    if let Some(cid) = cid {
+                        self.pending_select_contact_id = Some(cid.clone());
+                        self.pending_verify_contact_id = Some(cid);
+                    }
+                    self.set_status("Contact paired.");
+                    self.send(Command::LoadContacts);
+                }
+                Err(e) => self.pairing_error = Some(errors::translate(&e)),
             },
 
             WorkerEvent::ForgetContact { contact_id, result } => match result {
@@ -403,34 +420,6 @@ impl LithiumApp {
     }
 }
 
-fn summarize_fetch_result(fetch: &ipc::ContactFetchResult) -> String {
-    let total = fetch.messages.len();
-    if total == 0 {
-        return "No new messages.".to_string();
-    }
-
-    let mut ok_count = 0usize;
-    let mut err_count = 0usize;
-
-    for item in &fetch.messages {
-        if item.ok {
-            ok_count += 1;
-        } else {
-            err_count += 1;
-        }
-    }
-
-    if err_count == 0 {
-        format!("Received {ok_count} new message(s).")
-    } else if ok_count == 0 {
-        format!("Sync complete — {err_count} message(s) could not be decrypted.")
-    } else {
-        format!(
-            "Received {ok_count} message(s). {err_count} could not be decrypted and were discarded."
-        )
-    }
-}
-
 pub async fn handle_command(cmd: Command) -> WorkerEvent {
     match cmd {
         Command::Ping => WorkerEvent::Ping(ipc::ping().await),
@@ -484,31 +473,24 @@ pub async fn handle_command(cmd: Command) -> WorkerEvent {
             }
         }
 
-        Command::FetchMessages { contact_id } => {
-            let fetch_note = match ipc::contact_fetch(&contact_id).await {
-                Ok(fetch) => summarize_fetch_result(&fetch),
-                Err(e) => format!("Sync failed: {}", crate::errors::translate(&e)),
-            };
-
-            let res = ipc::messages_list(&contact_id, 100, None).await;
-            WorkerEvent::Messages {
-                contact_id,
-                result: res,
-                note: Some(fetch_note),
-            }
-        }
-
         Command::CreateInvite { contact_id } => {
             WorkerEvent::CreateInvite(ipc::create_invite(contact_id.as_deref()).await)
         }
 
-        Command::AcceptInvite {
-            code,
-            label,
+        Command::AcceptCommitment { commitment, label } => {
+            WorkerEvent::AcceptCommitment(ipc::accept_commitment(&commitment, &label).await)
+        }
+
+        Command::RevealInvite {
             contact_id,
-        } => WorkerEvent::AcceptInvite(
-            ipc::accept_invite(&code, &label, contact_id.as_deref()).await,
-        ),
+            peer_code,
+            label,
+        } => WorkerEvent::RevealInvite(ipc::reveal_invite(&contact_id, &peer_code, &label).await),
+
+        Command::FinalizePairing {
+            contact_id,
+            peer_code,
+        } => WorkerEvent::FinalizePairing(ipc::finalize_pairing(&contact_id, &peer_code).await),
 
         Command::ForgetContact { contact_id } => {
             let res = ipc::contact_forget(&contact_id).await;

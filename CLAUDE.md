@@ -105,7 +105,7 @@ Middleware: `CryptoMiddleware` → `GuardMiddleware` (rate limiting). Rate limit
 
 ### Trust Model
 
-Server is a hostile relay. All keys on client. Loss of key material preferred over recovery vectors. One-time fetch (fetch deletes from server). Manual pull model, no auto-sync.
+Server is a hostile relay. All keys on client. Loss of key material preferred over recovery vectors. One-time fetch (fetch deletes from server). Constant-rate cover traffic: the daemon sends and fetches on a fixed cadence (`lithiumd/src/traffic.rs`) — real sends ride the slots, dummies fill the gaps to a self-loop cover mailbox, and inbound is auto-fetched by background polling (no manual fetch).
 
 ## Integration Tests (lithium_itest)
 

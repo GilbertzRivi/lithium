@@ -247,31 +247,26 @@ Kroki:
 4. Generuje prekeys jeśli `prekeys_should_advertise`.
 5. Określa tryb: `bootstrap` (pierwsze wysłanie) / `ratchet` (po wymianie kluczy) / `prekey_recover` (recovery).
 6. Szyfruje wiadomość (`encrypt_for_peer`) → `WireV1`.
-7. Wysyła przez `ProtocolManager::send(MsgSend, ...)`.
+7. Wstawia `{mailbox, content}` do kolejki send dispatchera (`traffic.rs`) — emisja `MsgSend` jedzie
+   później w slocie stałej kadencji, nie synchronicznie. Cała funkcja działa pod `contact_fetch_locks`.
 8. Zapisuje wiadomość w DB (kierunek=outbound).
 9. Aktualizuje `self_state` i `peer_state` w DB.
 
 ---
 
-### `ContactFetch` — wymaga auth + storage
+### Pobieranie wiadomości — automatyczne (brak komendy IPC)
 
-Pobiera wiadomości od kontaktu z serwera.
+Manual fetch został usunięty. Wiadomości przychodzące pobiera w tle stałokadencyjny fetch
+dispatcher w `traffic.rs` (jeden `MsgFetch` na tick, round-robin po skrzynkach inbound wszystkich
+kontaktów plus cover-skrzynka). Logika per-skrzynka jest ta sama co dawniej:
 
-```json
-{
-    "cmd": "contact_fetch",
-    "contact_id": "<hex>"
-}
-```
+1. Generacje mailbox do sprawdzenia: `past 2 + current + future 1`.
+2. Dla każdej: wyprowadza adres mailbox (ECDH + HKDF), pobiera przez `ProtocolManager::send(MsgFetch, ...)`.
+3. Dla każdej wiadomości `decrypt_for_us` (ratchet/bootstrap), przy `to_id_unknown` próbuje `decrypt_for_prekey` (prekey recovery).
+4. Zapisuje odszyfrowane wiadomości w DB (kierunek=inbound, dedup po `msg_id`).
+5. Aktualizuje stany w DB, pod `contact_fetch_locks` (serializacja z `contact_send`).
 
-Deduplikacja: `contact_fetch_locks` — jednoczesne fetch dla tego samego kontaktu jest blokowane.
-
-Kroki:
-1. Wyznacza generacje mailbox do sprawdzenia: `past 2 + current + future 1`.
-2. Dla każdej generacji: wyprowadza adres mailbox (ECDH + HKDF), pobiera przez `ProtocolManager::send(MsgFetch, ...)`.
-3. Dla każdej wiadomości próbuje `decrypt_for_us` (ratchet lub bootstrap keys), w razie błędu `to_id_unknown` próbuje `decrypt_for_prekey` (prekey recovery).
-4. Zapisuje odszyfrowane wiadomości w DB (kierunek=inbound).
-5. Aktualizuje stany w DB.
+GUI odczytuje lokalny store przez `MessagesList` (poll co kilka sekund).
 
 ---
 
@@ -562,7 +557,7 @@ Wiadomości informują peera o bieżących i następnych kluczach publicznych (`
 
 ### Fetch
 
-`ContactFetch` sprawdza generacje: `peer_tx_gen_seen - 2` do `peer_tx_gen_seen + 1` — łącznie do 4 generacji.
+Auto-fetch (`traffic.rs`) sprawdza generacje: `peer_tx_gen_seen - 2` do `peer_tx_gen_seen + 1` — łącznie do 4 generacji.
 Gwarantuje odbiór wiadomości mimo przeskoczenia generacji.
 
 ---

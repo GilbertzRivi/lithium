@@ -34,7 +34,7 @@ async fn test_contacts_list_empty_after_setup() {
 }
 
 #[tokio::test]
-async fn test_create_invite_returns_code_and_contact_id() {
+async fn test_create_invite_returns_commitment_and_contact_id() {
     let srv = TestServer::start().await;
     let d = DaemonProcess::start().await;
     let mut c = IpcClient::connect(&d.socket_path).await;
@@ -45,7 +45,7 @@ async fn test_create_invite_returns_code_and_contact_id() {
         .await;
     assert!(r["ok"].as_bool().unwrap(), "{:?}", r);
     assert_eq!(r["result"]["contact_id"].as_str().unwrap().len(), 64);
-    assert!(!r["result"]["code"].as_str().unwrap().is_empty());
+    assert_eq!(r["result"]["commitment"].as_str().unwrap().len(), 64);
 }
 
 #[tokio::test]
@@ -64,30 +64,26 @@ async fn test_two_daemon_invite_exchange_and_message() {
         .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_b = cb
-        .send(
-            json!({"cmd": "accept_invite", "code": code_a, "label": "Alice", "auth_token": tok_b}),
-        )
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "Alice", "auth_token": tok_b}))
         .await;
     assert!(acc_b["ok"].as_bool().unwrap(), "{:?}", acc_b);
     let cid_b = acc_b["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_b = acc_b["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
 
-    let acc_a = ca.send(json!({"cmd": "accept_invite", "code": code_b, "contact_id": cid_a, "label": "Bob", "auth_token": tok_a})).await;
-    assert!(acc_a["ok"].as_bool().unwrap(), "{:?}", acc_a);
+    let rev = ca.send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_b, "label": "Bob", "auth_token": tok_a})).await;
+    assert!(rev["ok"].as_bool().unwrap(), "{:?}", rev);
+    let code_a = rev["result"]["code"].as_str().unwrap().to_owned();
+
+    let fin = cb.send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_a, "auth_token": tok_b})).await;
+    assert!(fin["ok"].as_bool().unwrap(), "{:?}", fin);
 
     let send = ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "hello from A", "auth_token": tok_a})).await;
     assert!(send["ok"].as_bool().unwrap(), "{:?}", send);
 
-    let fetch = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(fetch["ok"].as_bool().unwrap(), "{:?}", fetch);
-    let msgs = fetch["result"]["messages"]
-        .as_array()
-        .expect("messages array");
+    let msgs = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
     assert_eq!(msgs.len(), 1);
     assert_eq!(msgs[0]["text"].as_str().unwrap(), "hello from A");
 }

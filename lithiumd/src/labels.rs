@@ -5,6 +5,7 @@ pub(crate) const E2E_SIG_LABEL: &[u8] = b"lithiumd/e2e-msg-sig/v1";
 pub(crate) const KID_LABEL: &[u8] = b"lithiumd/e2e-peer-kid/v1";
 
 pub(crate) const LABEL_MAILBOX: &[u8] = b"lithium/mbox/address/v1";
+pub(crate) const LABEL_MAILBOX_COVER: &[u8] = b"lithium/mbox/cover/v1";
 
 pub(crate) const PARTY_TRANSCRIPT_LABEL: &[u8] = b"lithiumd/party-transcript/v1";
 pub(crate) const VERIFY_EMOJI_LABEL: &[u8] = b"lithiumd/contact-verify-emoji/v1";
@@ -16,6 +17,8 @@ pub(crate) const AAD_PREKEY: &[u8] = b"lithiumd/prekey/v1";
 
 pub(crate) const INV_MAGIC: &[u8; 4] = b"LCI1";
 pub(crate) const INV_VER: u8 = 1;
+
+pub(crate) const PAIR_COMMIT_LABEL: &[u8] = b"lithiumd/pair-commit/v1";
 
 pub(crate) const MKFILE_MAGIC: &[u8; 4] = b"LMK1";
 pub(crate) const MKFILE_AAD: &[u8] = b"lithium/mkfile/v1";
@@ -35,6 +38,7 @@ mod tests {
         assert_eq!(KID_LABEL, b"lithiumd/e2e-peer-kid/v1");
 
         assert_eq!(LABEL_MAILBOX, b"lithium/mbox/address/v1");
+        assert_eq!(LABEL_MAILBOX_COVER, b"lithium/mbox/cover/v1");
 
         assert_eq!(PARTY_TRANSCRIPT_LABEL, b"lithiumd/party-transcript/v1");
         assert_eq!(VERIFY_EMOJI_LABEL, b"lithiumd/contact-verify-emoji/v1");
@@ -46,6 +50,8 @@ mod tests {
 
         assert_eq!(INV_MAGIC, b"LCI1");
         assert_eq!(INV_VER, 1);
+
+        assert_eq!(PAIR_COMMIT_LABEL, b"lithiumd/pair-commit/v1");
 
         assert_eq!(MKFILE_MAGIC, b"LMK1");
         assert_eq!(MKFILE_AAD, b"lithium/mkfile/v1");

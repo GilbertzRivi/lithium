@@ -21,11 +21,7 @@ async fn test_multiple_messages_arrive_in_order() {
         assert!(r["ok"].as_bool().unwrap(), "{:?}", r);
     }
 
-    let fetch = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(fetch["ok"].as_bool().unwrap(), "{:?}", fetch);
-    let msgs = fetch["result"]["messages"].as_array().unwrap();
+    let msgs = wait_for_inbound(&mut cb, &cid_b, &tok_b, 3).await;
     assert_eq!(msgs.len(), 3);
     assert_eq!(msgs[0]["text"].as_str().unwrap(), "first");
     assert_eq!(msgs[1]["text"].as_str().unwrap(), "second");
@@ -49,25 +45,15 @@ async fn test_bidirectional_messaging() {
     cb.send(json!({"cmd": "contact_send", "contact_id": cid_b, "plaintext": "from B", "auth_token": tok_b}))
         .await;
 
-    let fetch_b = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(fetch_b["ok"].as_bool().unwrap(), "{:?}", fetch_b);
-    let msgs_b = fetch_b["result"]["messages"].as_array().unwrap();
-    assert_eq!(msgs_b.len(), 1);
-    assert_eq!(msgs_b[0]["text"].as_str().unwrap(), "from A");
+    let in_b = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
+    assert_eq!(in_b[0]["text"].as_str().unwrap(), "from A");
 
-    let fetch_a = ca
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_a, "auth_token": tok_a}))
-        .await;
-    assert!(fetch_a["ok"].as_bool().unwrap(), "{:?}", fetch_a);
-    let msgs_a = fetch_a["result"]["messages"].as_array().unwrap();
-    assert_eq!(msgs_a.len(), 1);
-    assert_eq!(msgs_a[0]["text"].as_str().unwrap(), "from B");
+    let in_a = wait_for_inbound(&mut ca, &cid_a, &tok_a, 1).await;
+    assert_eq!(in_a[0]["text"].as_str().unwrap(), "from B");
 }
 
 #[tokio::test]
-async fn test_contact_fetch_returns_empty_before_any_send() {
+async fn test_messages_list_empty_before_any_send() {
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -78,11 +64,9 @@ async fn test_contact_fetch_returns_empty_before_any_send() {
     let tok_b = full_setup(&mut cb, &srv, &unique_handle("emp_b")).await;
     let (_cid_a, cid_b) = connect_pair(&mut ca, &tok_a, &mut cb, &tok_b).await;
 
-    let fetch = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(fetch["ok"].as_bool().unwrap(), "{:?}", fetch);
-    assert_eq!(fetch["result"]["messages"].as_array().unwrap().len(), 0);
+    // No send happened; auto-fetch must not invent inbound messages.
+    let msgs = messages_now(&mut cb, &cid_b, &tok_b).await;
+    assert_eq!(msgs.len(), 0);
 }
 
 #[tokio::test]
@@ -100,6 +84,7 @@ async fn test_messages_list_shows_outbound_direction() {
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "outbound", "auth_token": tok_a}))
         .await;
 
+    // A's own outbound is stored locally at send time, independent of the network cadence.
     let list = ca
         .send(json!({"cmd": "messages_list", "contact_id": cid_a, "auth_token": tok_a}))
         .await;
@@ -111,8 +96,9 @@ async fn test_messages_list_shows_outbound_direction() {
 }
 
 #[tokio::test]
-async fn test_second_contact_fetch_empty_server_deleted() {
-    // Server deletes messages on first fetch (one-time delivery model).
+async fn test_inbound_message_not_duplicated_by_repeated_polling() {
+    // Server deletes on first fetch (one-time delivery) and the daemon dedups on msg_id, so a
+    // message that arrives once must stay at exactly one row no matter how often we poll.
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -126,20 +112,26 @@ async fn test_second_contact_fetch_empty_server_deleted() {
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "once", "auth_token": tok_a}))
         .await;
 
-    let first = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert_eq!(first["result"]["messages"].as_array().unwrap().len(), 1);
+    let first = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0]["text"].as_str().unwrap(), "once");
 
-    let second = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(second["ok"].as_bool().unwrap(), "{:?}", second);
-    assert_eq!(second["result"]["messages"].as_array().unwrap().len(), 0);
+    // Give several more fetch cadences a chance to re-poll the same mailbox.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let again: Vec<_> = messages_now(&mut cb, &cid_b, &tok_b)
+        .await
+        .into_iter()
+        .filter(|m| m["direction"].as_str() == Some("in"))
+        .collect();
+    assert_eq!(
+        again.len(),
+        1,
+        "auto-fetch must not duplicate a delivered message"
+    );
 }
 
 #[tokio::test]
-async fn test_messages_list_after_fetch_shows_inbound() {
+async fn test_messages_list_shows_inbound() {
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -153,15 +145,7 @@ async fn test_messages_list_after_fetch_shows_inbound() {
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "hello", "auth_token": tok_a}))
         .await;
 
-    cb.send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-
-    let list = cb
-        .send(json!({"cmd": "messages_list", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(list["ok"].as_bool().unwrap(), "{:?}", list);
-    let msgs = list["result"]["messages"].as_array().unwrap();
-    assert_eq!(msgs.len(), 1);
+    let msgs = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
     assert_eq!(msgs[0]["direction"].as_str().unwrap(), "in");
     assert_eq!(msgs[0]["text"].as_str().unwrap(), "hello");
 }

@@ -3,10 +3,11 @@ use lithium_core::{
     error::{LithiumError, Result},
     secrets::bytes::SecretBytes,
     secrets::{Byte32, SecretString},
+    utils::store::hash_sha256_hex,
 };
 
 use crate::e2e::state::SelfState;
-use crate::labels::{INV_MAGIC, INV_VER};
+use crate::labels::{INV_MAGIC, INV_VER, PAIR_COMMIT_LABEL};
 
 const MLKEM1024_PUBLIC_KEY_LEN: usize = 1568;
 const MLDSA87_PUBLIC_KEY_LEN: usize = 2592;
@@ -172,6 +173,17 @@ pub fn decode_invite_code(code: &SecretString) -> Result<InvitePublic> {
 pub fn decode_contact_id_hex(s: &SecretString) -> Result<Vec<u8>> {
     let b = Byte32::from_hex(s.expose().trim())?;
     Ok(b.as_slice().to_vec())
+}
+
+pub fn invite_commitment(code: &SecretString) -> Result<String> {
+    let s = code.expose().trim();
+    let hex_part = s.strip_prefix("lci1:").unwrap_or(s);
+    let blob = SecretBytes::from_hex(hex_part)?;
+
+    let mut buf = Vec::with_capacity(PAIR_COMMIT_LABEL.len() + blob.expose_as_slice().len());
+    buf.extend_from_slice(PAIR_COMMIT_LABEL);
+    buf.extend_from_slice(blob.expose_as_slice());
+    Ok(hash_sha256_hex(&buf))
 }
 
 pub fn invite_public_from_self(self_st: &SelfState) -> Result<InvitePublic> {
@@ -455,5 +467,52 @@ mod tests {
             decoded.mbox_out_next_pub_hex.expose(),
             invite.mbox_out_next_pub_hex.expose()
         );
+    }
+
+    #[test]
+    fn invite_commitment_is_deterministic() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        assert_eq!(
+            invite_commitment(&code).unwrap(),
+            invite_commitment(&code).unwrap()
+        );
+    }
+
+    #[test]
+    fn invite_commitment_canonicalizes_prefix_and_whitespace() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        let hex_only = code.expose().strip_prefix("lci1:").unwrap().to_owned();
+        let padded = SecretString::new(format!("  {}  ", code.expose()));
+        let no_prefix = SecretString::new(hex_only);
+
+        let base = invite_commitment(&code).unwrap();
+        assert_eq!(base, invite_commitment(&padded).unwrap());
+        assert_eq!(base, invite_commitment(&no_prefix).unwrap());
+    }
+
+    #[test]
+    fn invite_commitment_changes_when_any_field_changes() {
+        let base = invite_commitment(&encode_invite_code(&make_invite()).unwrap()).unwrap();
+
+        let mutate: [fn(&mut InvitePublic); 4] = [
+            |p| p.cid_hex = hex32(),
+            |p| p.x_pub_hex = hex32(),
+            |p| p.k_pub_hex = kyber_pk_hex(),
+            |p| p.dili_pub_hex = dili_pk_hex(),
+        ];
+        for apply in mutate {
+            let mut inv = make_invite();
+            apply(&mut inv);
+            let got = invite_commitment(&encode_invite_code(&inv).unwrap()).unwrap();
+            assert_ne!(base, got, "changing a key must change the commitment");
+        }
+    }
+
+    #[test]
+    fn invite_commitment_is_domain_separated() {
+        let code = encode_invite_code(&make_invite()).unwrap();
+        let raw = hex::decode(code.expose().strip_prefix("lci1:").unwrap()).unwrap();
+        let plain = lithium_core::utils::store::hash_sha256_hex(&raw);
+        assert_ne!(plain, invite_commitment(&code).unwrap());
     }
 }

@@ -60,10 +60,20 @@ Wiadomości są efemeryczne i przechowywane na serwerze tylko przez ograniczony 
 
 Wiadomości są projektowane jako one-time fetch i zostają usunięte po pobraniu.
 
-### Manual fetch
+### Constant-rate auto-fetch (cover traffic)
 
-Manual fetch jest celowy. Ma ograniczać korelację, zmniejszać ekspozycję metadanych i nie upodabniać
-systemu do klasycznego, stale aktywnego komunikatora.
+Daemon wysyła i pobiera ze stałą kadencją (`lithiumd/src/traffic.rs`): jedna emisja send i jeden
+fetch na tick, niezależnie od realnej aktywności. Realne wiadomości jadą w slotach tej samej
+kadencji, a puste sloty wypełnia dummy do własnej cover-skrzynki (self-loop), którą daemon sam
+drenuje fetchem — dzięki temu serwer (lokalny pasywny adwersarz) nie odróżnia *kiedy* ani *ile*
+realnie wysyłasz, ani które skrzynki są realnymi konwersacjami. Manual fetch został usunięty:
+stale-kadencyjny polling jest jedyną ścieżką, bo burstowy realny ruch na wierzchu szumu przeciekałby
+timingiem.
+
+Granice: throughput realnych sendów jest capowany stopą (jeden slot na tick), a latencja odbioru
+rośnie z liczbą skrzynek w rotacji (kontakty × okno generacji) razy interwał fetch. Sam fakt bycia
+online pozostaje metadaną — obrona dotyczy serwera, nie globalnego pasywnego adwersarza (ruch 24/7
+poza zakresem).
 
 ### Brak pełnego offline unlock
 
@@ -173,7 +183,7 @@ Realnymi problemami są rzeczy, które łamią założenia Lithium, w szczególn
 Poniższe rzeczy nie powinny być automatycznie klasyfikowane jako podatności bez odniesienia do threat model i non-goals:
 
 * brak gwarancji dostarczenia,
-* manual fetch,
+* constant-rate auto-fetch (polling) zamiast manual fetch,
 * one-time fetch + delete,
 * ograniczona retencja,
 * brak offline unlock,

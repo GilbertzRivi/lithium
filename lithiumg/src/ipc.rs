@@ -119,31 +119,27 @@ pub struct CreateInviteResult {
     #[serde(default)]
     pub contact_id: String,
     #[serde(default)]
+    pub commitment: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct AcceptCommitmentResult {
+    #[serde(default)]
+    pub contact_id: String,
+    #[serde(default)]
     pub code: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct AcceptInviteResult {
+pub struct RevealInviteResult {
     #[serde(default)]
-    pub contact_id: String,
+    pub code: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct VerifyEmojiResult {
     #[serde(default)]
     pub emojis: Vec<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ContactFetchMessageResult {
-    #[serde(default)]
-    pub ok: bool,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ContactFetchResult {
-    #[serde(default)]
-    pub messages: Vec<ContactFetchMessageResult>,
 }
 
 async fn send_request(mut req: Value) -> Result<Value, String> {
@@ -397,17 +393,6 @@ pub async fn contact_send(contact_id: &str, plaintext: &str) -> Result<(), Strin
     Ok(())
 }
 
-pub async fn contact_fetch(contact_id: &str) -> Result<ContactFetchResult, String> {
-    let v = send_request(json!({
-        "cmd": "contact_fetch",
-        "id": 10,
-        "contact_id": contact_id,
-    }))
-    .await?;
-
-    serde_json::from_value(v).map_err(|e| format!("bad_contact_fetch_response: {e}"))
-}
-
 pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResult, String> {
     let v = send_request(json!({
         "cmd": "create_invite",
@@ -420,21 +405,48 @@ pub async fn create_invite(contact_id: Option<&str>) -> Result<CreateInviteResul
     serde_json::from_value(v).map_err(|e| format!("bad_create_invite_payload:{e}"))
 }
 
-pub async fn accept_invite(
-    code: &str,
+pub async fn accept_commitment(
+    commitment: &str,
     label: &str,
-    contact_id: Option<&str>,
-) -> Result<AcceptInviteResult, String> {
+) -> Result<AcceptCommitmentResult, String> {
     let v = send_request(json!({
-        "cmd": "accept_invite",
+        "cmd": "accept_commitment",
         "id": 11,
-        "code": code,
-        "contact_id": contact_id,
+        "commitment": commitment,
         "label": label
     }))
     .await?;
 
-    serde_json::from_value(v).map_err(|e| format!("bad_accept_invite_payload:{e}"))
+    serde_json::from_value(v).map_err(|e| format!("bad_accept_commitment_payload:{e}"))
+}
+
+pub async fn reveal_invite(
+    contact_id: &str,
+    peer_code: &str,
+    label: &str,
+) -> Result<RevealInviteResult, String> {
+    let v = send_request(json!({
+        "cmd": "reveal_invite",
+        "id": 15,
+        "contact_id": contact_id,
+        "peer_code": peer_code,
+        "label": label
+    }))
+    .await?;
+
+    serde_json::from_value(v).map_err(|e| format!("bad_reveal_invite_payload:{e}"))
+}
+
+pub async fn finalize_pairing(contact_id: &str, peer_code: &str) -> Result<(), String> {
+    let _ = send_request(json!({
+        "cmd": "finalize_pairing",
+        "id": 16,
+        "contact_id": contact_id,
+        "peer_code": peer_code
+    }))
+    .await?;
+
+    Ok(())
 }
 
 pub async fn contact_forget(contact_id: &str) -> Result<(), String> {

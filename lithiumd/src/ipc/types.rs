@@ -35,18 +35,23 @@ pub enum IpcCommand {
     CreateInvite {
         contact_id: Option<String>,
     },
-    AcceptInvite {
-        code: String,
-        contact_id: Option<String>,
+    AcceptCommitment {
+        commitment: String,
         label: String,
+    },
+    RevealInvite {
+        contact_id: String,
+        peer_code: String,
+        label: String,
+    },
+    FinalizePairing {
+        contact_id: String,
+        peer_code: String,
     },
     ContactsList,
     ContactSend {
         contact_id: String,
         plaintext: SecretString,
-    },
-    ContactFetch {
-        contact_id: String,
     },
     ContactForget {
         contact_id: String,

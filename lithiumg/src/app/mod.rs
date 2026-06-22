@@ -3,7 +3,10 @@ use std::{
     path::PathBuf,
     process::Child,
     sync::mpsc::{Receiver, Sender},
+    time::{Duration, Instant},
 };
+
+const AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(3);
 
 pub(super) fn zero_str(s: &mut String) {
     unsafe { s.as_mut_vec().fill(0) };
@@ -13,8 +16,8 @@ pub(super) fn zero_str(s: &mut String) {
 use eframe::egui;
 
 use crate::ipc::{
-    AcceptInviteResult, ContactInfo, CreateInviteResult, MessageItem, MessagesResult, PingResult,
-    RegisterResult, VerifyEmojiResult,
+    AcceptCommitmentResult, ContactInfo, CreateInviteResult, MessageItem, MessagesResult,
+    PingResult, RegisterResult, RevealInviteResult, VerifyEmojiResult,
 };
 
 mod chat;
@@ -49,16 +52,21 @@ pub enum Command {
         contact_id: String,
         plaintext: String,
     },
-    FetchMessages {
-        contact_id: String,
-    },
     CreateInvite {
         contact_id: Option<String>,
     },
-    AcceptInvite {
-        code: String,
+    AcceptCommitment {
+        commitment: String,
         label: String,
-        contact_id: Option<String>,
+    },
+    RevealInvite {
+        contact_id: String,
+        peer_code: String,
+        label: String,
+    },
+    FinalizePairing {
+        contact_id: String,
+        peer_code: String,
     },
     ForgetContact {
         contact_id: String,
@@ -92,7 +100,9 @@ pub enum WorkerEvent {
         note: Option<String>,
     },
     CreateInvite(Result<CreateInviteResult, String>),
-    AcceptInvite(Result<AcceptInviteResult, String>),
+    AcceptCommitment(Result<AcceptCommitmentResult, String>),
+    RevealInvite(Result<RevealInviteResult, String>),
+    FinalizePairing(Result<(), String>),
     ForgetContact {
         contact_id: String,
         result: Result<(), String>,
@@ -121,6 +131,15 @@ enum Screen {
     Ready,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PairingStep {
+    ChooseRole,
+    InitiatorCommitment,
+    InitiatorReveal,
+    ResponderCommitment,
+    ResponderCode,
+}
+
 pub struct LithiumApp {
     tx: Sender<Command>,
     rx: Receiver<WorkerEvent>,
@@ -147,9 +166,13 @@ pub struct LithiumApp {
     messages: Vec<MessageItem>,
     message_text: String,
 
-    invite_code_input: String,
-    invite_label_input: String,
-    generated_invite_code: String,
+    pairing_modal_open: bool,
+    pairing_step: PairingStep,
+    pairing_contact_id: Option<String>,
+    pairing_name_input: String,
+    pairing_peer_input: String,
+    pairing_artifact: String,
+    pairing_error: Option<String>,
 
     pending_select_contact_id: Option<String>,
     wipe_modal_open: bool,
@@ -169,6 +192,8 @@ pub struct LithiumApp {
 
     delete_account_modal_open: bool,
     confirm_delete_account: bool,
+
+    last_auto_refresh: Option<Instant>,
 
     daemon: Option<Child>,
 }
@@ -195,9 +220,13 @@ impl LithiumApp {
             selected_contact_id: None,
             messages: Vec::new(),
             message_text: String::new(),
-            invite_code_input: String::new(),
-            invite_label_input: String::new(),
-            generated_invite_code: String::new(),
+            pairing_modal_open: false,
+            pairing_step: PairingStep::ChooseRole,
+            pairing_contact_id: None,
+            pairing_name_input: String::new(),
+            pairing_peer_input: String::new(),
+            pairing_artifact: String::new(),
+            pairing_error: None,
             pending_select_contact_id: None,
             pending_verify_contact_id: None,
             verify_modal_open: false,
@@ -212,6 +241,7 @@ impl LithiumApp {
             confirm_remote_delete: false,
             delete_account_modal_open: false,
             confirm_delete_account: false,
+            last_auto_refresh: None,
             daemon,
         };
         app.send(Command::Ping);
@@ -251,6 +281,21 @@ impl LithiumApp {
         self.verify_modal_emojis.clear();
     }
 
+    fn open_pairing_modal(&mut self) {
+        self.clear_pairing_modal();
+        self.pairing_modal_open = true;
+    }
+
+    fn clear_pairing_modal(&mut self) {
+        self.pairing_modal_open = false;
+        self.pairing_step = PairingStep::ChooseRole;
+        self.pairing_contact_id = None;
+        self.pairing_name_input.clear();
+        self.pairing_peer_input.clear();
+        self.pairing_artifact.clear();
+        self.pairing_error = None;
+    }
+
     fn reset_all_state(&mut self) {
         self.data_password.clear();
         self.data_password_confirm.clear();
@@ -261,9 +306,7 @@ impl LithiumApp {
         self.selected_contact_id = None;
         self.messages.clear();
         self.message_text.clear();
-        self.invite_code_input.clear();
-        self.invite_label_input.clear();
-        self.generated_invite_code.clear();
+        self.clear_pairing_modal();
         self.pending_select_contact_id = None;
         self.pending_verify_contact_id = None;
         self.shown_verify_for_contact_ids.clear();
@@ -277,6 +320,34 @@ impl LithiumApp {
         self.confirm_delete_account = false;
         self.wipe_modal_open = false;
         self.mk_rotation_error = false;
+    }
+
+    // The daemon fetches in the background and stores messages locally; the GUI just
+    // re-reads its local store on a timer so new messages surface without a manual action.
+    fn maybe_auto_refresh(&mut self, ctx: &egui::Context) {
+        if !matches!(self.screen, Screen::Ready) {
+            return;
+        }
+        // Keep the event loop ticking so polling fires even when the window is idle.
+        ctx.request_repaint_after(Duration::from_secs(1));
+
+        if self.busy {
+            return;
+        }
+        let Some(contact_id) = self.selected_contact_id.clone() else {
+            return;
+        };
+        let due = self
+            .last_auto_refresh
+            .map(|t| t.elapsed() >= AUTO_REFRESH_INTERVAL)
+            .unwrap_or(true);
+        if !due {
+            return;
+        }
+
+        self.last_auto_refresh = Some(Instant::now());
+        // Sent without the busy flag so the UI stays interactive between polls.
+        let _ = self.tx.send(Command::LoadMessages { contact_id });
     }
 
     fn open_remote_delete_modal(&mut self) {
@@ -336,6 +407,7 @@ pub(crate) fn draw_invite_box(
 impl eframe::App for LithiumApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_events();
+        self.maybe_auto_refresh(ctx);
 
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             self.draw_top_bar(ui);
@@ -374,6 +446,7 @@ impl eframe::App for LithiumApp {
             Screen::Ready => self.draw_ready(ctx, ui),
         });
 
+        self.draw_pairing_modal(ctx);
         self.draw_wipe_modal(ctx);
         self.draw_register_capability_window(ctx);
         self.draw_remote_delete_window(ctx);

@@ -78,6 +78,8 @@ impl DaemonProcess {
             .env("LITHIUMD_SOCKET_PATH", socket_path)
             .env("LITHIUMD_IPC_MAX_CONNECTIONS", max_conn.to_string())
             .env("LITHIUMD_IPC_IDLE_TIMEOUT_SECS", "30")
+            .env("LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS", "1")
+            .env("LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS", "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -162,6 +164,54 @@ impl IpcClient {
             Ok(Err(_)) => None,
         }
     }
+}
+
+// The daemon auto-fetches on a fixed cadence, so received messages show up via messages_list
+// after a short delay rather than from an explicit fetch call. Poll until they arrive.
+pub async fn messages_now(c: &mut IpcClient, cid: &str, tok: &str) -> Vec<Value> {
+    let r = c
+        .send(json!({"cmd": "messages_list", "contact_id": cid, "auth_token": tok}))
+        .await;
+    r["result"]["messages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+pub async fn wait_for_messages(
+    c: &mut IpcClient,
+    cid: &str,
+    tok: &str,
+    min_count: usize,
+) -> Vec<Value> {
+    for _ in 0..150 {
+        let msgs = messages_now(c, cid, tok).await;
+        if msgs.len() >= min_count {
+            return msgs;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!("timed out waiting for {min_count} message(s) for {cid}");
+}
+
+pub async fn wait_for_inbound(
+    c: &mut IpcClient,
+    cid: &str,
+    tok: &str,
+    min_count: usize,
+) -> Vec<Value> {
+    for _ in 0..150 {
+        let inbound: Vec<Value> = messages_now(c, cid, tok)
+            .await
+            .into_iter()
+            .filter(|m| m["direction"].as_str() == Some("in"))
+            .collect();
+        if inbound.len() >= min_count {
+            return inbound;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!("timed out waiting for {min_count} inbound message(s) for {cid}");
 }
 
 pub fn build_server_identity(bs: &ServerBootstrap) -> Vec<u8> {

@@ -141,24 +141,24 @@ async fn test_received_message_survives_restart() {
         .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
         .await;
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_b = cb
-        .send(json!({"cmd": "accept_invite", "code": code_a, "label": "A", "auth_token": tok_b}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_b}))
         .await;
     let cid_b = acc_b["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_b = acc_b["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
 
-    ca.send(json!({"cmd": "accept_invite", "code": code_b, "contact_id": cid_a, "label": "B", "auth_token": tok_a})).await;
+    let rev = ca.send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_b, "label": "B", "auth_token": tok_a})).await;
+    let code_a = rev["result"]["code"].as_str().unwrap().to_owned();
+
+    cb.send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_a, "auth_token": tok_b})).await;
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "persisted", "auth_token": tok_a})).await;
 
-    // B fetches — message is written to B's local SQLite and deleted from server
-    let fetch = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(fetch["ok"].as_bool().unwrap(), "{:?}", fetch);
-    assert_eq!(fetch["result"]["messages"].as_array().unwrap().len(), 1);
+    // B auto-fetches — message is written to B's local SQLite and deleted from server
+    let inbound = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
+    assert_eq!(inbound.len(), 1);
     drop(db);
 
     let db2 = DaemonProcess::start_in(data_dir_b.path()).await;

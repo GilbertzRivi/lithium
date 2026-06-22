@@ -75,10 +75,7 @@ impl EphemeralStoreManager {
     async fn cleanup_once(inner: &Arc<Mutex<StoreInner>>) -> Result<()> {
         let now = Instant::now();
         let mut guard = inner.lock().await;
-        loop {
-            let Some(top) = guard.heap.peek().cloned() else {
-                break;
-            };
+        while let Some(top) = guard.heap.peek().cloned() {
             if top.expires_at > now {
                 break;
             }

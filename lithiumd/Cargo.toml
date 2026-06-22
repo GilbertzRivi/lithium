@@ -3,6 +3,9 @@ name = "lithiumd"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+fuzzing = ["dep:arbitrary"]
+
 [dependencies]
 lithium_core = { path = "../lithium_core" }
 rand = "0.10.0"
@@ -18,9 +21,11 @@ libc = "0.2.182"
 x25519-dalek = { version = "2.0.1", features = ["zeroize", "static_secrets"] }
 subtle = "2.6.1"
 tray-icon = { version = "0.21", default-features = false }
+arbitrary = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+proptest = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"

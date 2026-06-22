@@ -17,6 +17,8 @@ pub async fn start_daemon() -> DaemonProcess {
         .env("LITHIUMD_SOCKET_PATH", &socket_path)
         .env("LITHIUMD_IPC_MAX_CONNECTIONS", "4")
         .env("LITHIUMD_IPC_IDLE_TIMEOUT_SECS", "120")
+        .env("LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS", "1")
+        .env("LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -41,17 +43,23 @@ pub async fn connect_pair(
         .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_b = cb
-        .send(json!({"cmd": "accept_invite", "code": code_a, "label": "A", "auth_token": tok_b}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_b}))
         .await;
     assert!(acc_b["ok"].as_bool().unwrap(), "{:?}", acc_b);
     let cid_b = acc_b["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_b = acc_b["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
 
-    let fin = ca
-        .send(json!({"cmd": "accept_invite", "code": code_b, "contact_id": cid_a, "label": "B", "auth_token": tok_a}))
+    let rev = ca
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_b, "label": "B", "auth_token": tok_a}))
+        .await;
+    assert!(rev["ok"].as_bool().unwrap(), "{:?}", rev);
+    let code_a = rev["result"]["code"].as_str().unwrap().to_owned();
+
+    let fin = cb
+        .send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_a, "auth_token": tok_b}))
         .await;
     assert!(fin["ok"].as_bool().unwrap(), "{:?}", fin);
 

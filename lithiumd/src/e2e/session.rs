@@ -286,24 +286,9 @@ mod tests {
     use crate::commands::invite_codec::gen_self_state;
     use crate::e2e::{
         prekeys::gen_local_prekey_material,
-        state::PeerIdentity,
+        seq_driver::build_peer_from_state,
         wire::{pack_wire, unpack_wire},
     };
-
-    fn build_peer_from_state(self_st: &SelfState, cid_bytes: &[u8]) -> PeerState {
-        let mut p = PeerState::empty();
-        p.peer = Some(PeerIdentity {
-            cid: hex::encode(cid_bytes),
-            x_pub: self_st.x_pub.clone(),
-            k_pub: self_st.k_pub.clone(),
-            ed_pub: self_st.ed_pub.clone(),
-            dili_pub: self_st.dili_pub.clone(),
-            mbox_in_pub: self_st.mbox_in_pub.clone(),
-            mbox_out_cur_pub: self_st.mbox_out_cur_pub.clone(),
-            mbox_out_next_pub: self_st.mbox_out_next_pub.clone(),
-        });
-        p
-    }
 
     fn meta_mode(meta: &Value) -> E2eMode {
         serde_json::from_value::<MsgMeta>(meta.clone())
@@ -843,5 +828,32 @@ mod tests {
             result.is_err(),
             "encrypt without any peer key material must fail"
         );
+    }
+}
+
+#[cfg(test)]
+mod proptest_state {
+    use proptest::prelude::*;
+
+    use crate::e2e::seq_driver::{FuzzOp, drive};
+
+    fn op_strategy() -> impl Strategy<Value = FuzzOp> {
+        prop_oneof![
+            prop::collection::vec(any::<u8>(), 0..64).prop_map(FuzzOp::AEncrypt),
+            Just(FuzzOp::BDecrypt),
+            prop::collection::vec(any::<u8>(), 0..64).prop_map(FuzzOp::BEncrypt),
+            Just(FuzzOp::ADecrypt),
+            Just(FuzzOp::ReplayLast),
+            Just(FuzzOp::DropNext),
+            (any::<u16>(), any::<u8>()).prop_map(|(i, v)| FuzzOp::Tamper(i, v)),
+        ]
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+        #[test]
+        fn e2e_sequences_uphold_invariants(ops in prop::collection::vec(op_strategy(), 0..40)) {
+            drive(&ops);
+        }
     }
 }

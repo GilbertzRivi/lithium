@@ -221,6 +221,14 @@ fn parse_keyfile(
     ))
 }
 
+#[cfg(feature = "fuzzing")]
+#[allow(clippy::type_complexity)]
+pub fn parse_keyfile_fuzz(
+    bytes: &[u8],
+) -> Result<(u8, u8, u16, [u8; 32], [u8; 12], Vec<u8>, [u8; 12], Vec<u8>)> {
+    parse_keyfile(&SecretBytes::new(bytes.to_vec()))
+}
+
 fn unwrap_dek(
     mk: &MasterKey32,
     salt: &[u8; 32],

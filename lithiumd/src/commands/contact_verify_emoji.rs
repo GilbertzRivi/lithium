@@ -22,7 +22,7 @@ const VERIFY_EMOJI_TABLE: [&str; 64] = [
     "χ", "ψ", "ω", "Δ", "Σ", "Φ", "Ω",
 ];
 
-const VERIFY_EMOJI_LEN: usize = 12;
+const VERIFY_EMOJI_LEN: usize = 6;
 
 fn decode_hex_field(s: &str) -> Result<Vec<u8>, LithiumError> {
     hex::decode(s.trim()).map_err(|_| LithiumError::internal())

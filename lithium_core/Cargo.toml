@@ -3,6 +3,9 @@ name = "lithium_core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+fuzzing = []
+
 [dependencies]
 ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
 x25519-dalek = { version = "2.0.1", features = ["static_secrets", "zeroize"] }

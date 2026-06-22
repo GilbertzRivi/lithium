@@ -44,7 +44,7 @@ impl<const N: usize> FixedBytes<N> {
 
     #[inline]
     pub fn from_hex(s: &str) -> Result<Self> {
-        if s.len() >= 2 && (&s[..2] == "0x" || &s[..2] == "0X") {
+        if s.starts_with("0x") || s.starts_with("0X") {
             return Err(LithiumError::hex_prefix_disallowed());
         }
         let expected = 2 * N;
@@ -172,7 +172,7 @@ impl SecretBytes {
 
     #[inline]
     pub fn from_hex(s: &str) -> Result<Self> {
-        if s.len() >= 2 && (&s[..2] == "0x" || &s[..2] == "0X") {
+        if s.starts_with("0x") || s.starts_with("0X") {
             return Err(LithiumError::hex_prefix_disallowed());
         }
         if !s.len().is_multiple_of(2) {

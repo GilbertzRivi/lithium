@@ -113,3 +113,12 @@ pub fn server_login_finish(
         .map(|_| ())
         .map_err(|_| LithiumError::invalid_credentials("opaque_login_failed"))
 }
+
+#[cfg(feature = "fuzzing")]
+pub fn opaque_parse_fuzz(data: &[u8]) {
+    let _ = RegistrationRequest::<LithiumCipherSuite>::deserialize(data);
+    let _ = RegistrationUpload::<LithiumCipherSuite>::deserialize(data);
+    let _ = CredentialRequest::<LithiumCipherSuite>::deserialize(data);
+    let _ = CredentialFinalization::<LithiumCipherSuite>::deserialize(data);
+    let _ = ServerSetup::deserialize(data);
+}

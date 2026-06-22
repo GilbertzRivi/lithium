@@ -19,30 +19,11 @@ async fn test_contact_send_to_pending_invite_fails() {
     let r = c
         .send(json!({"cmd": "contact_send", "contact_id": cid, "plaintext": "early", "auth_token": tok}))
         .await;
-    assert_eq!(r["error"].as_str().unwrap(), "crypto_error", "{:?}", r);
+    assert_eq!(r["error"].as_str().unwrap(), "peer_not_set", "{:?}", r);
 }
 
 #[tokio::test]
-async fn test_contact_fetch_on_pending_invite_fails() {
-    // ensure_mailbox_state requires peer.x_pub which doesn't exist until the invite is accepted.
-    let srv = TestServer::start().await;
-    let d = start_daemon().await;
-    let mut c = IpcClient::connect(&d.socket_path).await;
-    let tok = full_setup(&mut c, &srv, &unique_handle("pfch")).await;
-
-    let inv = c
-        .send(json!({"cmd": "create_invite", "auth_token": tok}))
-        .await;
-    let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
-
-    let r = c
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid, "auth_token": tok}))
-        .await;
-    assert_eq!(r["error"].as_str().unwrap(), "crypto_error", "{:?}", r);
-}
-
-#[tokio::test]
-async fn test_accept_invite_with_unknown_contact_id_fails() {
+async fn test_reveal_with_unknown_contact_id_fails() {
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -55,16 +36,21 @@ async fn test_accept_invite_with_unknown_contact_id_fails() {
     let inv = ca
         .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
         .await;
-    let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
 
-    // B provides a contact_id that does not exist in B's local DB.
-    let r = cb
+    let acc_b = cb
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_b}))
+        .await;
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
+
+    // A reveals against a contact_id that does not exist in A's local DB.
+    let r = ca
         .send(json!({
-            "cmd": "accept_invite",
-            "code": code_a,
+            "cmd": "reveal_invite",
             "contact_id": "cc".repeat(32),
-            "label": "A",
-            "auth_token": tok_b
+            "peer_code": code_b,
+            "label": "B",
+            "auth_token": tok_a
         }))
         .await;
     assert_eq!(r["error"].as_str().unwrap(), "contact_not_found", "{:?}", r);
@@ -72,9 +58,9 @@ async fn test_accept_invite_with_unknown_contact_id_fails() {
 
 #[tokio::test]
 async fn test_peer_takeover_rejected() {
-    // Invite codes are self-contained crypto — two different peers can accept the same code.
-    // Once A finalizes with B's identity, a subsequent finalization attempt using C's identity
-    // must be rejected so C cannot take over A's established contact slot.
+    // A commitment is public — two different peers can accept the same one. Once A reveals
+    // against B's identity, a second reveal using C's identity must be rejected so C cannot
+    // take over A's established contact slot.
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -92,34 +78,86 @@ async fn test_peer_takeover_rejected() {
         .await;
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a = inv["result"]["code"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_b = cb
-        .send(json!({"cmd": "accept_invite", "code": code_a, "label": "A", "auth_token": tok_b}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_b}))
         .await;
     assert!(acc_b["ok"].as_bool().unwrap(), "{:?}", acc_b);
-    let code_b = acc_b["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
 
     let acc_c = cc
-        .send(json!({"cmd": "accept_invite", "code": code_a, "label": "A", "auth_token": tok_c}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_c}))
         .await;
     assert!(acc_c["ok"].as_bool().unwrap(), "{:?}", acc_c);
-    let code_c = acc_c["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_c = acc_c["result"]["code"].as_str().unwrap().to_owned();
 
-    let fin_b = ca
-        .send(json!({"cmd": "accept_invite", "code": code_b, "contact_id": cid_a, "label": "B", "auth_token": tok_a}))
+    let rev_b = ca
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_b, "label": "B", "auth_token": tok_a}))
         .await;
-    assert!(fin_b["ok"].as_bool().unwrap(), "{:?}", fin_b);
+    assert!(rev_b["ok"].as_bool().unwrap(), "{:?}", rev_b);
 
-    let fin_c = ca
-        .send(json!({"cmd": "accept_invite", "code": code_c, "contact_id": cid_a, "label": "C", "auth_token": tok_a}))
+    let rev_c = ca
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_c, "label": "C", "auth_token": tok_a}))
         .await;
     assert_eq!(
-        fin_c["error"].as_str().unwrap(),
+        rev_c["error"].as_str().unwrap(),
         "peer_already_set",
         "{:?}",
-        fin_c
+        rev_c
     );
+}
+
+#[tokio::test]
+async fn test_finalize_rejects_wrong_code_then_accepts_correct() {
+    let srv = TestServer::start().await;
+    let da = start_daemon().await;
+    let db = start_daemon().await;
+    let mut ca = IpcClient::connect(&da.socket_path).await;
+    let mut cb = IpcClient::connect(&db.socket_path).await;
+
+    let tok_a = full_setup(&mut ca, &srv, &unique_handle("mism_a")).await;
+    let tok_b = full_setup(&mut cb, &srv, &unique_handle("mism_b")).await;
+
+    let inv = ca
+        .send(json!({"cmd": "create_invite", "auth_token": tok_a}))
+        .await;
+    let cid_a = inv["result"]["contact_id"].as_str().unwrap().to_owned();
+    let commitment = inv["result"]["commitment"].as_str().unwrap().to_owned();
+
+    let acc_b = cb
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment, "label": "A", "auth_token": tok_b}))
+        .await;
+    let cid_b = acc_b["result"]["contact_id"].as_str().unwrap().to_owned();
+    let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
+
+    // A code whose hash does not open the commitment must be rejected — here B's own code
+    // stands in for keys a channel attacker swapped after seeing the commitment.
+    let bad = cb
+        .send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_b, "auth_token": tok_b}))
+        .await;
+    assert_eq!(
+        bad["error"].as_str().unwrap(),
+        "commitment_mismatch",
+        "{:?}",
+        bad
+    );
+
+    let list = cb
+        .send(json!({"cmd": "contacts_list", "auth_token": tok_b}))
+        .await;
+    let contacts = list["result"]["contacts"].as_array().unwrap();
+    assert!(!contacts[0]["peer_set"].as_bool().unwrap());
+
+    let rev = ca
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_a, "peer_code": code_b, "label": "B", "auth_token": tok_a}))
+        .await;
+    let code_a = rev["result"]["code"].as_str().unwrap().to_owned();
+
+    let fin = cb
+        .send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_a, "auth_token": tok_b}))
+        .await;
+    assert!(fin["ok"].as_bool().unwrap(), "{:?}", fin);
 }
 
 #[tokio::test]

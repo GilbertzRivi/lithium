@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use reqwest::Url;
-use tokio::sync::{Mutex, RwLock, watch};
+use tokio::sync::{Mutex, RwLock, mpsc, watch};
 
 use lithium_core::db::manager::DataManager;
 use lithium_core::keys::KeyManager;
@@ -9,6 +9,7 @@ use lithium_core::secrets::{Byte32, SecretString};
 
 use crate::password_provider::PasswordFileMkProvider;
 use crate::protocol_manager::ProtocolManager;
+use crate::traffic::{PendingSend, Traffic};
 
 type SharedKeyManager = Arc<Mutex<KeyManager<PasswordFileMkProvider>>>;
 
@@ -32,6 +33,8 @@ pub struct IpcAuthState {
 pub struct DaemonState {
     pub proto: Arc<Mutex<Option<Arc<ProtocolManager<PasswordFileMkProvider>>>>>,
     pub mk_rotator: Arc<Mutex<Option<MkRotator>>>,
+    pub traffic: Arc<Mutex<Option<Traffic>>>,
+    pub send_tx: Arc<Mutex<Option<mpsc::Sender<PendingSend>>>>,
 
     pub needs_register: Arc<Mutex<bool>>,
     pub account_creds: Arc<Mutex<Option<(SecretString, SecretString)>>>,
@@ -60,6 +63,8 @@ impl DaemonState {
         Self {
             proto: Arc::new(Mutex::new(None)),
             mk_rotator: Arc::new(Mutex::new(None)),
+            traffic: Arc::new(Mutex::new(None)),
+            send_tx: Arc::new(Mutex::new(None)),
             needs_register: Arc::new(Mutex::new(needs_register)),
             account_creds: Arc::new(Mutex::new(None)),
             data_pass: Arc::new(Mutex::new(None)),
@@ -93,6 +98,11 @@ impl DaemonState {
     }
 
     pub async fn lock_keystore(&self) {
+        *self.send_tx.lock().await = None;
+        if let Some(traffic) = self.traffic.lock().await.take() {
+            traffic.stop().await;
+        }
+
         if let Some(rot) = self.mk_rotator.lock().await.take() {
             let _ = rot.stop_tx.send(true);
             let _ = rot.handle.await;

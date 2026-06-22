@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use super::{Command, LithiumApp, draw_invite_box};
+use super::{Command, LithiumApp};
 
 impl LithiumApp {
     pub(super) fn draw_ready(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
@@ -40,71 +40,10 @@ impl LithiumApp {
                 self.send(Command::LoadContacts);
             }
 
-            if ui.button("New contact").clicked() && !self.busy {
-                self.send(Command::CreateInvite { contact_id: None });
-            }
-
-            let can_reply = !self.busy && self.selected_contact_id.is_some();
-            if ui
-                .add_enabled(can_reply, egui::Button::new("Reply to invite"))
-                .clicked()
-            {
-                self.send(Command::CreateInvite {
-                    contact_id: self.selected_contact_id.clone(),
-                });
+            if ui.button("Add contact").clicked() && !self.busy {
+                self.open_pairing_modal();
             }
         });
-
-        if !self.generated_invite_code.is_empty() {
-            ui.separator();
-            ui.label("Share this code with your contact:");
-            draw_invite_box(
-                ui,
-                "generated_invite_scroll",
-                &mut self.generated_invite_code,
-                "",
-                false,
-            );
-        }
-
-        ui.separator();
-        ui.label("Add contact from invite");
-        ui.add_space(4.0);
-
-        ui.add_sized(
-            [ui.available_width(), 24.0],
-            egui::TextEdit::singleline(&mut self.invite_label_input).hint_text("Contact name"),
-        );
-        ui.add_space(4.0);
-
-        draw_invite_box(
-            ui,
-            "invite_input_scroll",
-            &mut self.invite_code_input,
-            "Paste invite code",
-            true,
-        );
-
-        let can_accept = !self.busy
-            && !self.invite_label_input.trim().is_empty()
-            && !self.invite_code_input.trim().is_empty();
-
-        ui.add_space(4.0);
-        if ui
-            .add_enabled(can_accept, egui::Button::new("Accept invite"))
-            .clicked()
-        {
-            let target_contact_id = self
-                .selected_contact()
-                .filter(|c| !c.peer_set)
-                .map(|c| c.contact_id.clone());
-
-            self.send(Command::AcceptInvite {
-                code: self.invite_code_input.trim().to_string(),
-                label: self.invite_label_input.trim().to_string(),
-                contact_id: target_contact_id,
-            });
-        }
 
         ui.separator();
 
@@ -186,15 +125,6 @@ impl LithiumApp {
 
         // Action buttons
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(!self.busy, egui::Button::new("Check for messages"))
-                .clicked()
-            {
-                self.send(Command::FetchMessages {
-                    contact_id: contact.contact_id.clone(),
-                });
-            }
-
             if ui
                 .add_enabled(!self.busy, egui::Button::new("Refresh"))
                 .clicked()

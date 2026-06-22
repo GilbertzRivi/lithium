@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use serde_json::json;
+use tokio::sync::mpsc::error::TrySendError;
 
 use lithium_core::{
     contract::protocol::field,
@@ -21,9 +22,9 @@ use crate::{
         local_public_prekeys, pack_wire, peer_need_recover, peer_pick_remote_prekey,
         peer_remove_remote_prekey, prekeys_mark_advertised, prekeys_should_advertise,
     },
-    ipc::types::{IpcResponse, crypto_err, err_resp, protocol_err, storage_err},
-    protocol_manager::Endpoint,
+    ipc::types::{IpcResponse, crypto_err, err_resp, storage_err},
     state::DaemonState,
+    traffic::PendingSend,
 };
 
 const PREKEY_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
@@ -72,7 +73,10 @@ pub async fn handle(
     let Some(dm) = state.local_db.lock().await.clone() else {
         return err_resp(id, "storage_locked");
     };
-    let Some(proto) = state.proto.lock().await.clone() else {
+    if state.proto.lock().await.is_none() {
+        return err_resp(id, "keystore_locked");
+    }
+    let Some(send_tx) = state.send_tx.lock().await.clone() else {
         return err_resp(id, "keystore_locked");
     };
 
@@ -83,6 +87,9 @@ pub async fn handle(
     if contact_id.len() != 32 {
         return err_resp(id, "invalid_contact_id");
     }
+
+    let contact_lock = state.contact_fetch_lock(contact_id.as_slice()).await;
+    let _contact_guard = contact_lock.lock().await;
 
     let row_opt = match dm.get_contact(contact_id.as_slice()).await {
         Ok(v) => v,
@@ -100,6 +107,10 @@ pub async fn handle(
         Ok(v) => v,
         Err(_) => return err_resp(id, "peer_state_corrupt"),
     };
+
+    if !peer_st.peer_is_set() {
+        return err_resp(id, "peer_not_set");
+    }
 
     if ensure_self_keyring(&mut self_st).is_err() {
         return crypto_err(id);
@@ -160,12 +171,11 @@ pub async fn handle(
         field::CONTENT: content_hex
     });
 
-    if proto
-        .send(Endpoint::MsgSend, body, json!({}))
-        .await
-        .is_err()
-    {
-        return protocol_err(id);
+    if let Err(e) = send_tx.try_send(PendingSend::new(body)) {
+        return match e {
+            TrySendError::Full(_) => err_resp(id, "send_queue_full"),
+            TrySendError::Closed(_) => err_resp(id, "keystore_locked"),
+        };
     }
 
     if let Some(id_hex) = used_recovery_prekey {

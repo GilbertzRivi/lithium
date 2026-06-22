@@ -19,31 +19,25 @@ Nie ma „principled why custom vs standard" dla istniejącego protokołu — wy
 
 ## Workstream B — rzeczy contained (PRZED AUDYTEM, solo)
 
-### B1. Commit-reveal w parowaniu
-
-**Status:** otwarte. SAS dziś = 12 symboli / 72 b (`lithiumd/src/commands/contact_verify_emoji.rs:25`).
-
-**Problem.** Wymiana `lci1:` nie ma commitmentu kluczy — to surowe klucze publiczne. Atakujący kontrolujący kanał OOB może grindować własny zestaw offline, by dopasować SAS. Obecna obrona to *wyłącznie długość* (72 b czyni grind niewykonalnym), nie struktura.
-
-**Plan.** Dodać commitment: strona A wysyła `H(klucze)` OOB **przed** ujawnieniem, B ujawnia, A ujawnia. Grind offline znika strukturalnie (atakujący musi commitować przed poznaniem celu → SAS staje się one-shot 2^-N). Pozwala docelowo skrócić SAS.
-
-**Pliki.** `lithiumd/src/commands/invite_create.rs`, `invite_accept.rs`, stan kontaktu, onboarding w `lithiumg`.
-
-### B2. Fuzzing
-
-**Status:** otwarte.
-
-**Dlaczego.** Złożoność jest w warstwie stanowej E2E (bootstrap/ratchet/prekey-recover + okna generacji mailboxa + wycofywanie bootstrapu) i w parserach. To miejsca, gdzie chowają się bugi, które audytor i tak znajdzie — taniej fuzzerem przed zegarem.
-
-**Cele fuzzingu:**
-- Parsery (wejścia z sieci / od peera): `lithiumd/src/e2e/wire.rs` (`unpack_wire`), `lithiumd/src/commands/invite_codec.rs`, `lithium_core/src/keys/keyfile.rs`, `lithium_core/src/contract/identity_file.rs`, `lithium_core/src/crypto/kyberbox.rs` (`decrypt`).
-- Maszyna stanów E2E: sekwencje `encrypt_for_peer`/`decrypt_for_us`/`decrypt_for_prekey` z losowymi przeplotami i powtórkami (`lithiumd/src/e2e/session.rs`, `state_self.rs`, `state_peer.rs`) — niezmiennik: brak paniki, brak wycieku plaintextu bez podpisu, monotoniczność seq/gen.
-
 ### B3. Cover traffic (daemon)
 
-**Status:** otwarte (nie istnieje).
+**Status:** zrobione (`lithiumd/src/traffic.rs`).
 
-**Plan.** Szum na poziomie daemona, by ukryć timing/wolumen realnego ruchu. **Constant-rate**, nie losowy/Poisson — burstowy ruch realny na wierzchu losowego szumu przecieka statystycznie.
+**Realizacja.** Stałokadencyjny scheduler: send dispatcher (jedna emisja `MsgSend` na tick — realny
+send z kolejki albo dummy do cover-skrzynki) i fetch dispatcher (jeden `MsgFetch` na tick, round-robin
+po {kontakty × okno generacji inbound} ∪ {cover-skrzynka}). Threat model = serwer (lokalny pasywny),
+szum tylko gdy online. Cover-skrzynka (self-loop, etykieta `lithium/mbox/cover/v1`, derive z DEK,
+rotacja dobowa) dostaje dummy-sendy i jest drenowana fetchem, więc serwer nie odróżnia jej od realnej
+konwersacji. Realny ruch jedzie po tej samej kadencji: `contact_send` zawsze enqueue (zero feature-flagu,
+zero direct-send), a manual fetch został usunięty na rzecz constant-rate pollingu (patrz zmiana trust
+modelu w `docs/security-model.md`). Rozmiary równa istniejący padding transportu (bloki 32–64 KB).
+
+**Granice (zapisane, by nie było teatru):** throughput realnych sendów capowany stopą (jeden slot/tick);
+latencja odbioru rośnie z liczbą skrzynek w rotacji × interwał fetch; sam fakt online to metadana
+(obrona vs serwer, nie vs globalny pasywny — 24/7 poza zakresem); cover-fetch z założenia odpytuje
+też cover-skrzynkę co cykl.
+
+**Plan (oryginalny).** Szum na poziomie daemona, by ukryć timing/wolumen realnego ruchu. **Constant-rate**, nie losowy/Poisson — burstowy ruch realny na wierzchu losowego szumu przecieka statystycznie.
 
 **Granice (do zapisania, żeby nie było teatru):**
 - Sam wzorzec online to metadana (kiedy daemon szumi = strefa czasowa / rytm dobowy). „Tylko IP-on" wymaga ruchu 24/7 → koszt pasma/baterii/serwera.
@@ -86,7 +80,7 @@ Krótka nota uzasadniająca: autorski KyberBox (KEM-DEM hybryda) i transport Sha
 - **Anonimowość IP** — spychana na użytkownika (Tor/VPN), jak w Signalu. GUI instruuje, by handle był nielinkowalny (nie nick/imię/email). Opaque handle robi pseudonim *nieidentyfikującym*, nie *niestałym* (`id_enc` jest deterministyczny → stabilny pseudonim narasta w czasie; jedno złe IP retroaktywnie podpina historię).
 - **Login identity-bound** — patrz A3. Cena designu „serwer + hasło do odszyfrowania", nie bug.
 - **Sparowany kontakt może cię zalać** — to ktoś OOB-zweryfikowany; obrona to `contact_forget`. Inherentne.
-- **Brak gwarancji dostarczenia / one-time fetch / manual fetch / brak offline unlock / brak recovery** — non-goals z `docs/security-model.md`, nie do „naprawiania".
+- **Brak gwarancji dostarczenia / one-time fetch / constant-rate auto-fetch (zamiast manual fetch) / brak offline unlock / brak recovery** — non-goals z `docs/security-model.md`, nie do „naprawiania".
 
 ---
 

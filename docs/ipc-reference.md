@@ -464,50 +464,13 @@ Odpowiedź:
 
 ---
 
-### `contact_fetch`
+### Pobieranie wiadomości — automatyczne (brak komendy IPC)
 
-Wymaga auth + storage odblokowane + keystore odblokowane (`proto`).
-
-Pobiera wiadomości od kontaktu z serwera (do 4 generacji mailbox naraz). Usuwa je z serwera atomowo (one-time fetch). Jednoczesne wywołania dla tego samego `contact_id` są serializowane (`contact_fetch_locks`).
-
-```json
-{
-    "id": 1,
-    "auth_token": "...",
-    "cmd": "contact_fetch",
-    "contact_id": "hex64..."
-}
-```
-
-Odpowiedź — **nie** ma top-level liczników `fetched`/`failed`; zamiast tego tablica wyników per wiadomość, każdy z `ok`/`err`:
-```json
-{
-    "id": 1,
-    "ok": true,
-    "result": {
-        "messages": [
-            { "ok": true, "ui": { "mode": "bootstrap" }, "text": "Tresc", "mailbox_gen": 0 },
-            { "ok": false, "err": "duplicate", "mailbox_gen": 0 }
-        ]
-    }
-}
-```
-
-Top-level błędy (przed iteracją po wiadomościach):
-
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `keystore_locked` | `proto` nie ustawiony |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym 32-bajtowym hex |
-| `contact_not_found` | Kontakt nie istnieje w DB |
-| `self_state_corrupt` / `peer_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `crypto_error` | Inicjalizacja keyringu/mailboxa zawiodła |
-| `protocol_error` | Pobranie z serwera (`/msg/fetch`) zawiodło |
-| `storage_error` | Zapis nowego stanu/wiadomości do DB zawiódł |
-| `json_error` | Serializacja nowego stanu zawiodła |
-
-Błędy per wiadomość (pole `err` w elemencie tablicy `messages`, żądanie jako całość kończy się `ok: true`): `invalid_hex`, `bad_wire`, `invalid_utf8`, `duplicate`, `potentially_harmful_message`, `decrypt_failed`, `to_id_unknown`, `prekey_lookup_failed`, `prekey_recovery_failed`.
+Manual `contact_fetch` został usunięty. Pobieranie przychodzących robi w tle stałokadencyjny fetch
+dispatcher daemona (`lithiumd/src/traffic.rs`): jeden `MsgFetch` na tick, round-robin po skrzynkach
+inbound wszystkich kontaktów (do 4 generacji: `peer_tx_gen_seen - 2` .. `+ 1`) plus cover-skrzynka.
+Serwer kasuje wiadomość przy odczycie (one-time fetch); daemon dedupuje po `msg_id`. Klient nie
+inicjuje fetcha — odczytuje lokalny store przez `messages_list` (poll co kilka sekund).
 
 ---
 
@@ -796,7 +759,8 @@ Odpowiedź — pole nazywa się `shutting_down`, nie `shutdown`:
 | `bad_data_password` | `unlock_keystore` | Hasło nie spełnia polityki lub nie zgadza się z bieżącym |
 | `bad_account_password` | `set_credentials` | Hasło konta nie spełnia polityki |
 | `passwords_must_be_distinct` | `unlock_keystore`, `set_credentials`, `register` | Hasło konta = hasło danych |
-| `keystore_locked` | `register`, `unlock_storage`, `contact_send`, `contact_fetch`, `delete_account` | `proto` nie ustawiony (keystore zablokowany) |
+| `keystore_locked` | `register`, `unlock_storage`, `contact_send`, `delete_account` | `proto` nie ustawiony (keystore zablokowany) |
+| `send_queue_full` | `contact_send` | Kolejka send dispatchera pełna (throughput capowany stopą cover traffic) |
 | `missing_data_password` | `register`, `unlock_storage` | Brak `data_password` w pamięci |
 | `missing_account_credentials` | `register` | Brak `set_credentials` |
 | `register_required` | `unlock_storage` | `needs_register == true` |
@@ -804,7 +768,7 @@ Odpowiedź — pole nazywa się `shutting_down`, nie `shutdown`:
 | `storage_init_failed` | `unlock_storage` | Inicjalizacja lokalnej bazy SQLite zawiodła |
 | `storage_error` | komendy operujące na DB | Błąd odczytu/zapisu SQLite |
 | `internal_state_error` | `register`, `unlock_storage` | Niespodziewana kombinacja stanu |
-| `crypto_error` | `unlock_keystore`, `register`, `unlock_storage`, `contact_send`, `contact_fetch` | Błąd kryptograficzny (deszyfrowanie, generowanie kluczy) |
+| `crypto_error` | `unlock_keystore`, `register`, `unlock_storage`, `contact_send` | Błąd kryptograficzny (deszyfrowanie, generowanie kluczy) |
 | `protocol_error` | komendy kontaktujące serwer | Błąd sieciowy lub odpowiedzi serwera |
 | `internal_error` | wiele | Nieoczekiwany błąd wewnętrzny |
 | `invalid_contact_id` | komendy kontaktowe | `contact_id` nie jest poprawnym hex / 32 bajty |
@@ -823,7 +787,7 @@ Odpowiedź — pole nazywa się `shutting_down`, nie `shutdown`:
 | `account_deleted_but_local_wipe_failed` | `delete_account` | Konto usunięte na serwerze, lokalny wipe zawiódł |
 | `wipe_failed` | `wipe_local` | Błąd usuwania plików |
 
-Błędy per-wiadomość zwracane wewnątrz tablicy `messages` przez `contact_fetch` (`invalid_hex`, `bad_wire`, `invalid_utf8`, `duplicate`, `potentially_harmful_message`, `decrypt_failed`, `to_id_unknown`, `prekey_lookup_failed`, `prekey_recovery_failed`) nie kończą żądania błędem — całe żądanie zwraca `ok: true`, błąd jest tylko w elemencie tablicy.
+Auto-fetch (`traffic.rs`) obsługuje błędy per-wiadomość po cichu (`invalid_hex`, `bad_wire`, `invalid_utf8`, `duplicate`, `potentially_harmful_message`, `decrypt_failed`, `to_id_unknown`, `prekey_lookup_failed`, `prekey_recovery_failed`): wadliwa wiadomość jest pomijana, reszta skrzynki przetwarzana dalej. Nie ma tu kanału IPC, więc te kody nie wracają do klienta.
 
 ## Zmienne środowiskowe
 
@@ -836,3 +800,5 @@ Błędy per-wiadomość zwracane wewnątrz tablicy `messages` przez `contact_fet
 | `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | Max równoległych połączeń IPC |
 | `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | Idle timeout połączenia (min 5) |
 | `LITHIUMD_IPC_ALLOWED_UID` | — | Dozwolony UID (Linux; brak = bez ograniczenia); odmowa zrywa połączenie bez odpowiedzi JSON |
+| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` | Kadencja send dispatchera cover traffic (min 1) |
+| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS` | `20` | Kadencja fetch dispatchera cover traffic / auto-fetch (min 1) |

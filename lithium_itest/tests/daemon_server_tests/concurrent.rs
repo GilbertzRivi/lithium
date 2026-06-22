@@ -22,17 +22,23 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .await;
     assert!(inv_b["ok"].as_bool().unwrap(), "{:?}", inv_b);
     let cid_b_a = inv_b["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_b = inv_b["result"]["code"].as_str().unwrap().to_owned();
+    let commitment_b = inv_b["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_a_b = ca
-        .send(json!({"cmd": "accept_invite", "code": code_b, "label": "B", "auth_token": tok_a}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment_b, "label": "B", "auth_token": tok_a}))
         .await;
     assert!(acc_a_b["ok"].as_bool().unwrap(), "{:?}", acc_a_b);
     let cid_a_b = acc_a_b["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a_for_b = acc_a_b["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_a_for_b = acc_a_b["result"]["code"].as_str().unwrap().to_owned();
 
-    let fin_b = cb
-        .send(json!({"cmd": "accept_invite", "code": code_a_for_b, "contact_id": cid_b_a, "label": "A", "auth_token": tok_b}))
+    let rev_b = cb
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_b_a, "peer_code": code_a_for_b, "label": "A", "auth_token": tok_b}))
+        .await;
+    assert!(rev_b["ok"].as_bool().unwrap(), "{:?}", rev_b);
+    let code_b = rev_b["result"]["code"].as_str().unwrap().to_owned();
+
+    let fin_b = ca
+        .send(json!({"cmd": "finalize_pairing", "contact_id": cid_a_b, "peer_code": code_b, "auth_token": tok_a}))
         .await;
     assert!(fin_b["ok"].as_bool().unwrap(), "{:?}", fin_b);
 
@@ -42,17 +48,23 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .await;
     assert!(inv_c["ok"].as_bool().unwrap(), "{:?}", inv_c);
     let cid_c_a = inv_c["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_c = inv_c["result"]["code"].as_str().unwrap().to_owned();
+    let commitment_c = inv_c["result"]["commitment"].as_str().unwrap().to_owned();
 
     let acc_a_c = ca
-        .send(json!({"cmd": "accept_invite", "code": code_c, "label": "C", "auth_token": tok_a}))
+        .send(json!({"cmd": "accept_commitment", "commitment": commitment_c, "label": "C", "auth_token": tok_a}))
         .await;
     assert!(acc_a_c["ok"].as_bool().unwrap(), "{:?}", acc_a_c);
     let cid_a_c = acc_a_c["result"]["contact_id"].as_str().unwrap().to_owned();
-    let code_a_for_c = acc_a_c["result"]["my_code"].as_str().unwrap().to_owned();
+    let code_a_for_c = acc_a_c["result"]["code"].as_str().unwrap().to_owned();
 
-    let fin_c = cc
-        .send(json!({"cmd": "accept_invite", "code": code_a_for_c, "contact_id": cid_c_a, "label": "A", "auth_token": tok_c}))
+    let rev_c = cc
+        .send(json!({"cmd": "reveal_invite", "contact_id": cid_c_a, "peer_code": code_a_for_c, "label": "A", "auth_token": tok_c}))
+        .await;
+    assert!(rev_c["ok"].as_bool().unwrap(), "{:?}", rev_c);
+    let code_c = rev_c["result"]["code"].as_str().unwrap().to_owned();
+
+    let fin_c = ca
+        .send(json!({"cmd": "finalize_pairing", "contact_id": cid_a_c, "peer_code": code_c, "auth_token": tok_a}))
         .await;
     assert!(fin_c["ok"].as_bool().unwrap(), "{:?}", fin_c);
 
@@ -67,29 +79,17 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .await;
     assert!(r_c["ok"].as_bool().unwrap(), "{:?}", r_c);
 
-    // A fetches from each contact independently.
-    let fetch_b = ca
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_a_b, "auth_token": tok_a}))
-        .await;
-    assert!(fetch_b["ok"].as_bool().unwrap(), "{:?}", fetch_b);
-    assert_eq!(
-        fetch_b["result"]["messages"][0]["text"].as_str().unwrap(),
-        "from B"
-    );
+    // A auto-fetches each contact independently via background polling.
+    let in_b = wait_for_inbound(&mut ca, &cid_a_b, &tok_a, 1).await;
+    assert_eq!(in_b[0]["text"].as_str().unwrap(), "from B");
 
-    let fetch_c = ca
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_a_c, "auth_token": tok_a}))
-        .await;
-    assert!(fetch_c["ok"].as_bool().unwrap(), "{:?}", fetch_c);
-    assert_eq!(
-        fetch_c["result"]["messages"][0]["text"].as_str().unwrap(),
-        "from C"
-    );
+    let in_c = wait_for_inbound(&mut ca, &cid_a_c, &tok_a, 1).await;
+    assert_eq!(in_c[0]["text"].as_str().unwrap(), "from C");
 }
 
 #[tokio::test]
 async fn test_send_fetch_cycles_accumulate_correctly() {
-    // Each contact_fetch is one-time on the server; subsequent sends land in the next window.
+    // Messages sent across rotations all arrive via auto-fetch and accumulate locally in order.
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -102,30 +102,18 @@ async fn test_send_fetch_cycles_accumulate_correctly() {
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "msg1", "auth_token": tok_a}))
         .await;
-    let f1 = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert_eq!(f1["result"]["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        f1["result"]["messages"][0]["text"].as_str().unwrap(),
-        "msg1"
-    );
+    let in1 = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
+    assert_eq!(in1[0]["text"].as_str().unwrap(), "msg1");
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "msg2", "auth_token": tok_a}))
         .await;
-    let f2 = cb
-        .send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert_eq!(f2["result"]["messages"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        f2["result"]["messages"][0]["text"].as_str().unwrap(),
-        "msg2"
-    );
+    let in2 = wait_for_inbound(&mut cb, &cid_b, &tok_b, 2).await;
+    assert_eq!(in2[1]["text"].as_str().unwrap(), "msg2");
 }
 
 #[tokio::test]
-async fn test_messages_list_accumulates_across_fetches() {
-    // Each contact_fetch stores messages locally; messages_list reflects all of them.
+async fn test_messages_list_accumulates_across_sends() {
+    // Auto-fetch stores each message locally; messages_list reflects all of them.
     let srv = TestServer::start().await;
     let da = start_daemon().await;
     let db = start_daemon().await;
@@ -138,17 +126,9 @@ async fn test_messages_list_accumulates_across_fetches() {
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "first", "auth_token": tok_a}))
         .await;
-    cb.send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "second", "auth_token": tok_a}))
         .await;
-    cb.send(json!({"cmd": "contact_fetch", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
 
-    let list = cb
-        .send(json!({"cmd": "messages_list", "contact_id": cid_b, "auth_token": tok_b}))
-        .await;
-    assert!(list["ok"].as_bool().unwrap(), "{:?}", list);
-    assert_eq!(list["result"]["messages"].as_array().unwrap().len(), 2);
+    let msgs = wait_for_inbound(&mut cb, &cid_b, &tok_b, 2).await;
+    assert_eq!(msgs.len(), 2);
 }

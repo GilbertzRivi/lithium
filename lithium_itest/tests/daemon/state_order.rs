@@ -82,23 +82,6 @@ async fn test_contact_send_before_storage_unlock_rejected() {
 }
 
 #[tokio::test]
-async fn test_contact_fetch_before_storage_unlock() {
-    let d = DaemonProcess::start().await;
-    let mut c = IpcClient::connect(&d.socket_path).await;
-    c.send(json!({"cmd": "set_server_url", "url": "http://127.0.0.1:19999"}))
-        .await;
-    let r = c
-        .send(json!({"cmd": "unlock_keystore", "data_password": DATA_PASS}))
-        .await;
-    let tok = r["result"]["ipc_auth_token"].as_str().unwrap().to_owned();
-
-    let r = c
-        .send(json!({"cmd": "contact_fetch", "contact_id": "aa".repeat(32), "auth_token": tok}))
-        .await;
-    assert_eq!(r["error"].as_str().unwrap(), "storage_locked");
-}
-
-#[tokio::test]
 async fn test_messages_list_before_storage_unlock() {
     let d = DaemonProcess::start().await;
     let mut c = IpcClient::connect(&d.socket_path).await;

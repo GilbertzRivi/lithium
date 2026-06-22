@@ -69,6 +69,16 @@ pub fn translate(raw: &str) -> String {
              Use 'Reset local data' to clean up."
         }
         "handler_taken" => "That username is already taken — choose a different one.",
+        "commitment_mismatch" => {
+            "Verification failed — the revealed code does not match the commitment. \
+             The exchange may have been tampered with. Start the pairing over."
+        }
+        "invalid_commitment" => "That commitment is not valid — check what you pasted.",
+        "invalid_invite_code" => "That code is not valid — check what you pasted.",
+        "no_pending_commit" => "This contact is not waiting for a code to verify.",
+        "peer_already_set" => "This contact is already paired.",
+        "peer_not_set" => "This contact is not paired yet.",
+        "contact_not_found" => "Contact not found.",
         "ipc_error" => "Unknown daemon error.",
         _ => return raw.to_string(),
     }

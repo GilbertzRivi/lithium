@@ -7,6 +7,9 @@ pub mod state_peer;
 pub mod state_self;
 pub mod wire;
 
+#[cfg(any(test, feature = "fuzzing"))]
+pub(crate) mod seq_driver;
+
 pub use wire::{PREKEY_TARGET, pack_wire, unpack_wire};
 
 pub(crate) use state::{PeerState, SelfState};

@@ -221,6 +221,8 @@ pub(crate) struct PeerState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer: Option<PeerIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub e2e_peer: Option<E2ePeer>,
     #[serde(default)]
     pub bootstrap: BootstrapState,
@@ -256,6 +258,7 @@ impl PeerState {
             v: default_doc_version(),
             label: String::new(),
             peer: None,
+            pending_commit: None,
             e2e_peer: None,
             bootstrap: BootstrapState::default(),
             prekeys_remote: Vec::new(),

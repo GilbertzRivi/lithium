@@ -15,6 +15,9 @@ pub mod transport;
 #[cfg(feature = "tpm")]
 pub mod tpm_provider;
 
+#[cfg(feature = "fuzzing")]
+pub mod fuzz_api;
+
 use poem::Response;
 use poem::http::StatusCode;
 use poem::web::{Data, Json};

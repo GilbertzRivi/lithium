@@ -1,10 +1,6 @@
 use lithium_core::error::CryptoErrorKind;
 use lithium_core::secrets::{Byte12, Byte32, Byte64, SecretBytes, SecretJson, SecretString};
 
-// ════════════════════════════════════════════════════════════════════════════
-// FixedBytes
-// ════════════════════════════════════════════════════════════════════════════
-
 #[test]
 fn fixed_bytes_new_and_as_slice() {
     let b = Byte32::new([0xAA; 32]);
@@ -106,8 +102,6 @@ fn fixed_bytes_debug_redacted() {
     assert!(s.contains("FixedBytes"));
 }
 
-// ── hex ──────────────────────────────────────────────────────────────────────
-
 #[test]
 fn fixed_bytes_to_hex_roundtrip() {
     let original = Byte32::new([0xDE; 32]);
@@ -156,9 +150,12 @@ fn fixed_bytes_from_hex_invalid_char_rejected() {
     assert_eq!(err.kind, CryptoErrorKind::InvalidHex);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SecretBytes
-// ════════════════════════════════════════════════════════════════════════════
+#[test]
+fn from_hex_multibyte_input_errors_without_panic() {
+    let multibyte = "砜砜";
+    assert!(Byte32::from_hex(multibyte).is_err());
+    assert!(SecretBytes::from_hex(multibyte).is_err());
+}
 
 #[test]
 fn secret_bytes_from_slice() {
@@ -207,8 +204,6 @@ fn secret_bytes_as_ref() {
     assert_eq!(r, b"data");
 }
 
-// ── hex ──────────────────────────────────────────────────────────────────────
-
 #[test]
 fn secret_bytes_to_hex_from_hex_roundtrip() {
     let original = SecretBytes::from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]);
@@ -240,10 +235,6 @@ fn secret_bytes_from_hex_empty() {
     let sb = SecretBytes::from_hex("").unwrap();
     assert!(sb.is_empty());
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// SecretString
-// ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn secret_string_new_expose() {
@@ -333,10 +324,6 @@ fn secret_string_clone() {
     let cloned = ss.clone();
     assert_eq!(cloned.expose(), ss.expose());
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// SecretJson
-// ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn secret_json_from_str_valid() {

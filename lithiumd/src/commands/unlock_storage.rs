@@ -60,6 +60,20 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
                             }
                         }
 
+                        if state.traffic.lock().await.is_none()
+                            && let Some(dm) = state.local_db.lock().await.clone()
+                        {
+                            let (traffic, send_tx) = crate::traffic::spawn(
+                                Arc::clone(&proto),
+                                dm,
+                                Arc::clone(&state),
+                                arr,
+                                crate::traffic::TrafficConfig::from_env(),
+                            );
+                            *state.traffic.lock().await = Some(traffic);
+                            *state.send_tx.lock().await = Some(send_tx);
+                        }
+
                         IpcResponse {
                             id,
                             ok: true,

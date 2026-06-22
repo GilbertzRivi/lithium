@@ -6,16 +6,17 @@ use lithium_core::passwords::passwords::PasswordPolicy;
 
 use crate::ipc::types::{IpcCommand, IpcRequest, IpcResponse};
 
-mod contact_fetch;
 mod contact_forget;
 mod contact_list;
 pub(crate) mod contact_mailbox;
 mod contact_send;
 mod contact_verify_emoji;
 mod delete_account;
-mod invite_accept;
+mod invite_accept_commitment;
 pub(crate) mod invite_codec;
 mod invite_create;
+mod invite_finalize;
+mod invite_reveal;
 mod lock_keystore;
 mod messages_list;
 mod ping;
@@ -60,20 +61,24 @@ pub async fn dispatch(
         IpcCommand::CreateInvite { contact_id } => {
             invite_create::handle(id, contact_id, state).await
         }
-        IpcCommand::AcceptInvite {
-            code,
+        IpcCommand::AcceptCommitment { commitment, label } => {
+            invite_accept_commitment::handle(id, commitment, label, state).await
+        }
+        IpcCommand::RevealInvite {
             contact_id,
+            peer_code,
             label,
-        } => invite_accept::handle(id, code, contact_id, label, state).await,
+        } => invite_reveal::handle(id, contact_id, peer_code, label, state).await,
+        IpcCommand::FinalizePairing {
+            contact_id,
+            peer_code,
+        } => invite_finalize::handle(id, contact_id, peer_code, state).await,
 
         IpcCommand::ContactsList => contact_list::handle(id, state).await,
         IpcCommand::ContactSend {
             contact_id,
             plaintext,
         } => contact_send::handle(id, contact_id, plaintext, state).await,
-        IpcCommand::ContactFetch { contact_id } => {
-            contact_fetch::handle(id, contact_id, state).await
-        }
         IpcCommand::ContactForget { contact_id } => {
             contact_forget::handle(id, contact_id, state).await
         }

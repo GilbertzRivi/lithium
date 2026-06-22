@@ -411,24 +411,24 @@ pub async fn build_crypto_context(
     let req_label = protocol::ctx_req(cfg.endpoint);
     let resp_label = protocol::ctx_resp(cfg.endpoint);
 
-    let (mut dec_body, mut dec_headers) = match cfg.mode {
-        CryptoMode::Shake => {
-            let wire = WirePayload {
-                enc_body: cipher_body,
-                enc_headers: enc_headers_z,
-                seed_enc: seed_enc_z,
-            };
+    let wire = WirePayload {
+        enc_body: cipher_body,
+        enc_headers: enc_headers_z,
+        seed_enc: seed_enc_z,
+    };
 
-            match state
+    let (body_json, headers_json) = match cfg.mode {
+        CryptoMode::Shake => {
+            // Keys live only inside this closure and it must return LithiumError, so the rest runs in finish_decode.
+            let (dec_body, dec_headers) = state
                 .key_manager
                 .lock()
                 .await
                 .with_x25519_and_kyber_sk(|x_priv, k_priv| {
                     kyberbox::decrypt(req_label.as_str(), &x_priv, &peer_key_x, &k_priv, &wire)
-                }) {
-                Ok(v) => v,
-                Err(e) => return Err(AppError::from(e)),
-            }
+                })
+                .map_err(AppError::from)?;
+            finish_decode(dec_body, dec_headers)?
         }
         CryptoMode::Session => {
             let ses_x_id = header_str(headers_map, hdr::SES_X)?;
@@ -452,31 +452,10 @@ pub async fn build_crypto_context(
                 .ok_or_else(|| AppError::bad_request("invalid session k"))?;
 
             let x_byte = Byte32::from_slice(x_priv.expose_as_slice())?;
-            let k_byte = k_priv;
 
-            match kyberbox::decrypt(
-                req_label.as_str(),
-                &x_byte,
-                &peer_key_x,
-                &k_byte,
-                &WirePayload {
-                    enc_body: cipher_body,
-                    enc_headers: enc_headers_z,
-                    seed_enc: seed_enc_z,
-                },
-            ) {
-                Ok(v) => v,
-                Err(e) => return Err(AppError::from(e)),
-            }
+            decode_inbound(req_label.as_str(), &x_byte, &peer_key_x, &k_priv, wire)?
         }
     };
-
-    unpad_block(dec_body.expose_as_mut_vec())?;
-    unpad_block(dec_headers.expose_as_mut_vec())?;
-
-    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
-    let headers_json =
-        SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
 
     let ts = body_json
         .get_string(field::TIMESTAMP)
@@ -554,6 +533,32 @@ pub async fn build_crypto_context(
     };
 
     Ok(CryptoReq(Arc::new(Mutex::new(ctx))))
+}
+
+pub(crate) fn decode_inbound(
+    req_label: &str,
+    x_priv: &Byte32,
+    peer_key_x: &Byte32,
+    k_priv: &SecretBytes,
+    wire: WirePayload,
+) -> Result<(SecretJson, SecretJson), AppError> {
+    let (dec_body, dec_headers) =
+        kyberbox::decrypt(req_label, x_priv, peer_key_x, k_priv, &wire).map_err(AppError::from)?;
+    finish_decode(dec_body, dec_headers)
+}
+
+fn finish_decode(
+    mut dec_body: SecretBytes,
+    mut dec_headers: SecretBytes,
+) -> Result<(SecretJson, SecretJson), AppError> {
+    unpad_block(dec_body.expose_as_mut_vec())?;
+    unpad_block(dec_headers.expose_as_mut_vec())?;
+
+    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
+    let headers_json =
+        SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
+
+    Ok((body_json, headers_json))
 }
 
 impl CryptoContext {
@@ -766,7 +771,7 @@ pub fn validate_timestamp(
     Ok(())
 }
 
-fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
+pub(crate) fn pad_block(input: &[u8], block_size: usize) -> SecretBytes {
     let total_len = input.len() + 1;
     let pad_len = (block_size - (total_len % block_size)) % block_size;
 
