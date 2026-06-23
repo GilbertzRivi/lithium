@@ -29,6 +29,10 @@ pub(crate) fn malicious_message_err() -> LithiumError {
     LithiumError::invalid_credentials("potentially_harmful_message")
 }
 
+pub(crate) fn replayed_message_err() -> LithiumError {
+    LithiumError::invalid_credentials("replayed_message")
+}
+
 pub(crate) fn get_self_identity_privs(self_st: &SelfState) -> Result<(Byte32, SecretBytes)> {
     Ok((
         Byte32::from_hex(self_st.ed_priv.trim())?,

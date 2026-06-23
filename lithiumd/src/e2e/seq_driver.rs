@@ -108,14 +108,15 @@ pub fn drive(ops: &[FuzzOp]) {
                 }
             }
             FuzzOp::ReplayLast => {
-                if let Some((side, wire, pt)) = &last {
+                if let Some((side, wire, _pt)) = &last {
                     let res = match side {
                         Side::ToBob => decrypt_for_us(&mut bob_st, &mut b_view_a, wire),
                         Side::ToAlice => decrypt_for_us(&mut alice_st, &mut a_view_b, wire),
                     };
-                    if let Ok((got, _)) = res {
-                        assert_eq!(&got, pt, "replay yielded a different plaintext");
-                    }
+                    assert!(
+                        res.is_err(),
+                        "replayed message must be rejected by seen-step guard"
+                    );
                 }
             }
             FuzzOp::DropNext => {

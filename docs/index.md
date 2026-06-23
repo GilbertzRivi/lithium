@@ -2,7 +2,7 @@
 
 ## Dla audytorów i integratorów
 
-- [security-model.md](security-model.md) — model zaufania, priorytety, założenia, świadome kompromisy, klasyfikacja ustaleń audytowych
+- [security-model.md](security-model.md) — model zaufania, priorytety, założenia, świadome kompromisy, widoczność serwera per request, prymitywy, klasyfikacja ustaleń audytowych
 - [kyberbox.md](kyberbox.md) — analiza bezpieczeństwa schematu KyberBox: przepływ kluczy, właściwości, założenia, otwarte pytania
 - [crypto-protocol.md](crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport (Shake/Session), E2E (WireV1), mailbox, cykl życia kluczy
 - [ipc-reference.md](ipc-reference.md) — referencja protokołu IPC daemona: format, autoryzacja, pełna lista komend

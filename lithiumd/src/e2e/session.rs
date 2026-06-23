@@ -11,7 +11,7 @@ use crate::commands::contact_mailbox::{
 use crate::labels::E2E_LABEL;
 
 use super::{
-    crypto::{malicious_message_err, sign_e2e_payload, verify_e2e_payload},
+    crypto::{malicious_message_err, replayed_message_err, sign_e2e_payload, verify_e2e_payload},
     header::{Auth, E2eMode, Mailbox, Reply, SIGNED_HEADER_V, SignedHeader, SignedHeaderWire},
     prekeys::prekey_blob_to_privs,
     state::{E2ePeer, MsgMeta, PeerState, RxKey, SelfState},
@@ -65,6 +65,12 @@ fn decrypt_with_privs(
         &wire_hdr.auth.sig_ed,
         &wire_hdr.auth.sig_dili,
     )?;
+
+    // Run after signature verification so a forged step can never poison the window, and before
+    // any peer_st mutation so a rejected replay leaves no partial state.
+    if !peer_st.replay.check_and_record(hdr.step) {
+        return Err(replayed_message_err());
+    }
 
     merge_remote_prekeys_into_peer(peer_st, &hdr.prekeys, PREKEY_TARGET);
 
@@ -346,6 +352,49 @@ mod tests {
 
         let (decrypted, _ui) = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire).unwrap();
         assert_eq!(decrypted, b"bootstrap message");
+    }
+
+    #[test]
+    fn e2e_replay_is_rejected() {
+        use lithium_core::error::CryptoErrorKind;
+
+        let (alice_cid, mut alice_st) = gen_self_state().unwrap();
+        let (bob_cid, mut bob_st) = gen_self_state().unwrap();
+        let mut bob_peer = build_peer_from_state(&bob_st, &bob_cid);
+        let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
+
+        let (wire1, _) = encrypt_for_peer(
+            &mut alice_st,
+            &mut bob_peer,
+            b"first",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+
+        let (pt1, _) = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire1).unwrap();
+        assert_eq!(pt1, b"first");
+
+        let replay = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire1);
+        assert!(matches!(
+            replay.as_ref().map_err(|e| &e.kind),
+            Err(CryptoErrorKind::InvalidCredentials { msg }) if *msg == "replayed_message"
+        ));
+
+        let (wire2, _) = encrypt_for_peer(
+            &mut alice_st,
+            &mut bob_peer,
+            b"second",
+            "text",
+            &[],
+            false,
+            0,
+        )
+        .unwrap();
+        let (pt2, _) = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire2).unwrap();
+        assert_eq!(pt2, b"second");
     }
 
     #[test]

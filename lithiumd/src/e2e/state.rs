@@ -107,6 +107,43 @@ pub(crate) struct E2eTx {
     pub step: u64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default, Zeroize)]
+#[serde(default)]
+pub(crate) struct ReplayWindow {
+    pub max_step: u64,
+    pub bits: u64,
+}
+
+impl ReplayWindow {
+    // Sliding window, not a strict monotonic check: the reply-key layer already accepts reordering
+    // up to DEFAULT_WINDOW, so rejecting every step <= max would drop legitimate out-of-order messages.
+    pub(crate) fn check_and_record(&mut self, step: u64) -> bool {
+        if step == 0 {
+            return true;
+        }
+        if step > self.max_step {
+            let shift = step - self.max_step;
+            if shift >= 64 {
+                self.bits = 0;
+            } else {
+                self.bits = (self.bits << shift) | (1u64 << (shift - 1));
+            }
+            self.max_step = step;
+            return true;
+        }
+        let diff = self.max_step - step;
+        if diff == 0 || diff > 64 {
+            return false;
+        }
+        let mask = 1u64 << (diff - 1);
+        if self.bits & mask != 0 {
+            return false;
+        }
+        self.bits |= mask;
+        true
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Zeroize)]
 #[serde(default)]
 pub(crate) struct SelfMailbox {
@@ -232,6 +269,8 @@ pub(crate) struct PeerState {
     pub need_recover: bool,
     #[serde(default)]
     pub mailbox: PeerMailbox,
+    #[serde(default)]
+    pub replay: ReplayWindow,
 }
 
 impl Drop for PeerState {
@@ -264,6 +303,7 @@ impl PeerState {
             prekeys_remote: Vec::new(),
             need_recover: false,
             mailbox: PeerMailbox::default(),
+            replay: ReplayWindow::default(),
         }
     }
 
@@ -341,5 +381,46 @@ mod tests {
         assert_eq!(back.label, "alice");
         assert_eq!(back.peer.as_ref().unwrap().cid, "aa".repeat(32));
         assert_eq!(back.mailbox.sender_pubs.get("0").unwrap(), &"22".repeat(32));
+    }
+
+    #[test]
+    fn replay_accepts_increasing_steps() {
+        let mut w = ReplayWindow::default();
+        assert!(w.check_and_record(1));
+        assert!(w.check_and_record(2));
+        assert!(w.check_and_record(3));
+    }
+
+    #[test]
+    fn replay_rejects_exact_duplicate() {
+        let mut w = ReplayWindow::default();
+        assert!(w.check_and_record(5));
+        assert!(!w.check_and_record(5));
+    }
+
+    #[test]
+    fn replay_tolerates_reorder_in_window() {
+        let mut w = ReplayWindow::default();
+        assert!(w.check_and_record(1));
+        assert!(w.check_and_record(3));
+        assert!(w.check_and_record(2));
+        assert!(!w.check_and_record(2));
+        assert!(!w.check_and_record(3));
+        assert!(!w.check_and_record(1));
+    }
+
+    #[test]
+    fn replay_rejects_step_below_window() {
+        let mut w = ReplayWindow::default();
+        assert!(w.check_and_record(100));
+        assert!(!w.check_and_record(30));
+    }
+
+    #[test]
+    fn replay_large_jump_clears_bits() {
+        let mut w = ReplayWindow::default();
+        assert!(w.check_and_record(1));
+        assert!(w.check_and_record(200));
+        assert!(!w.check_and_record(1));
     }
 }

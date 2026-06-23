@@ -137,6 +137,38 @@ Serwer nie powinien móc:
 * ustanawiać zaufania między peerami,
 * uczestniczyć w parowaniu użytkowników.
 
+## Co serwer widzi per request
+
+Każde żądanie jest szyfrowane KyberBoxem (X25519 + ML-KEM-1024, AEAD AES-256-GCM-SIV) i dopełniane
+do losowego bloku (32-64 KB dla ciała, ósma część tego dla nagłówków) zanim w ogóle dotrze do
+logiki serwera. Serwer dopełnienie zdejmuje dopiero po deszyfrze. Sam TLS terminuje reverse proxy
+przed `lithiums`. Z tego wynika, że serwer nie zna ani treści, ani realnego rozmiaru plaintextu.
+Poniższa tabela mówi, co serwer widzi naprawdę.
+
+| Endpoint | Tryb / Auth | Co serwer widzi | Czego nie widzi |
+|---|---|---|---|
+| `shake` | Shake / klucze w nagłówkach | jednorazowy handshake, efemeryczne klucze publiczne | tożsamości, treści |
+| `register_start/finish` | Session / klucze w nagłówkach | handler (przejściowo), wiadomości OPAQUE, zaszyfrowany DEK klienta | hasła, treści |
+| `login_start/finish` | Session / handler | handler, przebieg OPAQUE; zwraca zaszyfrowany DEK | hasła, treści |
+| `msg/send` | Session / klucze w nagłówkach + PoW | adres skrzynki (16/32 B, pseudolosowy), dopełniony blob treści, nonce PoW | nadawcy, odbiorcy, treści |
+| `msg/fetch` | Session / klucze w nagłówkach | adres skrzynki | kto czyta, treści |
+| `revoke` | Session / klucze w nagłówkach | remote-delete capability | tożsamości właściciela |
+| `delete` | Session / JWT | token sesji wskazujący konto | hasła, treści |
+
+Handler jest widoczny przejściowo tylko przy register i login, bo jest potrzebny jako identyfikator
+poświadczenia OPAQUE i do wyliczenia `id_enc`. Nigdy nie jest składowany w postaci surowej i nigdy
+nie towarzyszy mu hasło. Jedyne, co z tego wycieka, to egzystencja danego nicka, nie jego treść ani
+powiązanie z aktywnością. Mechanikę składowania opisuje sekcja „Deterministyczne szyfrowanie
+identyfikatora użytkownika na serwerze".
+
+Klucze podpisujące żądanie `msg/send` są efemeryczne, generowane per request, więc serwer nie wiąże
+nadawcy z jego tożsamością. Adres skrzynki jest pseudolosowy i nielinkowalny do konta — serwer
+trasuje po skrzynce, nie po tożsamości.
+
+IP i czas żądania są nieodłączne dla każdego połączenia HTTP, bo wynikają z warstwy TCP, nie z
+protokołu Lithium. Ich ukrycie jest spychane na użytkownika (Tor, VPN) i pozostaje świadomym
+non-goalem.
+
 ## Lokalny klient i IPC
 
 Lokalny daemon i IPC są granicą uprzywilejowaną.
@@ -233,6 +265,44 @@ bez wyjątków.
 
 Twardość tej blokady (komunikacja zrywa się całkowicie, nie degraduje się) jest funkcją
 bezpieczeństwa, nie wadą UX.
+
+## Audyt jako nowa konstrukcja
+
+Część protokołu Lithium jest autorska i należy ją analizować jak nową konstrukcję kryptograficzną,
+nie jak złożenie znanych, zrecenzowanych bloków:
+
+* KyberBox, hybryda KEM-DEM (`lithium_core/src/crypto/kyberbox.rs`),
+* transport Shake i Session (`lithiums/src/transport/mod.rs`),
+* warstwa E2E WireV1 z ratchetem (`lithiumd/src/e2e/`).
+
+Te części są bespoke z powodów historycznych, nie z principled wyboru. Protokół wyrósł organicznie
+(Python + RSA przeszedł na konstrukcję postkwantową) i nie ma dla niego uczciwego uzasadnienia
+„własne zamiast standardu". Właściwa rama wobec audytora jest prosta: to autorska konstrukcja
+hybrydowa, proszę przeanalizować ją jako nową.
+
+Nowe elementy protokołu są celowo wpięciami zrecenzowanych standardów, nie hand-rollem:
+
+* OPAQUE przez bibliotekę `opaque-ke 4.0.1` (draft-irtf-cfrg-opaque),
+* PoW = hashcash (`lithium_core/src/pow.rs`).
+
+Tam audyt jest przeglądem integracji (jak standard został wpięty), nie przeglądem konstrukcji.
+Hand-roll OPAQUE odtworzyłby dokładnie ten problem bespoke surface, którego te wpięcia unikają.
+
+Prymitywy i ich wersje (aktualne, załatane):
+
+| Warstwa | Prymityw | Implementacja |
+|---|---|---|
+| Szyfrowanie klasyczne | X25519 | x25519-dalek 2.0.1 |
+| Szyfrowanie PQ | ML-KEM-1024 | pqcrypto 0.18.1 (FFI do C PQClean) |
+| AEAD | AES-256-GCM-SIV | aes-gcm-siv 0.11.1 |
+| Podpis klasyczny | Ed25519 | ed25519-dalek 2.2.0 |
+| Podpis PQ | ML-DSA-87 | pqcrypto 0.18.1 (FFI do C PQClean) |
+| KDF | HKDF-SHA256 | hkdf 0.12 |
+| Hasła | Argon2 | argon2 0.5.3 |
+| PAKE | OPAQUE (ristretto255 + argon2) | opaque-ke 4.0.1 |
+
+Granica zakresu: kod C z PQClean, używany przez FFI w `pqcrypto`, jest niezaudytowaną zależnością
+zewnętrzną i pozostaje poza zakresem przeglądu konstrukcji Lithium.
 
 ## Podsumowanie
 
