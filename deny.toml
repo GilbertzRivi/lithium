@@ -1,7 +1,35 @@
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # PQClean-derived post-quantum crypto (ML-KEM-1024, ML-DSA-87). PQClean was
+    # archived so these are flagged unmaintained, but there is no maintained
+    # alternative for the schemes this project is built on. Accepted.
+    { id = "RUSTSEC-2026-0160", reason = "pqcrypto-sphincsplus: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0161", reason = "pqcrypto-mlkem: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0162", reason = "pqcrypto-traits: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0163", reason = "pqcrypto-internals: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0164", reason = "pqcrypto: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0165", reason = "pqcrypto-falcon: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0166", reason = "pqcrypto-mldsa: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0167", reason = "pqcrypto-classicmceliece: PQClean archived, no alternative" },
+    { id = "RUSTSEC-2026-0168", reason = "pqcrypto-hqc: PQClean archived, no alternative" },
+
+    # GTK3 bindings reach us only through tray-icon (the lithiumd system tray on
+    # Linux). gtk-rs archived the GTK3 generation; no safe upgrade exists.
+    { id = "RUSTSEC-2024-0412", reason = "gdk via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0413", reason = "atk via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0416", reason = "atk-sys via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0418", reason = "gdk-sys via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk3-macros via tray-icon, GTK3 unmaintained, no upgrade" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk-sys via tray-icon, GTK3 unmaintained, no upgrade" },
+
+    # Unmaintained proc-macro helpers pulled in transitively; no fix published.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error (transitive), no maintained release" },
+    { id = "RUSTSEC-2024-0436", reason = "paste (transitive), no maintained release" },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 (transitive), no maintained release" },
+]
 
 [bans]
 multiple-versions = "warn"

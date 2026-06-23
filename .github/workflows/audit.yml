@@ -20,16 +20,25 @@ on:
 jobs:
   cargo-audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # audit-check opens an issue on the repo when it finds advisories
+      issues: write
+      checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Kept in sync with the ignore list in deny.toml: PQClean-derived
+          # post-quantum crypto, GTK3 tray bindings, and transitive proc-macro
+          # helpers. All flagged unmaintained with no maintained replacement.
+          ignore: "RUSTSEC-2026-0160,RUSTSEC-2026-0161,RUSTSEC-2026-0162,RUSTSEC-2026-0163,RUSTSEC-2026-0164,RUSTSEC-2026-0165,RUSTSEC-2026-0166,RUSTSEC-2026-0167,RUSTSEC-2026-0168,RUSTSEC-2024-0412,RUSTSEC-2024-0413,RUSTSEC-2024-0415,RUSTSEC-2024-0416,RUSTSEC-2024-0418,RUSTSEC-2024-0419,RUSTSEC-2024-0420,RUSTSEC-2024-0370,RUSTSEC-2024-0436,RUSTSEC-2026-0173"
 
   cargo-deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans sources
