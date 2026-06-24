@@ -58,7 +58,7 @@ Przechowywane w `self_state` / `peer_state`, zaszyfrowane `db_dek` (AAD `lithium
 |-------|-----|--------------------|----------------|---------|--------|
 | Server MK | 32 B | `TpmMkProvider` (sealed KEYEDHASH) lub `PlainFileMkProvider` | blob TPM (`LITHIUM_TPM_SEALED_PATH`) lub plik | co 1 h | pliki `.keyf` serwera |
 | Server db_dek | 32 B | `derive_secret32("lithium/db-dek/v1")` z server MK | tylko RAM | wraz z MK (rewrap) | pola tabeli `users` |
-| msg_key (per wiadomość) | 32 B losowy | losowy przy `add_message` | `EphemeralStore`, TTL 24 h | jednorazowy (`store.take` przy fetch) | treść wiadomości na serwerze (AAD `message-content/v1` ‖ mailbox) |
+| msg_key (per wiadomość) | 32 B losowy | losowy przy `add_message` | `EphemeralStore`, TTL 24 h | jednorazowy (`store.take` przy fetch) | treść wiadomości na serwerze (AAD `message-content/v1` || mailbox) |
 | JWT secret | 32 B | `derive_secret32("lithium/jwt-secret/v1")` | tylko RAM | regenerowany przy rotacji MK | podpis HS256 tokenów JWT |
 | OPAQUE ServerSetup | setup OPAQUE | generowany; sealed (label `lithium/opaque-server-setup/v1`) | sealed blob | trwały | uwierzytelnianie OPAQUE wszystkich kont |
 | TPM sealing parent | ECC P-256 (restricted decryption) | deterministycznie z owner seed TPM | **nigdy nie persystowany** | — | rodzic pieczętujący Server MK |
