@@ -50,7 +50,7 @@ The post-quantum algorithms ML-KEM-1024 and ML-DSA-87 were standardized by NIST 
 
 ### Forward secrecy — past messages remain secure after key compromise
 
-- **Per message:** every message contains fresh ephemeral keys. Compromising the current key does not allow previous messages to be decrypted.
+- **Per ratchet epoch:** every message carries a fresh ML-KEM seed and a fresh ephemeral sender key, while the receiver (RX) keys rotate on each peer reply and are erased once they fall outside the window of 32. Once an RX key is erased, the messages encrypted to it can no longer be decrypted. The X25519 component is shared across the messages of a single epoch (until the peer's next reply), so the guarantee holds at epoch boundaries rather than per individual message — see `docs/kyberbox.md`.
 - **Per generation:** mailbox keys rotate every 32 messages, and old private keys are securely erased.
 - **Transport:** transport-session keys have a TTL of 60–120 seconds. Compromising a session does not allow earlier traffic to be decrypted.
 
@@ -176,10 +176,10 @@ After the exchange, both parties verify the emoji fingerprint by voice or in per
 | Property                              | Mechanism                                                                                                                |
 |---------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
 | Post-quantum resistance               | ML-KEM-1024 + ML-DSA-87 in parallel with X25519 + Ed25519; both algorithm families must be broken                        |
-| Per-message forward secrecy           | Fresh ephemeral X25519 + ML-KEM keys in every message using a ratchet; old keys are erased after acknowledgement         |
+| Forward secrecy (per ratchet epoch)           | Fresh ML-KEM seed in every message; receiver keys rotate on each peer reply and are erased outside the window of 32. The X25519 component is shared within an epoch → the guarantee holds at epoch boundaries, not per message (`docs/kyberbox.md`)         |
 | Per-generation forward secrecy        | Mailbox keys rotate every 32 messages; the sender's old private keys are erased                                          |
 | Transport forward secrecy             | Session-key TTL of 60–120 seconds; ephemeral X25519 + ML-KEM keys per request in Shake mode                              |
-| Post-compromise security              | Mailbox-key rotation and prekey recovery allow security to be restored after state compromise                            |
+| Post-compromise security (limited, passive adversary) | Fresh ML-KEM seeds and rotating RX keys introduce entropy unknown to an adversary who is passive after compromise → confidentiality of new messages heals. Identity keys (Ed25519/ML-DSA) do not rotate, so an active adversary keeps impersonation and MITM capability (`docs/threat-model.md`) |
 | No plaintext on the server            | Content is encrypted by the client before reaching the server; the server adds a second layer without reading it         |
 | One-time messages                     | Atomic deletion on first retrieval; the server cannot reconstruct them                                                    |
 | Ephemeral message keys                | Per-message keys exist only in server memory; restarting the server destroys them                                        |

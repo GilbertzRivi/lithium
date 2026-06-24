@@ -74,9 +74,9 @@ W większości systemów — całą historię rozmów, wstecz do początku.
 
 W Lithium — **wyłącznie wiadomości jeszcze nieodebrane w tej chwili**. Nic więcej.
 
-Każda wiadomość jest szyfrowana świeżymi, jednorazowymi kluczami wygenerowanymi specjalnie dla niej — i tylko dla niej. Po odebraniu wiadomości klucze, którymi była zaszyfrowana, są trwale kasowane z obu urządzeń. Nie ma ich na dysku, nie ma ich w pamięci — zniknęły. Co więcej, klucze używane do szyfrowania regularnie rotują: co pewną liczbę wiadomości generowana jest zupełnie nowa para, a stara jest niszczona. Ten mechanizm — zwany *ratchetem* — sprawia, że nawet klucze z poprzedniego tygodnia nie istnieją już nigdzie.
+Wiadomości są szyfrowane kluczami, które nieustannie się zmieniają. Klucze rotują regularnie — co pewną liczbę wiadomości generowana jest zupełnie nowa para, a stara, gdy przestaje być potrzebna, jest trwale kasowana z obu urządzeń. Nie ma jej wtedy na dysku, nie ma w pamięci — zniknęła. Ten mechanizm — zwany *ratchetem* — sprawia, że klucze sprzed dłuższego czasu nie istnieją już nigdzie.
 
-Przejęcie klucza bieżącego nie daje dostępu do niczego, co zostało powiedziane wcześniej. Historia nie jest odtwarzalna, bo klucze potrzebne do jej odczytania dawno przestały istnieć.
+Przejęcie bieżących kluczy nie odsłania wcześniejszej historii — klucze potrzebne do jej odczytania dawno przestały istnieć. Gdy klucze rotują, wiadomości, które chroniły, stają się nieodtwarzalne na zawsze.
 
 To właściwość zwana *forward secrecy* — przyszłe naruszenie nie cofa się w czasie.
 

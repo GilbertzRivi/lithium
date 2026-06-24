@@ -84,6 +84,42 @@ Companion do [security-model.md](security-model.md), który opisuje model zaufan
 | **Obrona** | Hybryda PQ wszędzie: ML-KEM-1024 + X25519 (KEM), ML-DSA-87 + Ed25519 (podpisy); złamanie wymaga pokonania połowy PQ; Argon2/AES-256/SHA-256 odporne na realistyczne przyspieszenie kwantowe |
 | **Ryzyko rezydualne** | Jeśli **samo** ML-KEM padnie (kryptoanaliza, nie kwant), połowa X25519 ulega kwantowi → obie giną; to standardowe założenie hybrydy. Poprawność PQClean zakładana |
 
+## Gwarancje forward secrecy i post-compromise security (warstwa E2E)
+
+Precyzuje granice ochrony warstwy E2E (`lithiumd/src/e2e/`) wobec przeciwnika, który **w chwili T
+przejmuje odblokowane urządzenie** i czyta `self_state` + `peer_state` (klasy 4-7 w wariancie pełnej
+kompromitacji). Mechanikę kluczy opisują [crypto-protocol.md](crypto-protocol.md) i [kyberbox.md](kyberbox.md);
+tu chodzi o granice gwarancji.
+
+**Co przeciwnik ma w chwili T:** klucze tożsamości kontaktu `ed_priv` + `dili_priv` (per kontakt,
+**nie rotują** w obrębie parowania); RX keyring — klucze prywatne (X25519 + ML-KEM) wszystkich kluczy
+odpowiedzi w oknie 32 od `ack_seq`; klucze bootstrapowe, jeśli KEM bootstrapu nie został jeszcze wycofany;
+klucze mailbox i prekeye prywatne.
+
+**Forward secrecy (wiadomości sprzed T) — oknowa, nie per-wiadomość.** Klucze RX starsze niż okno 32
+od `ack_seq` są usuwane i zeroizowane (`gc_after_ack`, `RxKey: ZeroizeOnDrop`); wiadomości zaszyfrowane do
+tych kluczy są w chwili T nieodszyfrowalne. Wiadomości wciąż w oknie (do ~32 ostatnich epok kluczy
+odpowiedzi) **są** odszyfrowywalne ze skompromitowanego keyringu — to trailing window wystawiony przy
+kompromitacji. Ziarno ML-KEM jest świeże per wiadomość, ale komponent X25519 jest wspólny w obrębie epoki,
+więc jeden klucz RX odsłania całą epokę do niego zaszyfrowaną. Dopóki bootstrap nie został wycofany, klucze
+bootstrapowe odsłaniają pierwsze wiadomości kontaktu.
+
+**Post-compromise security (wiadomości po T) — warunkowa, tylko poufność, tylko wobec pasywnego.** Każda
+wiadomość wstrzykuje nową entropię (świeże ziarno ML-KEM, świeży efemeryczny nadawcy, rotujące klucze RX).
+Jeśli po T przeciwnik jest **pasywny**, to gdy obie strony przejdą na klucze RX wygenerowane po T (których
+nie przechwycił), poufność nowych wiadomości **się odbudowuje** — klucze tożsamości nie służą do
+deszyfrowania, więc ich posiadanie tu nie pomaga. Odbudowa jedzie na zwykłym ruchu; nie ma osobnej ceremonii
+re-key. **Uwierzytelnienie nie odbudowuje się nigdy:** skoro `ed_priv`/`dili_priv` nie rotują, przeciwnik
+**aktywny** bezterminowo podpisuje w imieniu ofiary i MITM-uje przyszłe reklamy kluczy — a przez MITM znów
+łamie poufność przyszłych wiadomości. Wobec aktywnego przeciwnika PCS nie obowiązuje.
+
+**Ryzyko rezydualne.** Trailing window (ostatnie ~32 epoki) to świadomy koszt tolerancji reorderingu —
+patrz okno replay w [kyberbox.md](kyberbox.md). Brak rotacji tożsamości czyni pełną kompromitację urządzenia
+**trwałą** w wymiarze uwierzytelnienia: jedyną odpowiedzią jest ponowne sparowanie kontaktu nowym kodem
+zaproszenia (izolacja per kontakt — nowe parowanie to nowa tożsamość). Spójne z non-goalem „kompromitacja
+endpointu z żywym, odblokowanym daemonem" ([security-model.md](security-model.md)) — ta sekcja mówi, *jak
+daleko* sięgają skutki, nie obiecuje przed nimi ochrony.
+
 ## Poza zakresem (non-goals)
 
 Świadomie nieobjęte — szczegóły w [security-model.md](security-model.md):

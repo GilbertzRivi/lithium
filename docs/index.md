@@ -3,7 +3,7 @@
 ## Dla audytorów i integratorów
 
 - [security-model.md](security-model.md) — model zaufania, priorytety, założenia, świadome kompromisy, widoczność serwera per request, prymitywy, klasyfikacja ustaleń audytowych
-- [threat-model.md](threat-model.md) — strukturalny model zagrożeń: klasy przeciwnika, ich zdolności, obrona i ryzyko rezydualne
+- [threat-model.md](threat-model.md) — strukturalny model zagrożeń: klasy przeciwnika, ich zdolności, obrona i ryzyko rezydualne; gwarancje forward secrecy i post-compromise security warstwy E2E
 - [data-lifecycle.md](data-lifecycle.md) — cykl życia danych i inwentarz prywatności: gdzie spoczywają, retencja, kto co widzi
 - [key-hierarchy.md](key-hierarchy.md) — katalog i hierarchia wszystkich kluczy: derywacja, przechowywanie, czas życia, analiza wycieku
 - [design-decisions.md](design-decisions.md) — rejestr decyzji projektowych („dlaczego"): uzasadnienia, odrzucone alternatywy, koszty
