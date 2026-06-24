@@ -38,7 +38,7 @@ W praktyce, zmiana formatu = jeden spójny krok:
 1. Zmień bajt `VER` lub etykietę (`/v1` → `/v2`).
 2. Zaktualizuj **jednocześnie** enkoder i dekoder po obu stronach.
 3. Zaktualizuj test pinujący.
-4. **Nie** dodawaj ścieżki obsługi starej wersji ani feature-flag — `PROJECT_STYLE.md`/`CLAUDE.md` zakazują backwards-compat shimów i re-exportów dla usuniętego kodu.
+4. **Nie** dodawaj ścieżki obsługi starej wersji ani feature-flag — backwards-compat shimy i re-eksporty dla usuniętego kodu są w tym projekcie niedozwolone.
 
 Gdy projekt zostanie wdrożony, ta postawa będzie musiała się zmienić na właściwą migrację (równoległa obsługa `vN`/`vN+1`, okno przejściowe) — to świadomy, przyszły punkt zwrotny, nie obecny stan.
 

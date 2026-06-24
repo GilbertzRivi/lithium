@@ -152,7 +152,7 @@ Key details in `common.rs`:
 
 ## Code Style
 
-`PROJECT_STYLE.md` holds the full, example-driven style guide (module layout, naming, IPC handler shape, error handling, DB and state patterns) derived from the codebase. The rules below are the essentials; consult `PROJECT_STYLE.md` when writing non-trivial new code.
+The rules below are the essential code-style conventions for this repository; follow them when writing new code.
 
 ### Comments
 

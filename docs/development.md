@@ -1,6 +1,6 @@
 # Rozwój, budowanie i fuzzing
 
-Praktyczny przewodnik po budowaniu i testowaniu repozytorium. Zasady stylu kodu opisuje `PROJECT_STYLE.md`, a wskazówki dla pracy z repo — `CLAUDE.md`.
+Praktyczny przewodnik po budowaniu i testowaniu repozytorium.
 
 ## Crate'y workspace
 
@@ -45,7 +45,7 @@ cargo test -p lithium_core name                   # pojedynczy test
 cargo test -p lithium_itest --test daemon_basic   # jedna binarka itest
 ```
 
-Testy integracyjne (`lithium_itest`) dzielą się na trzy zestawy w `tests/`: `server/` (serwer w izolacji), `daemon/` (daemon przeciw in-process `TestServer`) i `daemon_server_tests/` (dwa daemony przez prawdziwy serwer). Szczegóły rozmieszczenia binarek — `CLAUDE.md`.
+Testy integracyjne (`lithium_itest`) dzielą się na trzy zestawy w `tests/`: `server/` (serwer w izolacji), `daemon/` (daemon przeciw in-process `TestServer`) i `daemon_server_tests/` (dwa daemony przez prawdziwy serwer). Poszczególne binarki testowe i ich zakres opisują pliki w `lithium_itest/tests/`.
 
 ## Fuzzing
 
