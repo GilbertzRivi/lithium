@@ -215,7 +215,7 @@ pub async fn wait_for_inbound(
 }
 
 pub fn build_server_identity(bs: &ServerBootstrap) -> Vec<u8> {
-    use lithium_core::contract::identity_file::{ServerIdentityKeys, encode};
+    use lithium_proto::contract::identity_file::{ServerIdentityKeys, encode};
     encode(&ServerIdentityKeys {
         x25519: bs.shake_pub_x.as_slice().to_vec(),
         ed25519: bs.server_sig_ed.as_slice().to_vec(),

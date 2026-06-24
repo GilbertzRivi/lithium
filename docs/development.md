@@ -21,6 +21,10 @@ cargo clippy -- -D warnings
 cargo fmt
 ```
 
+### Przypięcie wersji i powtarzalność
+
+Zestaw zależności jest przypięty w `Cargo.lock` (trackowany w repo), a wersja toolchaina w `rust-toolchain.toml` (`channel = "1.96.0"`). Razem są jedynym źródłem prawdy o tym, co wchodzi do builda: audytor odtwarza dokładnie ten sam zestaw crate'ów i tę samą wersję kompilatora, nie zgadując. Aktualizacja zależności to świadoma zmiana `Cargo.lock` w commicie, nie efekt uboczny świeżego `cargo build`. To również warunek wstępny powtarzalnego builda (weryfikacja, że opublikowana binarka odpowiada publicznemu źródłu).
+
 ### Zależności systemowe (Linux)
 
 Budowanie `lithiumd` linkuje GTK 3 i libappindicator na potrzeby systemowego zasobnika (tray). Bez nich budowa przerywa się na kroku pkg-config `*-sys`. Zainstaluj `libgtk-3-dev` i `libappindicator3-dev` (lub odpowiednik libayatana-appindicator).

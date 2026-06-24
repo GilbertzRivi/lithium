@@ -1,8 +1,10 @@
 // mirrors lithiumd::ProtocolManager - real encrypted requests against a live server
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use lithium_proto::contract::protocol::{self, ctx, field, header, normalize_handler, path};
+use lithium_proto::labels;
+
 use lithium_core::{
-    contract::protocol::{self, ctx, field, header, normalize_handler, path},
     crypto::{keys, kyberbox, sign},
     opaque::client::{
         client_login_finish, client_login_start, client_registration_finish,
@@ -198,6 +200,7 @@ impl TestLithiumClient {
             &response,
             &pw,
             normalize_handler(handler).as_bytes(),
+            labels::OPAQUE_SERVER_ID,
         )
         .expect("opaque reg finish");
 
@@ -229,9 +232,14 @@ impl TestLithiumClient {
             .expect("opaque resp hex");
         let flow = r1.body[field::FLOW].as_str().expect("flow").to_owned();
 
-        let (finalization, _export_key) =
-            client_login_finish(state, &response, &pw, normalize_handler(handler).as_bytes())
-                .expect("opaque login finish");
+        let (finalization, _export_key) = client_login_finish(
+            state,
+            &response,
+            &pw,
+            normalize_handler(handler).as_bytes(),
+            labels::OPAQUE_SERVER_ID,
+        )
+        .expect("opaque login finish");
 
         self.send(
             Ep::LoginFinish,
@@ -277,9 +285,10 @@ impl TestLithiumClient {
         // Malformed hex is rejected server-side before the PoW check, so a placeholder
         // nonce is fine for those negative tests.
         let nonce = match (hex::decode(mailbox_hex), hex::decode(content_hex)) {
-            (Ok(mailbox), Ok(content)) => {
-                pow::solve(&pow::challenge(&mailbox, &content), self.pow_bits)
-            }
+            (Ok(mailbox), Ok(content)) => pow::solve(
+                &pow::challenge(labels::POW_CTX, &mailbox, &content),
+                self.pow_bits,
+            ),
             _ => 0,
         };
         json!({
@@ -324,6 +333,7 @@ impl TestLithiumClient {
             &response,
             &pw,
             normalize_handler(handler).as_bytes(),
+            labels::OPAQUE_SERVER_ID,
         )
         .expect("opaque reg finish");
 
@@ -362,12 +372,16 @@ impl TestLithiumClient {
 
         // A wrong password makes the OPAQUE client finish fail locally; send a
         // garbage finalization so the server still exercises rejection + rate limiting.
-        let finalization_hex =
-            match client_login_finish(state, &response, &pw, normalize_handler(handler).as_bytes())
-            {
-                Ok((finalization, _export_key)) => hex::encode(finalization),
-                Err(_) => hex::encode([0u8; 64]),
-            };
+        let finalization_hex = match client_login_finish(
+            state,
+            &response,
+            &pw,
+            normalize_handler(handler).as_bytes(),
+            labels::OPAQUE_SERVER_ID,
+        ) {
+            Ok((finalization, _export_key)) => hex::encode(finalization),
+            Err(_) => hex::encode([0u8; 64]),
+        };
 
         let body = json!({
             field::HANDLER: handler,

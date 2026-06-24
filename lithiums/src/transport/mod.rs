@@ -21,15 +21,15 @@ use tokio::sync::{Mutex, MutexGuard};
 use zeroize::Zeroize;
 
 use crate::provider::ServerMkProvider;
-use lithium_core::contract::protocol::{self, field, header as hdr};
 use lithium_core::crypto::kyberbox::WirePayload;
 use lithium_core::crypto::{keys, kyberbox, sign};
-use lithium_core::db::manager::DataManager;
 use lithium_core::error::LithiumError;
 use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::secrets::{Byte32, Byte64, SecretJson, SecretString};
-use lithium_core::utils::headers::{header_hex, header_hex_bytes, header_str};
 use lithium_core::utils::store::EphemeralStoreManager;
+use lithium_proto::contract::protocol::{self, field, header as hdr};
+use lithium_proto::db::DataManager;
+use lithium_proto::headers::{header_hex, header_hex_bytes, header_str};
 
 use crate::db::repo::{ServerDbExt, UserRecord};
 use crate::error::AppError;

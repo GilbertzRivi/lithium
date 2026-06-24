@@ -10,11 +10,12 @@ use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
+use lithium_proto::contract::protocol::field;
+use lithium_proto::db::DataManager;
+
 use lithium_core::{
     CryptoErrorKind,
-    contract::protocol::field,
     crypto::kdf,
-    db::manager::DataManager,
     secrets::{Byte32, SecretString, bytes::SecretBytes},
 };
 

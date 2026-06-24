@@ -1,6 +1,7 @@
 use lithium_core::crypto::keys;
 use lithium_core::pow;
 use lithium_itest::helpers::{TEST_SEND_POW_BITS, TestServer, random_dek_hex, unique_handle};
+use lithium_proto::labels;
 
 async fn authenticated_client(
     srv: &TestServer,
@@ -127,6 +128,7 @@ async fn test_send_rejected_without_valid_pow() {
     let content = hex::encode(b"flood");
 
     let challenge = pow::challenge(
+        labels::POW_CTX,
         &hex::decode(&mailbox).unwrap(),
         &hex::decode(&content).unwrap(),
     );

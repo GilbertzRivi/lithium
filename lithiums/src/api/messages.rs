@@ -5,9 +5,10 @@ use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
 use crate::transport::CryptoReq;
 
-use lithium_core::contract::protocol::field;
 use lithium_core::pow;
 use lithium_core::secrets::bytes::SecretBytes;
+use lithium_proto::contract::protocol::field;
+use lithium_proto::labels;
 
 fn decode_mailbox(hex_str: &str) -> Result<Vec<u8>, AppError> {
     let mb =
@@ -38,7 +39,7 @@ pub async fn send(req: CryptoReq) -> Result<Response, AppError> {
         .expose()
         .parse()
         .map_err(|_| AppError::bad_request("invalid_pow"))?;
-    let challenge = pow::challenge(&mailbox, content_sb.expose_as_slice());
+    let challenge = pow::challenge(labels::POW_CTX, &mailbox, content_sb.expose_as_slice());
     if !pow::verify(&challenge, nonce, state.send_pow_bits) {
         return Err(AppError::too_many_requests("pow_required"));
     }

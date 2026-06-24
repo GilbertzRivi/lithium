@@ -5,16 +5,15 @@ use opaque_ke::{
 use rand_core::OsRng;
 
 use crate::error::{LithiumError, Result};
-use crate::labels::OPAQUE_SERVER_ID;
 use crate::opaque::suite::{
     ClientLoginState, ClientRegistrationState, LithiumCipherSuite, opaque_ksf,
 };
 use crate::secrets::{Byte64, SecretString};
 
-fn identifiers(handler: &[u8]) -> Identifiers<'_> {
+fn identifiers<'a>(handler: &'a [u8], server_id: &'a [u8]) -> Identifiers<'a> {
     Identifiers {
         client: Some(handler),
-        server: Some(OPAQUE_SERVER_ID),
+        server: Some(server_id),
     }
 }
 
@@ -33,6 +32,7 @@ pub fn client_registration_finish(
     response_bytes: &[u8],
     password: &SecretString,
     handler: &[u8],
+    server_id: &[u8],
 ) -> Result<(Vec<u8>, Byte64)> {
     let response = RegistrationResponse::<LithiumCipherSuite>::deserialize(response_bytes)
         .map_err(|_| LithiumError::invalid_credentials("bad_opaque_message"))?;
@@ -43,7 +43,7 @@ pub fn client_registration_finish(
             &mut rng,
             password.expose().as_bytes(),
             response,
-            ClientRegistrationFinishParameters::new(identifiers(handler), Some(&ksf)),
+            ClientRegistrationFinishParameters::new(identifiers(handler, server_id), Some(&ksf)),
         )
         .map_err(|_| LithiumError::internal())?;
     let export_key = Byte64::from_slice(&res.export_key)?;
@@ -62,6 +62,7 @@ pub fn client_login_finish(
     response_bytes: &[u8],
     password: &SecretString,
     handler: &[u8],
+    server_id: &[u8],
 ) -> Result<(Vec<u8>, Byte64)> {
     let response = CredentialResponse::<LithiumCipherSuite>::deserialize(response_bytes)
         .map_err(|_| LithiumError::invalid_credentials("bad_opaque_message"))?;
@@ -72,7 +73,7 @@ pub fn client_login_finish(
             &mut rng,
             password.expose().as_bytes(),
             response,
-            ClientLoginFinishParameters::new(None, identifiers(handler), Some(&ksf)),
+            ClientLoginFinishParameters::new(None, identifiers(handler, server_id), Some(&ksf)),
         )
         .map_err(|_| LithiumError::invalid_credentials("opaque_login_failed"))?;
     let export_key = Byte64::from_slice(&res.export_key)?;

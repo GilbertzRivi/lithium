@@ -8,10 +8,13 @@ use zeroize::Zeroize;
 
 use crate::crypto::{aead, keys};
 use crate::error::{CryptoErrorKind, LithiumError, Result};
-use crate::labels::{
-    ALG_ID_AES256_GCM_SIV, DEK_LEN, KEYFILE_KEK_INFO, KEYFILE_MAGIC, KEYFILE_VERSION,
-};
 use crate::secrets::{Byte12, Byte32, FixedBytes, MasterKey32, SecretBytes};
+
+const KEYFILE_MAGIC: &[u8; 4] = b"KEYF";
+const KEYFILE_VERSION: u8 = 1;
+const ALG_ID_AES256_GCM_SIV: u8 = 1;
+const DEK_LEN: u16 = 32;
+const KEYFILE_KEK_INFO: &[u8] = b"kek/v1";
 
 #[inline]
 pub fn read_keyfile_bytes(path: &Path) -> Result<SecretBytes> {

@@ -4,6 +4,7 @@ use serde_json::json;
 
 use lithium_core::opaque::dek::unwrap_dek_under_export_key;
 use lithium_core::secrets::Byte32;
+use lithium_proto::labels;
 
 use crate::{
     db,
@@ -31,7 +32,8 @@ pub async fn handle(id: u64, state: Arc<DaemonState>) -> IpcResponse {
                     Ok(v) => v,
                     Err(_) => return protocol_err(id),
                 };
-                match unwrap_dek_under_export_key(&dek_blob_hex, &export_key) {
+                match unwrap_dek_under_export_key(&dek_blob_hex, &export_key, labels::DEK_WRAP_AAD)
+                {
                     Ok(dek_b32) => {
                         let arr = match Byte32::from_slice(dek_b32.as_slice()) {
                             Ok(v) => v,

@@ -5,10 +5,11 @@ use aes_gcm_siv::{
 
 use crate::{
     error::{LithiumError, Result},
-    labels::AEAD_BLOB_VERSION,
     secrets::bytes::SecretBytes,
     secrets::{Byte12, Byte32},
 };
+
+const AEAD_BLOB_VERSION: u8 = 1;
 
 pub fn encrypt_raw(
     plaintext: &SecretBytes,

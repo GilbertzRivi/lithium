@@ -1,7 +1,8 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use lithium_proto::db::DataManager;
+
 use lithium_core::{
-    db::manager::DataManager,
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
     utils::store::EphemeralStoreManager,
 };
@@ -187,11 +188,14 @@ impl TestServer {
 
         let opaque_setup = {
             let blob = km
-                .load_or_create_sealed_blob(lithium_core::opaque::SERVER_SETUP_LABEL, || {
-                    Ok(lithium_core::secrets::bytes::SecretBytes::new(
-                        lithium_core::opaque::server::ServerSetup::generate().serialize(),
-                    ))
-                })
+                .load_or_create_sealed_blob(
+                    lithium_proto::labels::OPAQUE_SERVER_SETUP_LABEL,
+                    || {
+                        Ok(lithium_core::secrets::bytes::SecretBytes::new(
+                            lithium_core::opaque::server::ServerSetup::generate().serialize(),
+                        ))
+                    },
+                )
                 .expect("opaque setup");
             Arc::new(
                 lithium_core::opaque::server::ServerSetup::deserialize(blob.expose_as_slice())

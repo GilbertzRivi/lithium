@@ -4,10 +4,14 @@ use sha2::Sha256;
 
 use crate::{
     error::{LithiumError, Result},
-    labels::{ARGON2_M_COST, ARGON2_OUT_LEN, ARGON2_P_COST, ARGON2_T_COST},
     secrets::Byte32,
     secrets::bytes::SecretBytes,
 };
+
+pub(crate) const ARGON2_M_COST: u32 = 64 * 1024;
+pub(crate) const ARGON2_T_COST: u32 = 3;
+pub(crate) const ARGON2_P_COST: u32 = 1;
+pub(crate) const ARGON2_OUT_LEN: usize = 32;
 
 pub fn derive32(
     input: &SecretBytes,

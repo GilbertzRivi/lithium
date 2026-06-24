@@ -5,8 +5,9 @@ use sea_orm::{
     TransactionTrait,
 };
 
+use lithium_proto::db::DataManager;
+
 use lithium_core::{
-    db::manager::DataManager,
     error::{LithiumError, Result},
     keys::MkProvider,
     secrets::bytes::SecretBytes,

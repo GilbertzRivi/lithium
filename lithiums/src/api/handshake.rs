@@ -1,7 +1,7 @@
 use poem::{Response, handler};
 use serde_json::json;
 
-use lithium_core::contract::protocol::field;
+use lithium_proto::contract::protocol::field;
 
 use crate::error::AppError;
 use crate::transport::CryptoReq;

@@ -5,6 +5,8 @@ use lithium_core::passwords::passwords::{
 };
 use lithium_core::secrets::{Byte64, SecretString};
 
+const TEST_DEK_AAD: &[u8] = b"lithium-core/test/dek-wrap";
+
 fn pass(s: &str) -> SecretString {
     SecretString::new(s.to_owned())
 }
@@ -130,8 +132,8 @@ fn dek_wrap_unwrap_roundtrip() {
     let dek = generate_dek().unwrap();
     let ek = export_key(7);
 
-    let wrapped = wrap_dek_under_export_key(&dek, &ek).unwrap();
-    let unwrapped = unwrap_dek_under_export_key(&wrapped, &ek).unwrap();
+    let wrapped = wrap_dek_under_export_key(&dek, &ek, TEST_DEK_AAD).unwrap();
+    let unwrapped = unwrap_dek_under_export_key(&wrapped, &ek, TEST_DEK_AAD).unwrap();
 
     assert_eq!(dek, unwrapped);
 }
@@ -139,14 +141,14 @@ fn dek_wrap_unwrap_roundtrip() {
 #[test]
 fn dek_wrap_wrong_export_key_fails() {
     let dek = generate_dek().unwrap();
-    let wrapped = wrap_dek_under_export_key(&dek, &export_key(1)).unwrap();
-    assert!(unwrap_dek_under_export_key(&wrapped, &export_key(2)).is_err());
+    let wrapped = wrap_dek_under_export_key(&dek, &export_key(1), TEST_DEK_AAD).unwrap();
+    assert!(unwrap_dek_under_export_key(&wrapped, &export_key(2), TEST_DEK_AAD).is_err());
 }
 
 #[test]
 fn dek_wrap_produces_hex() {
     let dek = generate_dek().unwrap();
-    let wrapped = wrap_dek_under_export_key(&dek, &export_key(3)).unwrap();
+    let wrapped = wrap_dek_under_export_key(&dek, &export_key(3), TEST_DEK_AAD).unwrap();
     let hex_str = wrapped.expose();
     assert!(hex_str.chars().all(|c| c.is_ascii_hexdigit()));
     assert_eq!(hex_str.len() % 2, 0);
@@ -156,13 +158,13 @@ fn dek_wrap_produces_hex() {
 fn dek_wrap_fresh_nonce_each_time() {
     let dek = generate_dek().unwrap();
     let ek = export_key(4);
-    let w1 = wrap_dek_under_export_key(&dek, &ek).unwrap();
-    let w2 = wrap_dek_under_export_key(&dek, &ek).unwrap();
+    let w1 = wrap_dek_under_export_key(&dek, &ek, TEST_DEK_AAD).unwrap();
+    let w2 = wrap_dek_under_export_key(&dek, &ek, TEST_DEK_AAD).unwrap();
     assert_ne!(w1.expose(), w2.expose());
 }
 
 #[test]
 fn dek_unwrap_truncated_blob_fails() {
     let short_blob = SecretString::new("aabbccdd".to_owned());
-    assert!(unwrap_dek_under_export_key(&short_blob, &export_key(5)).is_err());
+    assert!(unwrap_dek_under_export_key(&short_blob, &export_key(5), TEST_DEK_AAD).is_err());
 }

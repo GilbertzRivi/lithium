@@ -354,3 +354,11 @@ In response to those assumptions:
 - [`docs/lithiumd.md`](docs/lithiumd.md) — client daemon: IPC, E2E, mailboxes, and SQLite
 - [`docs/lithiums.md`](docs/lithiums.md) — relay server: REST API, middleware, transport, and PostgreSQL
 - [`docs/lithiumg.md`](docs/lithiumg.md) — GUI: state machine and threading model
+
+---
+
+## License
+
+Lithium is released under the **PolyForm Noncommercial License 1.0.0** (see [`LICENSE`](LICENSE)). The source is open to read: anyone may read, audit, modify, and use it for **noncommercial purposes** (study, research, open-source projects, personal use, non-profit organizations).
+
+**Commercial use requires a separate commercial license.** Commercial use means use by or for a business or for monetary advantage — **including internal tools** (for example, internal communications within an organization). Evaluation is welcome; for a commercial license, or for deployment/integration, contact **oktawia.handerek@gmail.com**.

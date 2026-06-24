@@ -2,8 +2,8 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use opaque_ke::{CipherSuite, Ristretto255, TripleDh};
 use sha2::Sha512;
 
+use crate::crypto::kdf::{ARGON2_M_COST, ARGON2_P_COST, ARGON2_T_COST};
 use crate::error::{LithiumError, Result};
-use crate::labels::{ARGON2_M_COST, ARGON2_P_COST, ARGON2_T_COST};
 
 pub struct LithiumCipherSuite;
 

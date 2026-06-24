@@ -4,14 +4,14 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::{
-    crypto::{aead, keys},
-    error::Result,
-    keys::{KeyManager, MkProvider},
-    labels::{DB_DEK_LABEL, USERS_UUID_NAMESPACE_LABEL},
-    secrets::Byte32,
-    secrets::bytes::SecretBytes,
-};
+use lithium_core::crypto::aead;
+use lithium_core::error::Result;
+use lithium_core::keys::{KeyManager, MkProvider};
+use lithium_core::secrets::Byte32;
+use lithium_core::secrets::bytes::SecretBytes;
+
+const DB_DEK_LABEL: &[u8] = b"lithium/db-dek/v1";
+const USERS_UUID_NAMESPACE_LABEL: &[u8] = b"lithium/users-uuid-namespace/v1";
 
 pub struct DataManager<P: MkProvider> {
     db: DatabaseConnection,
@@ -49,9 +49,10 @@ impl<P: MkProvider + Send + Sync + 'static> DataManager<P> {
         plaintext: &SecretBytes,
         aad: &SecretBytes,
     ) -> Result<SecretBytes> {
-        let dek = self.load_db_dek().await?;
-        let nonce = keys::random_12()?;
-        aead::encrypt(plaintext, &dek, &nonce, aad)
+        self.key_manager
+            .lock()
+            .await
+            .encrypt_with_derived(DB_DEK_LABEL, plaintext, aad)
     }
 
     pub async fn decrypt_db_blob(
@@ -59,8 +60,10 @@ impl<P: MkProvider + Send + Sync + 'static> DataManager<P> {
         blob: &SecretBytes,
         aad: &SecretBytes,
     ) -> Result<SecretBytes> {
-        let dek = self.load_db_dek().await?;
-        aead::decrypt(blob, &dek, aad)
+        self.key_manager
+            .lock()
+            .await
+            .decrypt_with_derived(DB_DEK_LABEL, blob, aad)
     }
 
     pub fn decrypt_db_blob_with(

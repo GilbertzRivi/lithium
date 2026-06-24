@@ -14,7 +14,7 @@
 - [ipc-reference.md](ipc-reference.md) — referencja protokołu IPC daemona: format, autoryzacja, pełna lista komend
 - [deploy-instructions.md](deploy-instructions.md) — wdrożenie `lithiums`: zmienne środowiskowe, providery master key, Docker/Docker Compose, zmienne `lithiumd`
 - [daemon-runtime.md](daemon-runtime.md) — runtime daemona `lithiumd`: model procesu, system tray, cykl życia, endpoint IPC, układ katalogu danych
-- [development.md](development.md) — budowanie, zależności systemowe, feature flagi, testy, fuzzing
+- [development.md](development.md) — budowanie, przypięcie wersji i powtarzalność (`Cargo.lock` + `rust-toolchain.toml`), zależności systemowe, feature flagi, testy, fuzzing
 
 ## Dokumentacja komponentów
 

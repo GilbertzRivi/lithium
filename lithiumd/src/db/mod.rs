@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, Schema};
 
+use lithium_proto::db::DataManager;
+
 use lithium_core::{
-    db::manager::DataManager,
     error::{LithiumError, Result},
     keys::{KeyManager, MkProvider},
 };

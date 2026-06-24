@@ -5,7 +5,6 @@ use opaque_ke::{
 use rand_core::OsRng;
 
 use crate::error::{LithiumError, Result};
-use crate::labels::OPAQUE_SERVER_ID;
 use crate::opaque::suite::LithiumCipherSuite;
 
 type Setup = opaque_ke::ServerSetup<LithiumCipherSuite>;
@@ -29,10 +28,10 @@ impl ServerSetup {
     }
 }
 
-fn identifiers(handler: &[u8]) -> Identifiers<'_> {
+fn identifiers<'a>(handler: &'a [u8], server_id: &'a [u8]) -> Identifiers<'a> {
     Identifiers {
         client: Some(handler),
-        server: Some(OPAQUE_SERVER_ID),
+        server: Some(server_id),
     }
 }
 
@@ -64,6 +63,7 @@ pub fn server_login_start(
     request_bytes: &[u8],
     credential_identifier: &[u8],
     handler: &[u8],
+    server_id: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>)> {
     let record = ServerRegistration::<LithiumCipherSuite>::deserialize(record_bytes)
         .map_err(|_| LithiumError::internal())?;
@@ -72,7 +72,7 @@ pub fn server_login_start(
 
     let params = ServerLoginParameters {
         context: None,
-        identifiers: identifiers(handler),
+        identifiers: identifiers(handler, server_id),
     };
 
     let mut rng = OsRng;
@@ -96,6 +96,7 @@ pub fn server_login_finish(
     state_bytes: &[u8],
     finalization_bytes: &[u8],
     handler: &[u8],
+    server_id: &[u8],
 ) -> Result<()> {
     let state = ServerLogin::<LithiumCipherSuite>::deserialize(state_bytes)
         .map_err(|_| LithiumError::internal())?;
@@ -105,7 +106,7 @@ pub fn server_login_finish(
 
     let params = ServerLoginParameters {
         context: None,
-        identifiers: identifiers(handler),
+        identifiers: identifiers(handler, server_id),
     };
 
     state

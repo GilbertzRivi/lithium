@@ -9,10 +9,11 @@ use sea_orm::{
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use lithium_proto::db::DataManager;
+
 use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::{
     crypto::{aead, kdf, keys},
-    db::manager::DataManager,
     error::{LithiumError, Result},
     keys::MkProvider,
     secrets::{Byte12, Byte32, SecretString},

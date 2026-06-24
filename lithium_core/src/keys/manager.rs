@@ -9,9 +9,8 @@ use pqcrypto::traits::kem::{PublicKey as _, SecretKey as _};
 use pqcrypto::traits::sign::{PublicKey as SignPub, SecretKey as SignSk};
 use x25519_dalek::{PublicKey as XPublicKey, StaticSecret as XStaticSecret};
 
-use crate::crypto::keys;
+use crate::crypto::{aead, keys};
 use crate::error::{LithiumError, Result};
-use crate::labels::JWT_LABEL;
 use crate::secrets::{Byte32, MasterKey32, SecretBytes};
 
 use super::keyfile;
@@ -583,13 +582,30 @@ impl<P: MkProvider> KeyManager<P> {
     }
 
     pub fn derive_secret32(&self, label: &[u8]) -> Result<Byte32> {
-        if label == JWT_LABEL {
-            return Ok(self.jwt_secret.clone());
-        }
-
         let root_mk = self.mk_provider.load_mk()?;
         self.mk_provider
             .derive_secret32(&root_mk, label, &self.secrets_dir)
+    }
+
+    pub fn encrypt_with_derived(
+        &self,
+        label: &[u8],
+        plaintext: &SecretBytes,
+        aad: &SecretBytes,
+    ) -> Result<SecretBytes> {
+        let dek = self.derive_secret32(label)?;
+        let nonce = keys::random_12()?;
+        aead::encrypt(plaintext, &dek, &nonce, aad)
+    }
+
+    pub fn decrypt_with_derived(
+        &self,
+        label: &[u8],
+        blob: &SecretBytes,
+        aad: &SecretBytes,
+    ) -> Result<SecretBytes> {
+        let dek = self.derive_secret32(label)?;
+        aead::decrypt(blob, &dek, aad)
     }
 
     pub fn mk_provider_mut(&mut self) -> &mut P {

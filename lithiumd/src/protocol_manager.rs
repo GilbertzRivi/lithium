@@ -9,8 +9,10 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
 use zeroize::Zeroize;
 
+use lithium_proto::contract::protocol::{self, ctx, field, header, path};
+use lithium_proto::labels;
+
 use lithium_core::{
-    contract::protocol::{self, ctx, field, header, path},
     crypto::{keys, kyberbox, sign},
     error::{LithiumError, Result},
     keys::{KeyManager, MkProvider},
@@ -326,7 +328,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         )
         .map_err(LithiumError::invalid_hex)?;
 
-        let challenge = pow::challenge(&mailbox, &content);
+        let challenge = pow::challenge(labels::POW_CTX, &mailbox, &content);
         let nonce = pow::solve(&challenge, bits);
         obj.insert(field::POW.into(), Value::String(nonce.to_string()));
         Ok(())
@@ -409,8 +411,13 @@ impl<P: MkProvider> ProtocolManager<P> {
             .ok_or_else(|| LithiumError::json_missing_field(field::FLOW))?
             .to_owned();
 
-        let (finalization, export_key) =
-            client_login_finish(client_state, &response, &password, handler_norm.as_bytes())?;
+        let (finalization, export_key) = client_login_finish(
+            client_state,
+            &response,
+            &password,
+            handler_norm.as_bytes(),
+            labels::OPAQUE_SERVER_ID,
+        )?;
 
         let body2 = json!({
             field::HANDLER: handler.expose(),
@@ -457,9 +464,14 @@ impl<P: MkProvider> ProtocolManager<P> {
             &response,
             &password,
             handler_norm.as_bytes(),
+            labels::OPAQUE_SERVER_ID,
         )?;
 
-        let dek_enc_hex = lithium_core::opaque::dek::wrap_dek_under_export_key(dek, &export_key)?;
+        let dek_enc_hex = lithium_core::opaque::dek::wrap_dek_under_export_key(
+            dek,
+            &export_key,
+            labels::DEK_WRAP_AAD,
+        )?;
 
         let body2 = json!({
             field::HANDLER: handler.expose(),

@@ -1,11 +1,8 @@
 #![forbid(unsafe_code)]
 
-pub mod contract;
 pub mod crypto;
-pub mod db;
 pub mod error;
 pub mod keys;
-pub(crate) mod labels;
 pub mod opaque;
 pub mod passwords;
 pub mod pow;

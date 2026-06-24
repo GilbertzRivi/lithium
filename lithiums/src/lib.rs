@@ -24,7 +24,7 @@ use poem::web::{Data, Json};
 use poem::{Endpoint, EndpointExt, Route, get, handler, post};
 use serde_json::json;
 
-use lithium_core::contract::protocol::{ctx, path};
+use lithium_proto::contract::protocol::{ctx, path};
 
 use crate::middleware::crypto::CryptoMiddleware;
 use crate::middleware::guard::GuardMiddleware;

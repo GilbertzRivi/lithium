@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use lithium_core::db::manager::DataManager;
 use lithium_core::keys::manager::KeyManager;
 use lithium_core::opaque::server::ServerSetup;
 use lithium_core::utils::store::EphemeralStoreManager;
+use lithium_proto::db::DataManager;
 
 use crate::health::HealthState;
 use crate::provider::ServerMkProvider;

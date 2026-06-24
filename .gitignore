@@ -6,7 +6,9 @@
 .env
 **/*.env
 .claude
-Cargo.lock
 .idea
 .idea/*
 docker
+
+# leftover z samodzielnego buildu lithiums w kontenerze; pinem jest root Cargo.lock
+/lithiums/Cargo.lock

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
+use lithium_core::{
     error::{LithiumError, Result},
     secrets::bytes::SecretBytes,
     secrets::{FixedBytes, SecretString},

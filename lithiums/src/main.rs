@@ -3,11 +3,13 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use poem::{Server, listener::TcpListener};
 use tokio::sync::Mutex;
 
+use lithium_proto::db::DataManager;
+use lithium_proto::labels;
+
 use lithium_core::{
-    db::manager::DataManager,
     error::LithiumError,
     keys::{KeyManager, KeyStoreKind, PlainFileMkProvider},
-    opaque::{self, server::ServerSetup},
+    opaque::server::ServerSetup,
     pow,
     secrets::bytes::SecretBytes,
     utils::store::EphemeralStoreManager,
@@ -53,7 +55,7 @@ async fn main() -> AppResult<()> {
     km.set_rotate_interval(Duration::from_secs(rotate_secs));
 
     let opaque_setup = {
-        let blob = km.load_or_create_sealed_blob(opaque::SERVER_SETUP_LABEL, || {
+        let blob = km.load_or_create_sealed_blob(labels::OPAQUE_SERVER_SETUP_LABEL, || {
             Ok(SecretBytes::new(ServerSetup::generate().serialize()))
         })?;
         Arc::new(ServerSetup::deserialize(blob.expose_as_slice())?)

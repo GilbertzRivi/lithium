@@ -1,12 +1,10 @@
 use sha2::{Digest, Sha256};
 
-use crate::labels::POW_CTX;
-
 pub const DEFAULT_SEND_POW_BITS: u32 = 18;
 
-pub fn challenge(mailbox: &[u8], content: &[u8]) -> [u8; 32] {
+pub fn challenge(ctx: &[u8], mailbox: &[u8], content: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(POW_CTX);
+    h.update(ctx);
     h.update((mailbox.len() as u32).to_le_bytes());
     h.update(mailbox);
     h.update(content);
@@ -50,14 +48,14 @@ mod tests {
 
     #[test]
     fn solved_nonce_verifies() {
-        let c = challenge(b"mailbox", b"content");
+        let c = challenge(b"send-pow", b"mailbox", b"content");
         let nonce = solve(&c, 12);
         assert!(verify(&c, nonce, 12));
     }
 
     #[test]
     fn wrong_nonce_fails() {
-        let c = challenge(b"mailbox", b"content");
+        let c = challenge(b"send-pow", b"mailbox", b"content");
         let nonce = solve(&c, 12);
         assert!(!verify(&c, nonce.wrapping_add(1), 20));
     }

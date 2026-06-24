@@ -1,4 +1,4 @@
-use crate::error::{LithiumError, Result};
+use lithium_core::error::{LithiumError, Result};
 
 const MAGIC: &[u8; 8] = b"LITHIUPK";
 const VERSION: u8 = 0x01;

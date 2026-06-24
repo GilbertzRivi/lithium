@@ -3,9 +3,9 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use reqwest::Url;
 use tokio::sync::{Mutex, RwLock, mpsc, watch};
 
-use lithium_core::db::manager::DataManager;
 use lithium_core::keys::KeyManager;
 use lithium_core::secrets::{Byte32, SecretString};
+use lithium_proto::db::DataManager;
 
 use crate::password_provider::PasswordFileMkProvider;
 use crate::protocol_manager::ProtocolManager;

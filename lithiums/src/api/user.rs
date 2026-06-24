@@ -4,12 +4,13 @@ use poem::http::StatusCode;
 use poem::{Body, Response, handler};
 use serde_json::json;
 
-use lithium_core::contract::protocol::{field, normalize_handler};
 use lithium_core::crypto::keys;
 use lithium_core::opaque::server::{
     server_login_finish, server_login_start, server_registration_finish, server_registration_start,
 };
 use lithium_core::secrets::bytes::SecretBytes;
+use lithium_proto::contract::protocol::{field, normalize_handler};
+use lithium_proto::labels;
 
 use crate::db::repo::ServerDbExt;
 use crate::error::AppError;
@@ -132,6 +133,7 @@ pub async fn login_start(req: CryptoReq) -> Result<Response, AppError> {
         request.expose_as_slice(),
         cred_id.as_bytes(),
         cred_id.as_bytes(),
+        labels::OPAQUE_SERVER_ID,
     )?;
 
     let flow = hex::encode(keys::random_32()?.as_slice());
@@ -187,6 +189,7 @@ pub async fn login_finish(req: CryptoReq) -> Result<Response, AppError> {
         login_state.expose_as_slice(),
         finalization.expose_as_slice(),
         handler_norm.as_bytes(),
+        labels::OPAQUE_SERVER_ID,
     )
     .is_err()
     {

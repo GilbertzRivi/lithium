@@ -2,7 +2,7 @@
 name = "lithium-fuzz"
 version = "0.0.0"
 publish = false
-edition = "2021"
+edition = "2024"
 
 [package.metadata]
 cargo-fuzz = true
@@ -13,6 +13,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 lithium_core = { path = "../lithium_core", features = ["fuzzing"] }
+lithium_proto = { path = "../lithium_proto" }
 lithiumd = { path = "../lithiumd", features = ["fuzzing"] }
 lithiums = { path = "../lithiums", default-features = false, features = ["fuzzing"] }
 

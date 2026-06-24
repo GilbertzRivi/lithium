@@ -3,10 +3,9 @@ use std::{sync::Arc, time::Duration};
 use serde_json::json;
 use tokio::sync::mpsc::error::TrySendError;
 
-use lithium_core::{
-    contract::protocol::field,
-    secrets::{Byte32, SecretString},
-};
+use lithium_proto::contract::protocol::field;
+
+use lithium_core::secrets::{Byte32, SecretString};
 
 use crate::e2e::SelfState;
 use crate::e2e::drop_bootstrap_private_if_established;
@@ -30,7 +29,7 @@ use crate::{
 const PREKEY_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 
 async fn ensure_local_prekeys<P: lithium_core::keys::MkProvider + Send + Sync + 'static>(
-    dm: &lithium_core::db::manager::DataManager<P>,
+    dm: &lithium_proto::db::DataManager<P>,
     contact_id: &[u8],
     self_st: &mut SelfState,
 ) -> Result<(), String> {
