@@ -2,7 +2,6 @@
 **/target
 /node_modules
 **/node_modules
-lithium_server_old
 **/book
 .env
 **/*.env
