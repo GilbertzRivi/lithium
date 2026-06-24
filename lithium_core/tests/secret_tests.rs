@@ -112,8 +112,7 @@ fn fixed_bytes_to_hex_roundtrip() {
 
 #[test]
 fn fixed_bytes_from_hex_correct_length() {
-    // 32 bytes = 64 hex chars
-    let valid = "deadbeef".repeat(8); // 64 lowercase hex chars
+    let valid = "deadbeef".repeat(8);
     let b = Byte32::from_hex(&valid).unwrap();
     assert_eq!(b.as_slice().len(), 32);
 }
@@ -126,14 +125,14 @@ fn fixed_bytes_from_hex_0x_prefix_rejected() {
 
 #[test]
 fn fixed_bytes_from_hex_uppercase_rejected() {
-    let upper = "DEADBEEF".repeat(8); // 64 uppercase hex chars
+    let upper = "DEADBEEF".repeat(8);
     let err = Byte32::from_hex(&upper).unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::HexMustBeLowercase);
 }
 
 #[test]
 fn fixed_bytes_from_hex_wrong_length_rejected() {
-    let short = "deadbeef"; // only 8 chars, need 64
+    let short = "deadbeef";
     let err = Byte32::from_hex(short).unwrap_err();
     assert!(matches!(
         err.kind,
@@ -226,7 +225,7 @@ fn secret_bytes_from_hex_uppercase_rejected() {
 
 #[test]
 fn secret_bytes_from_hex_odd_length_rejected() {
-    let err = SecretBytes::from_hex("abc").unwrap_err(); // odd number of chars
+    let err = SecretBytes::from_hex("abc").unwrap_err();
     assert!(matches!(err.kind, CryptoErrorKind::InvalidHexLength { .. }));
 }
 
@@ -304,7 +303,6 @@ fn secret_string_decode_hex() {
 
 #[test]
 fn secret_string_decode_hex_fixed() {
-    // 64 hex chars = 32 bytes
     let hex_str = "aa".repeat(32);
     let ss = SecretString::new(hex_str);
     let b32: Byte32 = ss.decode_hex_fixed().unwrap();
@@ -390,10 +388,8 @@ fn secret_json_take_string_removes_field() {
     let mut j = SecretJson::from_str(r#"{"token": "abc123", "other": "keep"}"#).unwrap();
     let taken = j.take_string("token").unwrap();
     assert_eq!(taken.expose(), "abc123");
-    // Field is now gone
     let err = j.get_string("token").unwrap_err();
     assert_eq!(err.kind, CryptoErrorKind::JsonMissingField { key: "token" });
-    // Other field still present
     assert_eq!(j.get_string("other").unwrap().expose(), "keep");
 }
 

@@ -3,17 +3,21 @@
 ## Dla audytorów i integratorów
 
 - [security-model.md](security-model.md) — model zaufania, priorytety, założenia, świadome kompromisy, widoczność serwera per request, prymitywy, klasyfikacja ustaleń audytowych
+- [threat-model.md](threat-model.md) — strukturalny model zagrożeń: klasy przeciwnika, ich zdolności, obrona i ryzyko rezydualne
+- [key-hierarchy.md](key-hierarchy.md) — katalog i hierarchia wszystkich kluczy: derywacja, przechowywanie, czas życia, analiza wycieku
 - [kyberbox.md](kyberbox.md) — analiza bezpieczeństwa schematu KyberBox: przepływ kluczy, właściwości, założenia, otwarte pytania
 - [crypto-protocol.md](crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport (Shake/Session), E2E (WireV1), mailbox, cykl życia kluczy
 - [ipc-reference.md](ipc-reference.md) — referencja protokołu IPC daemona: format, autoryzacja, pełna lista komend
 - [deploy-instructions.md](deploy-instructions.md) — wdrożenie `lithiums`: zmienne środowiskowe, providery master key, Docker/Docker Compose, zmienne `lithiumd`
+- [daemon-runtime.md](daemon-runtime.md) — runtime daemona `lithiumd`: model procesu, system tray, cykl życia, endpoint IPC, układ katalogu danych
+- [development.md](development.md) — budowanie, zależności systemowe, feature flagi, testy, fuzzing
 
 ## Dokumentacja komponentów
 
-- [`lithium_core/README.md`](../lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami, format plików kluczy
-- [`lithiumd/README.md`](../lithiumd/README.md) — daemon klienta: IPC, E2E, mailbox, SQLite, PasswordFileMkProvider
-- [`lithiums/README.md`](../lithiums/README.md) — serwer relay: REST API, middleware, transport, schemat PostgreSQL
-- [`lithiumg/README.md`](../lithiumg/README.md) — GUI: maszyna stanów, model wątków
+- [`lithium_core.md`](lithium_core.md) — kryptografia, typy sekretne, zarządzanie kluczami, format plików kluczy
+- [`lithiumd.md`](lithiumd.md) — daemon klienta: IPC, E2E, mailbox, SQLite, PasswordFileMkProvider
+- [`lithiums.md`](lithiums.md) — serwer relay: REST API, middleware, transport, schemat PostgreSQL
+- [`lithiumg.md`](lithiumg.md) — GUI: maszyna stanów, model wątków
 
 ## Przegląd projektu
 

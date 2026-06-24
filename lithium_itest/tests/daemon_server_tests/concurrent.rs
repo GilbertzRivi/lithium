@@ -42,7 +42,6 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .await;
     assert!(fin_b["ok"].as_bool().unwrap(), "{:?}", fin_b);
 
-    // C creates invite, A accepts.
     let inv_c = cc
         .send(json!({"cmd": "create_invite", "auth_token": tok_c}))
         .await;
@@ -68,7 +67,6 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
         .await;
     assert!(fin_c["ok"].as_bool().unwrap(), "{:?}", fin_c);
 
-    // B and C each send a message to A.
     let r_b = cb
         .send(json!({"cmd": "contact_send", "contact_id": cid_b_a, "plaintext": "from B", "auth_token": tok_b}))
         .await;

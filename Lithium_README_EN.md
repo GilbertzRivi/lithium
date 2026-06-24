@@ -350,7 +350,7 @@ In response to those assumptions:
   - [`docs/ipc-reference.md`](docs/ipc-reference.md) — daemon IPC protocol reference
   - [`docs/kyberbox.md`](docs/kyberbox.md) — security analysis of the KyberBox construction
   - [`docs/deploy-instructions.md`](docs/deploy-instructions.md) — deploying `lithiums` (Docker, TPM, environment variables)
-- [`lithium_core/README.md`](lithium_core/README.md) — cryptography, secret types, and key management
-- [`lithiumd/README.md`](lithiumd/README.md) — client daemon: IPC, E2E, mailboxes, and SQLite
-- [`lithiums/README.md`](lithiums/README.md) — relay server: REST API, middleware, transport, and PostgreSQL
-- [`lithiumg/README.md`](lithiumg/README.md) — GUI: state machine and threading model
+- [`docs/lithium_core.md`](docs/lithium_core.md) — cryptography, secret types, and key management
+- [`docs/lithiumd.md`](docs/lithiumd.md) — client daemon: IPC, E2E, mailboxes, and SQLite
+- [`docs/lithiums.md`](docs/lithiums.md) — relay server: REST API, middleware, transport, and PostgreSQL
+- [`docs/lithiumg.md`](docs/lithiumg.md) — GUI: state machine and threading model

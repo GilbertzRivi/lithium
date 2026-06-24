@@ -441,13 +441,13 @@ pub async fn build_crypto_context(
 
             let x_priv = state
                 .store
-                .take(ses_x_id.expose())
+                .take(&store_keys::session(ses_x_id.expose()))
                 .await?
                 .ok_or_else(|| AppError::bad_request("invalid session x"))?;
 
             let k_priv = state
                 .store
-                .take(ses_k_id.expose())
+                .take(&store_keys::session(ses_k_id.expose()))
                 .await?
                 .ok_or_else(|| AppError::bad_request("invalid session k"))?;
 
@@ -576,7 +576,7 @@ impl CryptoContext {
         self.state
             .store
             .set(
-                session_x_id.expose(),
+                &store_keys::session(session_x_id.expose()),
                 &SecretBytes::from_slice(session_priv_x.as_slice()),
                 self.cfg.session_ttl,
             )
@@ -587,7 +587,7 @@ impl CryptoContext {
         self.state
             .store
             .set(
-                session_k_id.expose(),
+                &store_keys::session(session_k_id.expose()),
                 &SecretBytes::from_slice(session_priv_k.expose_as_slice()),
                 self.cfg.session_ttl,
             )

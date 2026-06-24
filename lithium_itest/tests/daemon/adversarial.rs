@@ -351,3 +351,38 @@ async fn test_contact_forget_unknown_id() {
         .await;
     assert_eq!(r["error"].as_str().unwrap(), "contact_not_found");
 }
+
+#[tokio::test]
+async fn test_set_server_config_requires_token_once_session_active() {
+    let d = DaemonProcess::start().await;
+    let mut c = IpcClient::connect(&d.socket_path).await;
+
+    let r = c
+        .send(json!({"cmd": "set_server_url", "url": "http://127.0.0.1:19999"}))
+        .await;
+    assert!(r["ok"].as_bool().unwrap(), "pre-unlock bootstrap: {:?}", r);
+
+    let r = c
+        .send(json!({"cmd": "unlock_keystore", "data_password": DATA_PASS}))
+        .await;
+    let tok = r["result"]["ipc_auth_token"].as_str().unwrap().to_owned();
+
+    let r = c
+        .send(json!({"cmd": "set_server_url", "url": "http://127.0.0.1:19999"}))
+        .await;
+    assert_eq!(r["error"].as_str().unwrap(), "ipc_auth_required");
+
+    let r = c
+        .send(json!({"cmd": "set_server_identity", "data": "00"}))
+        .await;
+    assert_eq!(r["error"].as_str().unwrap(), "ipc_auth_required");
+
+    let r = c
+        .send(json!({"cmd": "set_server_url", "url": "http://127.0.0.1:19999", "auth_token": tok}))
+        .await;
+    assert!(
+        r["ok"].as_bool().unwrap(),
+        "post-unlock with token: {:?}",
+        r
+    );
+}

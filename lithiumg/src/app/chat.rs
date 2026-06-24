@@ -104,7 +104,6 @@ impl LithiumApp {
             && self.verify_modal_contact_id.as_deref() == Some(contact.contact_id.as_str())
             && !self.verify_modal_emojis.is_empty();
 
-        // Contact header
         ui.horizontal(|ui| {
             let name = if contact.label.is_empty() {
                 contact.contact_id.clone()
@@ -123,7 +122,6 @@ impl LithiumApp {
             }
         });
 
-        // Action buttons
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(!self.busy, egui::Button::new("Refresh"))
@@ -149,7 +147,6 @@ impl LithiumApp {
         let compose_height = if show_verify_here { 230.0 } else { 120.0 };
         let list_height = (ui.available_height() - compose_height).max(80.0);
 
-        // Message list
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(list_height)
@@ -203,7 +200,6 @@ impl LithiumApp {
 
         ui.separator();
 
-        // Compose area
         let compose_response = ui.add(
             egui::TextEdit::multiline(&mut self.message_text)
                 .desired_rows(3)
@@ -213,7 +209,6 @@ impl LithiumApp {
 
         let can_send = !self.busy && contact.peer_set && !self.message_text.trim().is_empty();
 
-        // Send on Ctrl+Enter
         let send_shortcut = compose_response.has_focus()
             && ui.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::Enter));
 

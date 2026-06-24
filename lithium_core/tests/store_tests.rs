@@ -59,7 +59,6 @@ async fn store_del_removes_value() {
 #[tokio::test]
 async fn store_del_missing_key_is_noop() {
     let store = EphemeralStoreManager::new().unwrap();
-    // Should not panic or error
     store.del("does-not-exist").await.unwrap();
 }
 
@@ -158,7 +157,7 @@ async fn store_expired_entry_not_returned_by_peek() {
 #[tokio::test]
 async fn store_zero_ttl_not_stored() {
     let store = EphemeralStoreManager::new().unwrap();
-    // TTL of zero → set() is a no-op per implementation
+    // TTL of zero: set() is a no-op per implementation
     store
         .set("zero", &sb(b"val"), Duration::ZERO)
         .await
@@ -199,10 +198,8 @@ async fn store_set_if_absent_allows_reinsertion_after_expiry() {
     let first = store.set_if_absent("key", &sb(b"v1"), ttl).await.unwrap();
     assert!(first);
 
-    // Let it expire
     tokio::time::sleep(Duration::from_millis(30)).await;
 
-    // Now should be able to insert again
     let second = store
         .set_if_absent("key", &sb(b"v2"), Duration::from_secs(60))
         .await

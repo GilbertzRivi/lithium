@@ -25,6 +25,7 @@ use crate::labels::{
     AAD_MSG, AAD_UIDENC, AAD_USER_DEK, AAD_USER_DILI_KEY, AAD_USER_ED_KEY, AAD_USER_OPAQUE_RECORD,
     MSG_VER, UIDENC_NONCE_LABEL, UIDENC_VER,
 };
+use crate::store_keys;
 
 const MSG_KEY_TTL: Duration = Duration::from_secs(24 * 3600);
 
@@ -347,7 +348,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
 
         if let Err(e) = store
             .set(
-                &hex::encode(&id),
+                &store_keys::msg_key(&hex::encode(&id)),
                 &SecretBytes::from_slice(msg_key.as_slice()),
                 MSG_KEY_TTL,
             )
@@ -404,7 +405,7 @@ impl<P: MkProvider + Send + Sync + 'static> ServerDbExt<P> for DataManager<P> {
         let mut out: Vec<SecretString> = Vec::with_capacity(rows.len());
 
         for (id, blob) in rows {
-            let Some(kbox) = store.take(&hex::encode(&id)).await? else {
+            let Some(kbox) = store.take(&store_keys::msg_key(&hex::encode(&id))).await? else {
                 continue;
             };
 

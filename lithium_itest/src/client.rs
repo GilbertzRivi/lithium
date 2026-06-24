@@ -890,7 +890,6 @@ impl RawShakeBuilder {
         let url = format!("{}{}", self.base, path::SHAKE);
         let http = Client::new();
 
-        // First request must succeed.
         let r1 = http
             .post(&url)
             .headers(make_headers())
@@ -900,7 +899,6 @@ impl RawShakeBuilder {
             .unwrap();
         assert_eq!(r1.status().as_u16(), 200, "first shake should succeed");
 
-        // Second request with identical body bytes.
         let r2 = http
             .post(&url)
             .headers(make_headers())

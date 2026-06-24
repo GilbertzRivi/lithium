@@ -22,6 +22,7 @@ If you run behind a proxy and want per-client throttling, terminate the rate-lim
 | `LITHIUM_PORT`                     | `4108`              | Port to listen on                                                                          |
 | `LITHIUM_KEYS_DIR`                 | `/var/lib/lithiums` | Directory for key material                                                                 |
 | `LITHIUM_MK_ROTATE_SECS`           | `3600`              | Key rotation interval in seconds                                                           |
+| `LITHIUMS_SEND_POW_BITS`           | `18`                | Proof-of-work difficulty (leading zero bits) required on `/msg/send`                       |
 | `DB_HOST`                          | —                   | PostgreSQL host                                                                            |
 | `DB_PORT`                          | `5432`              | PostgreSQL port                                                                            |
 | `DB_USER`                          | —                   | PostgreSQL user                                                                            |
@@ -189,5 +190,7 @@ This produces a binary with only `PlainFileMkProvider`. Set `LITHIUM_MK_PROVIDER
 | `LITHIUMD_IPC_MAX_CONNECTIONS`  | `1`                                                     | Max concurrent IPC connections                                               |
 | `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`| `300` (min `5`)                                        | IPC connection idle timeout                                                  |
 | `LITHIUMD_IPC_ALLOWED_UID`      | unset (no restriction)                                 | Linux only. Restricts IPC connections to a specific UID; mismatches are dropped silently before any IPC request is read |
+| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` (min `1`)                                   | Cover-traffic send dispatcher cadence in seconds                            |
+| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS`| `20` (min `1`)                                   | Cover-traffic fetch / auto-fetch dispatcher cadence in seconds              |
 
 There is no `LITHIUMD_BASE_URL` or similar variable for the relay server address — the server URL is set at runtime via the IPC command `set_server_url` and persisted to `{LITHIUMD_DATA_DIR}/server_url`, not read from the environment. See [ipc-reference.md](ipc-reference.md#set_server_url).

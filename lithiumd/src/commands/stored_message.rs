@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use lithium_core::secrets::bytes::SecretBytes;
+use lithium_core::secrets::bytes::{SecretBytes, ZeroizingWriter};
 
 pub(crate) const STORED_MSG_V: u8 = 1;
 pub(crate) const KIND_TEXT: &str = "text/utf8";
@@ -50,9 +50,9 @@ pub(crate) fn encode(
         },
     };
 
-    let mut out = SecretBytes::new(Vec::new());
-    serde_json::to_writer(out.expose_as_mut_vec(), &payload)?;
-    Ok(out)
+    let mut w = ZeroizingWriter::new();
+    serde_json::to_writer(&mut w, &payload)?;
+    Ok(w.into_secret())
 }
 
 #[cfg(test)]

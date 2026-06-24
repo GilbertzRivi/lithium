@@ -185,6 +185,42 @@ W praktyce oznacza to, że naruszenie IPC albo lokalnego modelu uprawnień może
 
 Dlatego problemy dotyczące IPC, lokalnej autoryzacji, uprawnień i modelu stanu są realnymi problemami bezpieczeństwa.
 
+### Model autoryzacji IPC
+
+Gniazdo jest tworzone z uprawnieniami `0600`, a na Linuksie peer jest identyfikowany przez
+`SO_PEERCRED` — granicą jest ten sam UID. Komendy chronione wymagają tokenu sesji wydawanego przez
+`unlock_keystore` i (na Linuksie) związanego z UID+PID połączenia, które go otrzymało. Token jest
+unieważniany przez `lock_keystore` i `wipe_local`.
+
+Bez tokenu działają tylko komendy, które z natury go nie potrzebują:
+
+* `ping`,
+* `unlock_keystore` — sama wydaje token,
+* `remote_delete` — capability jest tu sekretem uwierzytelniającym i musi działać bez odblokowanego
+  keystore (skasowanie konta na serwerze, gdy lokalnie nie da się już odblokować).
+
+`set_server_url` i `set_server_identity` są konfiguracją bootstrapu: `unlock_keystore` odmawia startu,
+dopóki URL nie jest ustawiony, a token istnieje dopiero po odblokowaniu — więc na first-run nie mogą
+być bramkowane tokenem. Są więc dozwolone bez tokenu **wyłącznie dopóki nie istnieje aktywna sesja**;
+gdy sesja jest aktywna, wymagają tokenu jak wszystko inne. Dzięki temu proces tego samego UID, który
+nie odblokował keystore (nie ma tokenu), nie może po cichu przekierować klienta na inny serwer ani
+podmienić przypiętej tożsamości serwera na żywej sesji. Legalny klient i tak dołącza token do
+każdego żądania po odblokowaniu, więc zmiana jest dla niego przezroczysta.
+
+## Logowanie i obserwowalność
+
+Lithium loguje minimalnie i **nie loguje materiału wrażliwego**. W całej bazie nie ma logowania plaintextu wiadomości, handlerów, haseł, DEK-a ani kluczy, adresów skrzynek czy `contact_id`.
+
+Co faktycznie trafia na wyjście:
+
+* `lithiumd`: `eprintln!("fatal: {e}")` przy błędzie krytycznym startu (kod błędu, bez sekretów).
+* `lithiumg`: komunikaty o ładowaniu czcionki emoji (`eprintln!`).
+* `lithiums`: `tracing::info` jednorazowo przy pierwszym uruchomieniu (`wrote server.identity to {path}`) oraz `tracing::error` z zadań w tle (`mk_rotator`, `msg_reaper`) przy ich niepowodzeniu — komunikat błędu, bez danych użytkownika.
+
+Serwer **nie prowadzi** strukturalnego logu żądań ani access logu, nie ma telemetrii ani „phone-home". Adresy skrzynek widoczne dla serwera nie są logowane.
+
+**Zastrzeżenie operacyjne:** odwrotny proxy przed `lithiums` (terminujący TLS) może we własnym zakresie logować adresy IP klientów i znaczniki czasu — to jest poza kontrolą aplikacji i zależy od konfiguracji operatora. Guard anty-flood (`pre-replay`) kluczuje po `remote_addr` połączenia; konsekwencje pracy za proxy opisuje [deploy-instructions.md](deploy-instructions.md).
+
 ## Operacje destrukcyjne
 
 Lithium przyjmuje asymetrię:

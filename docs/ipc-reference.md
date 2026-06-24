@@ -308,7 +308,7 @@ Odpowiedź:
 
 Wymaga auth + storage odblokowane.
 
-Tworzy kod zaproszenia dla nowego lub istniejącego kontaktu.
+Krok 1 z 4 parowania commit-reveal. Tworzy **commitment** zaproszenia (`SHA256("lithiumd/pair-commit/v1" || kod)`) dla nowego lub istniejącego kontaktu — surowy kod `lci1:` nie opuszcza daemona na tym etapie.
 
 ```json
 {
@@ -330,7 +330,7 @@ Odpowiedź:
     "ok": true,
     "result": {
         "contact_id": "hex64...",
-        "code": "lci1:hex..."
+        "commitment": "hex64..."
     }
 }
 ```
@@ -347,34 +347,35 @@ Odpowiedź:
 
 ---
 
-### `accept_invite`
+### `accept_commitment`
 
 Wymaga auth + storage odblokowane.
 
-Przyjmuje kod zaproszenia od drugiej strony.
+Krok 2 z 4. Strona przyjmująca (B) zapisuje commitment twórcy (A) i generuje **własny** kod do odesłania A.
 
 ```json
 {
     "id": 1,
     "auth_token": "...",
-    "cmd": "accept_invite",
-    "code": "lci1:hex...",
-    "contact_id": null,
+    "cmd": "accept_commitment",
+    "commitment": "hex64...",
     "label": "Alice"
 }
 ```
 
-- `contact_id: null` — nowe parowanie obustronne: dekoduje kod, generuje własny `contact_id` i klucze, zwraca `my_code` do odesłania drugiej stronie
-- `contact_id: "hex..."` — przyjęcie od istniejącego kontaktu (jednostronne, kontakt musi istnieć i nie mieć jeszcze `peer` ustawionego): aktualizuje `peer_state`, `my_code` w odpowiedzi jest pustym stringiem
+- `commitment` — 32-bajtowy commitment (hex) otrzymany od A z `create_invite`
+- `label` — lokalna etykieta kontaktu
 
-Odpowiedź:
+Generuje nowy `contact_id` i komplet kluczy per-kontakt, zapisuje `pending_commit = commitment` w stanie peera.
+
+Odpowiedź (`code` to kod B do odesłania A):
 ```json
 {
     "id": 1,
     "ok": true,
     "result": {
         "contact_id": "hex64...",
-        "my_code": "lci1:hex..."
+        "code": "lci1:hex..."
     }
 }
 ```
@@ -382,14 +383,97 @@ Odpowiedź:
 | Kod błędu | Znaczenie |
 |-----------|-----------|
 | `storage_locked` | Storage nie odblokowane |
-| `invalid_invite_code` | Kod nie deserializuje się (zły magic/wersja/długość) |
-| `invalid_contact_id` | Podany `contact_id` nie jest poprawnym hex |
-| `contact_not_found` | Podany `contact_id` nie istnieje w DB |
-| `peer_already_set` | Kontakt już ma ustawionego peera — nie można przyjąć ponownie |
+| `invalid_commitment` | Commitment nie jest 32-bajtowym hex |
+| `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
+| `json_error` | Serializacja nowego stanu zawiodła |
+
+---
+
+### `reveal_invite`
+
+Wymaga auth + storage odblokowane.
+
+Krok 3 z 4. Twórca (A) — po otrzymaniu kodu B — ustawia peera na tożsamość z kodu B i ujawnia **swój** kod do odesłania B. Daemon wymusza kolejność: własny kod jest emitowany dopiero po podaniu kodu peera.
+
+```json
+{
+    "id": 1,
+    "auth_token": "...",
+    "cmd": "reveal_invite",
+    "contact_id": "hex64...",
+    "peer_code": "lci1:hex...",
+    "label": "Bob"
+}
+```
+
+- `contact_id` — kontakt A utworzony przez `create_invite`
+- `peer_code` — kod B (`lci1:`) otrzymany z `accept_commitment`
+- `label` — lokalna etykieta kontaktu
+
+Odpowiedź (`code` to kod A do odesłania B):
+```json
+{
+    "id": 1,
+    "ok": true,
+    "result": {
+        "code": "lci1:hex..."
+    }
+}
+```
+
+| Kod błędu | Znaczenie |
+|-----------|-----------|
+| `storage_locked` | Storage nie odblokowane |
+| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
+| `invalid_invite_code` | `peer_code` nie deserializuje się (zły magic/wersja/długość) |
+| `contact_not_found` | `contact_id` nie istnieje w DB |
+| `peer_already_set` | Kontakt już ma ustawionego peera |
 | `peer_state_corrupt` / `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
 | `json_error` | Serializacja nowego stanu zawiodła |
-| `storage_error` | Błąd zapisu/odczytu DB |
-| `internal_error` | Generowanie własnych kluczy lub kodowanie `my_code` zawiodło |
+
+---
+
+### `finalize_pairing`
+
+Wymaga auth + storage odblokowane.
+
+Krok 4 z 4. Strona przyjmująca (B) weryfikuje ujawniony kod A względem zapisanego commitmentu (`ct_eq(SHA256("lithiumd/pair-commit/v1" || kod_A), pending_commit)`) i ustawia peera na tożsamość A. Po tym kroku obie strony mają `peer_set=true`.
+
+```json
+{
+    "id": 1,
+    "auth_token": "...",
+    "cmd": "finalize_pairing",
+    "contact_id": "hex64...",
+    "peer_code": "lci1:hex..."
+}
+```
+
+- `contact_id` — kontakt B utworzony przez `accept_commitment`
+- `peer_code` — kod A (`lci1:`) otrzymany z `reveal_invite`
+
+Odpowiedź:
+```json
+{
+    "id": 1,
+    "ok": true,
+    "result": {
+        "ok": true
+    }
+}
+```
+
+| Kod błędu | Znaczenie |
+|-----------|-----------|
+| `storage_locked` | Storage nie odblokowane |
+| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
+| `invalid_invite_code` | `peer_code` nie deserializuje się |
+| `contact_not_found` | `contact_id` nie istnieje w DB |
+| `peer_already_set` | Kontakt już ma ustawionego peera |
+| `no_pending_commit` | Brak zapisanego commitmentu dla tego kontaktu |
+| `commitment_mismatch` | Hash ujawnionego kodu nie zgadza się z commitmentem — możliwa ingerencja w kanał |
+| `peer_state_corrupt` / `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
+| `json_error` | Serializacja nowego stanu zawiodła |
 
 ---
 
@@ -775,8 +859,11 @@ Odpowiedź — pole nazywa się `shutting_down`, nie `shutdown`:
 | `contact_not_found` | komendy kontaktowe | Nieznany `contact_id` |
 | `self_state_corrupt` / `peer_state_corrupt` | komendy kontaktowe | Stan kontaktu w DB nie deserializuje się |
 | `peer_not_set` | `contact_verify_emoji` | Peer nie odesłał kodu zaproszenia |
-| `peer_already_set` | `accept_invite` | Kontakt już ma peera, nie można przyjąć ponownie |
-| `invalid_invite_code` | `accept_invite` | Kod zaproszenia nie parsuje się |
+| `peer_already_set` | `reveal_invite`, `finalize_pairing` | Kontakt już ma peera, nie można przyjąć ponownie |
+| `invalid_invite_code` | `reveal_invite`, `finalize_pairing` | Kod (`peer_code`) nie parsuje się |
+| `invalid_commitment` | `accept_commitment` | Commitment nie jest 32-bajtowym hex |
+| `no_pending_commit` | `finalize_pairing` | Brak zapisanego commitmentu dla kontaktu |
+| `commitment_mismatch` | `finalize_pairing` | Hash ujawnionego kodu nie zgadza się z commitmentem (możliwa ingerencja) |
 | `need_recover_but_no_remote_prekey` | `contact_send` | Wymagane recovery, ale peer nie opublikował prekey |
 | `json_error` | komendy zapisujące stan | Serializacja stanu kontaktu/wiadomości zawiodła |
 | `invalid_url` | `set_server_url` | URL nie parsuje się |

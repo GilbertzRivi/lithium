@@ -85,14 +85,20 @@ fn timeout_err(what: &'static str) -> LithiumError {
     LithiumError::io(io::Error::new(io::ErrorKind::TimedOut, what))
 }
 
-fn cmd_requires_auth(cmd: &IpcCommand) -> bool {
-    !matches!(
+fn cmd_always_unauth(cmd: &IpcCommand) -> bool {
+    matches!(
         cmd,
-        IpcCommand::Ping
-            | IpcCommand::UnlockKeystore { .. }
-            | IpcCommand::RemoteDelete { .. }
-            | IpcCommand::SetServerIdentity { .. }
-            | IpcCommand::SetServerUrl { .. }
+        IpcCommand::Ping | IpcCommand::UnlockKeystore { .. } | IpcCommand::RemoteDelete { .. }
+    )
+}
+
+// unlock_keystore refuses to start until the server URL is set and the session token is only
+// issued at unlock, so these can't carry a token on first run. Gating them once a session exists
+// stops a token-less same-uid process from repointing the server or trust anchor mid-session.
+fn cmd_unauth_until_session(cmd: &IpcCommand) -> bool {
+    matches!(
+        cmd,
+        IpcCommand::SetServerIdentity { .. } | IpcCommand::SetServerUrl { .. }
     )
 }
 
@@ -105,18 +111,23 @@ async fn authorize_request(
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] peer: IpcPeerMeta,
     req: &IpcRequest,
 ) -> Option<IpcResponse> {
-    if !cmd_requires_auth(&req.cmd) {
+    if cmd_always_unauth(&req.cmd) {
         return None;
     }
-
-    let provided = match req.auth_token.as_deref() {
-        Some(v) if !v.is_empty() => v,
-        _ => return Some(err_resp(req.id, "ipc_auth_required")),
-    };
 
     let auth = state.ipc_auth.lock().await;
 
     let expected = match auth.session_token.as_deref() {
+        Some(v) if !v.is_empty() => v,
+        _ => {
+            if cmd_unauth_until_session(&req.cmd) {
+                return None;
+            }
+            return Some(err_resp(req.id, "ipc_auth_required"));
+        }
+    };
+
+    let provided = match req.auth_token.as_deref() {
         Some(v) if !v.is_empty() => v,
         _ => return Some(err_resp(req.id, "ipc_auth_required")),
     };

@@ -1,7 +1,7 @@
 use lithium_core::{
     crypto::keys,
     error::{LithiumError, Result},
-    secrets::{Byte32, bytes::SecretBytes},
+    secrets::{Byte32, ZeroizingWriter, bytes::SecretBytes},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -52,10 +52,9 @@ pub fn gen_local_prekey_material() -> Result<(String, SecretBytes, LocalPrekeyPu
     };
 
     let priv_blob = {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), &priv_state)
-            .map_err(LithiumError::json_parse)?;
-        out
+        let mut w = ZeroizingWriter::new();
+        serde_json::to_writer(&mut w, &priv_state).map_err(LithiumError::json_parse)?;
+        w.into_secret()
     };
 
     let public_item = LocalPrekeyPublic {

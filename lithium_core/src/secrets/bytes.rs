@@ -1,6 +1,8 @@
 use core::fmt;
 use core::hash::{Hash, Hasher};
+use std::io;
 use subtle::ConstantTimeEq;
+use zeroize::Zeroize;
 
 use secrecy::{ExposeSecret, ExposeSecretMut, SecretBox};
 
@@ -213,5 +215,78 @@ impl ExposeSecret<Vec<u8>> for SecretBytes {
 impl AsRef<[u8]> for SecretBytes {
     fn as_ref(&self) -> &[u8] {
         self.expose_as_slice()
+    }
+}
+
+pub struct ZeroizingWriter {
+    buf: Vec<u8>,
+}
+
+impl ZeroizingWriter {
+    #[inline]
+    pub fn new() -> Self {
+        Self { buf: Vec::new() }
+    }
+
+    #[inline]
+    pub fn into_secret(self) -> SecretBytes {
+        SecretBytes::new(self.buf)
+    }
+}
+
+impl Default for ZeroizingWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl io::Write for ZeroizingWriter {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        // Manual grow so the outgrown buffer is zeroized before it is freed; a
+        // plain Vec realloc would leave secret fragments in freed heap.
+        if self.buf.len() + data.len() > self.buf.capacity() {
+            let new_cap = (self.buf.capacity() * 2)
+                .max(self.buf.len() + data.len())
+                .max(64);
+            let mut next = Vec::with_capacity(new_cap);
+            next.extend_from_slice(&self.buf);
+            self.buf.zeroize();
+            self.buf = next;
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn zeroizing_writer_concatenates_across_growth() {
+        let mut w = ZeroizingWriter::new();
+        let mut expected = Vec::new();
+        for i in 0u16..2000 {
+            let chunk = i.to_be_bytes();
+            w.write_all(&chunk).unwrap();
+            expected.extend_from_slice(&chunk);
+        }
+        assert_eq!(w.into_secret().expose_as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn zeroizing_writer_matches_serde_to_vec() {
+        let value = serde_json::json!({"k_priv": "deadbeef", "n": 42, "list": [1, 2, 3]});
+        let mut w = ZeroizingWriter::new();
+        serde_json::to_writer(&mut w, &value).unwrap();
+        assert_eq!(
+            w.into_secret().expose_as_slice(),
+            serde_json::to_vec(&value).unwrap().as_slice()
+        );
     }
 }

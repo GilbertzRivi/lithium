@@ -19,7 +19,8 @@ Kompromitacja warstwy transportu nie ujawnia treści wiadomości — pozostają 
 | AEAD | AES-256-GCM-SIV |
 | KDF | HKDF-SHA256 |
 | Podpisy | Ed25519 + ML-DSA-87 (dual-sign) |
-| Hash haseł | Argon2id |
+| Uwierzytelnianie hasłem (PAKE) | OPAQUE (ristretto255 + Argon2id) |
+| KSF / derywacja z hasła | Argon2id |
 | CSRNG | `rand::rngs::SysRng` |
 
 Szczegółowa analiza KyberBox: [kyberbox.md](kyberbox.md).
@@ -36,7 +37,7 @@ Klient wysyła w cleartext nagłówkach HTTP:
 - `seed` — zaszyfrowane ziarno KEM
 - `data` — blob zaszyfrowanych nagłówków aplikacyjnych
 
-Klient szyfruje ciało żądania przez KyberBox z kontekstem `"shake"`, używając długoterminowych kluczy publicznych serwera jako adresata (X25519 i ML-KEM-1024 z pliku `server.identity`) i własnego efemerycznego klucza prywatnego X25519 jako nadawcy. Serwer deszyfruje ciało swoim długoterminowym kluczem prywatnym X25519 oraz efemerycznym kluczem publicznym klienta z nagłówka `key-x`.
+Klient szyfruje ciało żądania przez KyberBox z kontekstem `"shake-req"` (odpowiedź serwera jest szyfrowana pod `"shake-resp"`), używając długoterminowych kluczy publicznych serwera jako adresata (X25519 i ML-KEM-1024 z pliku `server.identity`) i własnego efemerycznego klucza prywatnego X25519 jako nadawcy. Serwer deszyfruje ciało swoim długoterminowym kluczem prywatnym X25519 oraz efemerycznym kluczem publicznym klienta z nagłówka `key-x`.
 
 W zaszyfrowanych nagłówkach aplikacyjnych (`data`) klient umieszcza:
 - `key-ed` — efemeryczny klucz publiczny Ed25519 (hex 32B)
@@ -72,7 +73,7 @@ Klient wysyła w cleartext nagłówkach HTTP:
 
 W zaszyfrowanych nagłówkach aplikacyjnych (`data`) klient umieszcza `sig-ed`, `sig-dili`, oraz opcjonalnie `key-ed`/`key-dili` — zależnie od endpointu (patrz tabela niżej).
 
-Klient szyfruje ciało przez KyberBox z kontekstem `"session"`, używając kluczy publicznych sesji serwera (otrzymanych z poprzedniej odpowiedzi w cleartext nagłówkach HTTP jako `key-x`, `key-k`) jako adresata. Serwer używa `ses-x`/`ses-k` jako kluczy lookup do `EphemeralStoreManager`, skąd pobiera odpowiednie klucze prywatne sesji, i deszyfruje ciało. TTL sesji: 120s.
+Klient szyfruje ciało przez KyberBox z kontekstem `"{endpoint}-req"` (odpowiedź pod `"{endpoint}-resp"`) — etykieta kontekstu jest budowana per endpoint przez `ctx_req`/`ctx_resp` z nazwy endpointu (`register_start`, `login_start`, `msg_send`, `msg_fetch`, …; `lithium_core/src/contract/protocol.rs`); nie istnieje jeden wspólny kontekst `"session"`. Adresatem są klucze publiczne sesji serwera (otrzymane z poprzedniej odpowiedzi w cleartext nagłówkach HTTP jako `key-x`, `key-k`). Serwer używa `ses-x`/`ses-k` jako kluczy lookup do `EphemeralStoreManager`, skąd pobiera odpowiednie klucze prywatne sesji, i deszyfruje ciało. TTL sesji: 120s.
 
 Po każdej odpowiedzi serwer generuje nowe pary kluczy sesji i umieszcza je w nagłówkach — klient używa nowych kluczy do kolejnego żądania.
 
@@ -92,18 +93,18 @@ Zachowanie per endpoint:
 
 | Endpoint | Klucze `key-ed`/`key-dili` w nagłówkach | `AuthMode` | Weryfikacja po stronie serwera |
 |----------|------------------------------------------|------------|-------------------------------|
-| `Shake`, `RemoteDelete`, `MsgFetch` | efemeryczne (generowane per żądanie) | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania |
-| `Register` | długoterminowe klucze tożsamości | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania (serwer zapisuje je w DB) |
-| `Login` | brak | `LoginByHandler` | kluczami zapisanymi w DB, wyszukanymi po `handler` |
-| `Delete`, `MsgSend` | brak | `JwtUser` | tożsamość użytkownika z JWT wystawionego przy `Login` (nie z kluczy w nagłówkach) |
+| `Shake`, `RemoteDelete`, `MsgSend`, `MsgFetch` | efemeryczne (generowane per żądanie) | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania |
+| `RegisterStart`, `RegisterFinish` | długoterminowe klucze tożsamości | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania (serwer zapisuje je w DB) |
+| `LoginStart`, `LoginFinish` | brak | `LoginByHandler` | kluczami zapisanymi w DB, wyszukanymi po `handler` |
+| `Delete` | brak | `JwtUser` | tożsamość użytkownika z JWT wystawionego przy logowaniu (nie z kluczy w nagłówkach) |
 
 Serwer dual-podpisuje każdą odpowiedź swoimi kluczami. Klient weryfikuje pod kluczami załadowanymi z pliku `server.identity`.
 
 ### JWT (jednorazowy token autoryzacji)
 
-JWT wystawiany przy pomyślnym logowaniu (`/user/login`), wymagany przez endpointy z `AuthMode::JwtUser`: wysłanie wiadomości (`/msg/send`) i usunięcie konta (`/user/delete`).
+JWT wystawiany przy pomyślnym logowaniu (`/user/login/finish`), wymagany przez jedyny endpoint z `AuthMode::JwtUser`: usunięcie konta (`/user/delete`). Wysyłka wiadomości (`/msg/send`) jest anonimowa (`KeysInHeaders`) i JWT nie używa.
 
-Nie istnieje żadna komenda IPC `login` i żaden ekran GUI logowania. `/user/login` jest wołane automatycznie i niewidocznie przez `ProtocolManager::ensure_login` (`lithiumd/src/protocol_manager.rs`) za każdym razem, gdy operacja wymagająca JWT (`contact_send`, `delete_account`) albo DEK-a (`unlock_storage`, `get_dek`) nie ma już zcache'owanego, niezużytego tokenu — używając handlera/hasła konta z `set_credentials`, trzymanych tylko w pamięci. Token jest jednorazowy (`store.take`), więc praktycznie każde kolejne wywołanie `contact_send`/`delete_account` po wyczerpaniu poprzedniego tokenu wywoła ponowny, równie niewidoczny `/user/login` w tle.
+Nie istnieje żadna komenda IPC `login` i żaden ekran GUI logowania. Logowanie OPAQUE (`/user/login/start` + `/user/login/finish`) jest wołane automatycznie i niewidocznie przez `ProtocolManager::ensure_login` (`lithiumd/src/protocol_manager.rs`) za każdym razem, gdy operacja wymagająca JWT (`delete_account`; `Endpoint::Delete` to jedyny `requires_jwt()`) albo DEK-a (`unlock_storage`, `get_dek` — login zwraca zaszyfrowany DEK) nie ma już zcache'owanego, niezużytego tokenu — używając handlera/hasła konta z `set_credentials`, trzymanych tylko w pamięci. `contact_send`/`msg/send` jest anonimowe (`KeysInHeaders`) i **nie** wymaga JWT. Token JWT jest jednorazowy (`store.take`), więc każde kolejne `delete_account` po wyczerpaniu poprzedniego tokenu wywoła ponowny, równie niewidoczny login w tle.
 
 - Algorytm: HS256
 - Pole `sub`: `hex(HMAC-SHA256(user_id_bytes, random_seed_bytes))` — nieprzejrzysty identyfikator
@@ -118,14 +119,27 @@ Utrata tokenu lub przejęcie sesji nie pozwala na wielokrotne użycie — token 
 | Endpoint | Ścieżka | Tryb krypto | `key-ed`/`key-dili` w zaszyfrowanych nagłówkach |
 |----------|---------|-------------|--------------------------------------------------|
 | Shake | POST `/shake` | Shake | efemeryczne |
-| Rejestracja | POST `/user/register` | Session | tożsamości (zapisywane w DB) |
-| Logowanie | POST `/user/login` | Session | brak (serwer weryfikuje po `handler` z DB) |
+| Rejestracja (start) | POST `/user/register/start` | Session | tożsamości (zapisywane w DB) |
+| Rejestracja (finish) | POST `/user/register/finish` | Session | tożsamości |
+| Logowanie (start) | POST `/user/login/start` | Session | brak (serwer weryfikuje po `handler` z DB) |
+| Logowanie (finish) | POST `/user/login/finish` | Session | brak (serwer weryfikuje po `handler` z DB) |
 | Delete | POST `/user/delete` | Session | brak (serwer weryfikuje przez JWT) |
-| Wysłanie | POST `/msg/send` | Session | brak (serwer weryfikuje przez JWT) |
+| Wysłanie | POST `/msg/send` | Session | efemeryczne (anonimowe `KeysInHeaders` + PoW, bez JWT) |
 | Remote delete | POST `/user/revoke` | Session | efemeryczne |
 | Pobranie | POST `/msg/fetch` | Session | efemeryczne |
 | Root | GET `/` | brak | brak |
 | Health | GET `/health` | brak | brak |
+
+### Proof-of-Work na wysyłce
+
+`/msg/send` wymaga proof-of-work (anti-spam, niezależny od JWT). Serwer liczy wyzwanie z adresu skrzynki i treści, klient dołącza pasujący `nonce`:
+
+```
+challenge = SHA256("lithium/send-pow/v1" || u32_le(len(mailbox)) || mailbox || content)
+ok        = leading_zero_bits(SHA256(challenge || u64_le(nonce))) >= bits
+```
+
+`nonce` trafia do ciała JSON jako pole `pow`. Trudność `bits` ustawia `LITHIUMS_SEND_POW_BITS` (domyślnie 18; `lithium_core/src/pow.rs`). Niespełniony PoW odrzucany jest jako `400 invalid_pow`.
 
 ### Padding rozmiarów
 
@@ -263,22 +277,37 @@ Zawartość binarna (hex-encoded):
 
 Laczny rozmiar danych binarnych: **4361 bajtow** — **8722 znaki hex** po `lci1:`.
 
-### Przebieg wymiany
+### Przebieg wymiany (commit-reveal)
+
+Parowanie to **jednostronny commit-reveal**. Twórca (A) publikuje najpierw wyłącznie *commitment*
+do swojego kodu, nigdy surowy kod; akceptor (B) ujawnia swój kod dopiero po otrzymaniu commitmentu
+A; A ujawnia swój kod dopiero po otrzymaniu kodu B; na końcu B weryfikuje ujawniony kod A względem
+commitmentu. Kolejność reveal jest **wymuszana przez daemona**: `CreateInvite` zwraca tylko
+commitment (kod A nigdy nie opuszcza daemona na tym etapie), a `RevealInvite` wymaga kodu peera na
+wejściu, zanim wyemituje własny kod.
 
 ```
-Strona A: create_invite -> kod lci1:HEX (klucze publiczne A)
-Strona A przesyla kod B kanałem OOB (email, telefon, inne)
-Strona B: accept_invite(kod A, contact_id=null) -> my_code (klucze publiczne B)
-Strona B przesyla my_code do A kanałem OOB
-Strona A: accept_invite(my_code, contact_id=A_contact_id)
+commitment = SHA256("lithiumd/pair-commit/v1" || dekodowany_kod)   -> 32 bajty (hex)
+
+(4 komunikaty kanałem OOB: email, telefon, inne)
+A: CreateInvite{contact_id=null}                      -> commitment_A    [A->B: commitment_A]
+B: AcceptCommitment{commitment_A, label}              -> kod_B           [B->A: kod_B]
+   (B zapisuje pending_commit = commitment_A)
+A: RevealInvite{contact_id=A, peer_code=kod_B, label} -> kod_A           [A->B: kod_A]
+   (A ustawia peer = tozsamosc B)
+B: FinalizePairing{contact_id=B, peer_code=kod_A}
+   (B weryfikuje ct_eq(SHA256(kod_A), pending_commit), ustawia peer = tozsamosc A)
+
 Obie strony: peer_set=true -> moga pisac
 ```
 
-Serwer nie uczestniczy w wymianie zaproszeń — kody są wymieniane poza serwerem.
+Commitment nie wymaga kanału poufnego ani uwierzytelnionego — jest jawnym hashem i jego jedyną rolą
+jest wymuszenie kolejności (commit przed reveal). Serwer nie uczestniczy w wymianie zaproszeń —
+wszystkie cztery komunikaty są wymieniane poza serwerem.
 
 ### Weryfikacja tożsamości out-of-band
 
-Po wymianie obie strony weryfikują 12-znakowy fingerprint (SAS — Short Authentication String, alfabet 64 znaków: litery, cyfry, symbole, greckie litery) kanałem głosowym lub osobistym.
+Po wymianie obie strony weryfikują **6-znakowy** fingerprint (SAS — Short Authentication String, alfabet 64 znaków: litery, cyfry, symbole, greckie litery — `VERIFY_EMOJI_TABLE`/`VERIFY_EMOJI_LEN` w `lithiumd/src/commands/contact_verify_emoji.rs`) kanałem głosowym lub osobistym.
 
 Każda strona najpierw liczy własny "party transcript" — HKDF po konkatenacji 8 pól tożsamości (własny `cid`, `x_pub`, `ed_pub`, `dili_pub`, `k_pub` oraz 3 klucze mailbox: `mbox_in_pub`, `mbox_out_cur_pub`, `mbox_out_next_pub`) pod etykietą `PARTY_TRANSCRIPT_LABEL` (`"lithiumd/party-transcript/v1"`):
 
@@ -292,13 +321,27 @@ Następnie oba transkrypty są sortowane (`t_a, t_b = sorted(t_self, t_peer)`), 
 
 ```
 shared    = ECDH(self_x_priv, peer_x_pub)
-12 bajtow = HKDF(shared, info="lithiumd/contact-verify-emoji/v1" || t_a || t_b)
-emoji[i]  = EMOJI_TABLE[bajt[i] mod 64]
+sas32     = HKDF(shared, info="lithiumd/contact-verify-emoji/v1" || t_a || t_b)  -> 32 bajty
+emoji[i]  = EMOJI_TABLE[sas32[i] mod 64]   dla i = 0..6   (6 symboli; 256 = 4*64, brak modulo bias)
 ```
 
 Włączenie `t_a`/`t_b` do `info` wiąże fingerprint nie tylko z kluczem X25519, ale z całym zestawem tożsamości i kluczy mailbox obu stron — podmiana jakiegokolwiek z 8 pól po jednej ze stron zmienia wynikowy SAS. Identyczne emoji po obu stronach potwierdza brak MITM przy wymianie.
 
-Długość 12 symboli (alfabet 64 → 72 bity) jest parametrem bezpieczeństwa: wymiana zaproszeń nie ma commitmentu kluczy, więc MITM kontrolujący kanał OOB może grindować własny zestaw kluczy offline, aby dopasować SAS ofiary. Grind jest HKDF-zależny (tani na GPU), dlatego jedyną samodzielną obroną (bez commit-reveal) jest dostatecznie długi ciąg — 2^72 ewaluacji jest niewykonalne nawet klastrowo.
+Długość 6 symboli (alfabet 64 → 36 bitów) jest wystarczająca **wyłącznie dzięki commit-reveal**
+opisanemu w „Przebieg wymiany". Bez commitmentu MITM kontrolujący kanał OOB mógłby grindować własny
+zestaw kluczy offline pod SAS ofiary (grind jest HKDF-zależny, tani na GPU); birthday-kolizja
+36-bitowego SAS to wtedy ~2^18 ewaluacji — trywialne. Commit-reveal to zamyka: MITM musi zafiksować
+podstawione klucze wobec każdej ze stron, *zanim* ta strona ujawni swój kod (akceptor ujawnia kod
+dopiero po otrzymaniu commitmentu twórcy; twórca ujawnia kod dopiero po otrzymaniu kodu akceptora —
+kolejność wymusza daemon). Ponieważ SAS miesza kody obu stron, a w chwili gdy MITM finalizuje wybór
+co najmniej jeden realny kod jest jeszcze nieujawniony, atak offline jest niemożliwy. MITM dostaje
+**jeden ślepy strzał 2^-36 na całą ceremonię** (wymagającą żywego porównania SAS) — co jest
+niewykonalne.
+
+**Niezmiennik sprzężenia (nie naruszać niezależnie):** długość SAS i commit-reveal są sprzężone.
+Skrócenie SAS *albo* usunięcie commit-reveal w izolacji ponownie otwiera offline-grind (~2^18). Każda
+z tych zmian wolno robić tylko z równoległą rekompensatą w drugim mechanizmie (dłuższy SAS przy
+braku commitmentu, lub commitment przy krótszym SAS).
 
 ## Cykl życia kluczy
 
@@ -369,17 +412,16 @@ Treść wiadomości jest dodatkowo zaszyfrowana przez klienta warstwą E2E przed
 
 ### Schemat szyfrowania pól użytkownika
 
-Każde pole w tabeli `users` szyfrowane jest indywidualnie pod DEK serwera z osobnym AAD:
+Wrażliwe pola w tabeli `users` szyfrowane są indywidualnie pod DEK serwera (AES-256-GCM-SIV), każde z osobnym AAD (`lithiums/src/labels.rs`):
 
 | Pole | AAD |
 |------|-----|
-| `password_hash` | `"user-password-hash/v1"` |
-| `handler` | `"user-handler/v1"` |
+| `opaque_record` | `"user-opaque-record/v1"` |
 | `ed_key` | `"user-ed-key/v1"` |
 | `dili_key` | `"user-dili-key/v1"` |
 | `dek` | `"user-dek/v1"` |
 
-Podmiana DEK lub użycie nieprawidłowego AAD skutkuje błędem deszyfrowania AEAD.
+Kolumna `id` to deterministyczny `id_enc` (osobny schemat niżej). `delete_token_hash` nie jest szyfrowane DEK-iem — to `SHA256(remote_delete_capability)`, używane wyłącznie jako klucz wyszukiwania przy `/user/revoke`. Nie ma kolumny `handler` — handler jest przesyłany przejściowo i mapowany na deterministyczne `id`. Podmiana DEK lub użycie nieprawidłowego AAD skutkuje błędem deszyfrowania AEAD.
 
 ### Deterministyczne ID użytkownika
 

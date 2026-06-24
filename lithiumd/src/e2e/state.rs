@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use lithium_core::{
     error::{LithiumError, Result},
-    secrets::bytes::SecretBytes,
+    secrets::{ZeroizingWriter, bytes::SecretBytes},
 };
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -285,9 +285,9 @@ impl SelfState {
     }
 
     pub(crate) fn to_secret_bytes(&self) -> Result<SecretBytes> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), self).map_err(LithiumError::json_parse)?;
-        Ok(out)
+        let mut w = ZeroizingWriter::new();
+        serde_json::to_writer(&mut w, self).map_err(LithiumError::json_parse)?;
+        Ok(w.into_secret())
     }
 }
 
@@ -312,9 +312,9 @@ impl PeerState {
     }
 
     pub(crate) fn to_secret_bytes(&self) -> Result<SecretBytes> {
-        let mut out = SecretBytes::new(Vec::new());
-        serde_json::to_writer(out.expose_as_mut_vec(), self).map_err(LithiumError::json_parse)?;
-        Ok(out)
+        let mut w = ZeroizingWriter::new();
+        serde_json::to_writer(&mut w, self).map_err(LithiumError::json_parse)?;
+        Ok(w.into_secret())
     }
 
     pub(crate) fn peer_is_set(&self) -> bool {

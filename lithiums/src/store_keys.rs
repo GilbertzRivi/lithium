@@ -36,6 +36,14 @@ pub(crate) fn opaque_login(flow: &str) -> String {
     format!("opaque:login:{flow}")
 }
 
+pub(crate) fn session(id_hex: &str) -> String {
+    format!("ses:{id_hex}")
+}
+
+pub(crate) fn msg_key(id_hex: &str) -> String {
+    format!("msgkey:{id_hex}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,5 +59,7 @@ mod tests {
         assert_eq!(replay("ab"), "replay:ab");
         assert_eq!(token("t"), "token:t");
         assert_eq!(opaque_login("f"), "opaque:login:f");
+        assert_eq!(session("ab"), "ses:ab");
+        assert_eq!(msg_key("cd"), "msgkey:cd");
     }
 }
