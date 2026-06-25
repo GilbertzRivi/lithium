@@ -49,6 +49,8 @@ cargo test -p lithium_core name                   # pojedynczy test
 cargo test -p lithium_itest --test daemon_basic   # jedna binarka itest
 ```
 
+Krypto-rdzeń ma testy publicznego API w `lithium_core/tests/` (`crypto_tests`, `secret_tests`, `password_tests`, `store_tests`) oraz wektory testowe (KAT) w `golden_tests.rs`, sprawdzane względem danych w `tests/testdata/` (golden dla KyberBox i weryfikacji ML-DSA-87) — bronią przed regresją formatu wire i rozjazdem z prymitywami.
+
 Testy integracyjne (`lithium_itest`) dzielą się na trzy zestawy w `tests/`: `server/` (serwer w izolacji), `daemon/` (daemon przeciw in-process `TestServer`) i `daemon_server_tests/` (dwa daemony przez prawdziwy serwer). Poszczególne binarki testowe i ich zakres opisują pliki w `lithium_itest/tests/`.
 
 ## Fuzzing

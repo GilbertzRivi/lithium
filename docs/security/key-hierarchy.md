@@ -1,6 +1,6 @@
 # Katalog i hierarchia kluczy
 
-Jeden zbiorczy widok wszystkich kluczy i sekretów w Lithium: skąd pochodzą, gdzie leżą, jak długo żyją i co chronią. Szczegóły derywacji opisuje [crypto-protocol.md](crypto-protocol.md); konsekwencje dla bezpieczeństwa — [security-model.md](security-model.md). Wszystkie etykiety są pinowane testami (`registry_values_are_pinned`).
+Jeden zbiorczy widok wszystkich kluczy i sekretów w Lithium: skąd pochodzą, gdzie leżą, jak długo żyją i co chronią. Szczegóły derywacji opisuje [crypto-protocol.md](../protocol/crypto-protocol.md); konsekwencje dla bezpieczeństwa — [security-model.md](security-model.md). Wszystkie etykiety są pinowane testami (`registry_values_are_pinned`).
 
 ## Drzewo zależności
 

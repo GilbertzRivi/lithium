@@ -1,6 +1,6 @@
 # Wersjonowanie i ewolucja protokołu
 
-Jak Lithium wersjonuje swoje formaty i jaka jest obecna filozofia ich zmiany. Konkretne formaty opisuje [crypto-protocol.md](crypto-protocol.md); listę etykiet — [key-hierarchy.md](key-hierarchy.md).
+Jak Lithium wersjonuje swoje formaty i jaka jest obecna filozofia ich zmiany. Konkretne formaty opisuje [crypto-protocol.md](crypto-protocol.md); listę etykiet — [key-hierarchy.md](../security/key-hierarchy.md).
 
 ## Dwie warstwy wersjonowania
 
@@ -47,5 +47,5 @@ Gdy projekt zostanie wdrożony, ta postawa będzie musiała się zmienić na wł
 Niektóre wartości są ze sobą związane i ich zmiana wymaga rekompensaty gdzie indziej:
 
 - **Konteksty kierunkowe transportu** (`-req`/`-resp`) i etykiety AEAD muszą być identyczne po obu stronach wrapa — inaczej deszyfracja zawodzi.
-- **Długość SAS i commit-reveal** są sprzężone (patrz [design-decisions.md](design-decisions.md) #5): skrócenie jednego bez drugiego ponownie otwiera offline-grind.
+- **Długość SAS i commit-reveal** są sprzężone (patrz [design-decisions.md](../design-decisions.md) #5): skrócenie jednego bez drugiego ponownie otwiera offline-grind.
 - **Etykiety derywacji** (`combined/v1`, `db-dek/v1`, …) definiują tożsamość wyprowadzonych kluczy — zmiana wersji etykiety unieważnia wszystkie dane zaszyfrowane starym kluczem.

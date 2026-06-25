@@ -1,6 +1,6 @@
 # Runtime daemona lithiumd — model procesu, system tray, cykl życia
 
-Dokument opisuje, jak proces `lithiumd` jest zbudowany i jak się uruchamia, restartuje oraz zamyka. Komendy IPC opisuje [ipc-reference.md](ipc-reference.md); ten plik dotyczy samego runtime'u procesu (`lithiumd/src/lib.rs`, `main.rs`, `tray.rs`, `util.rs`).
+Dokument opisuje, jak proces `lithiumd` jest zbudowany i jak się uruchamia, restartuje oraz zamyka. Komendy IPC opisuje [ipc-reference.md](../protocol/ipc-reference.md); ten plik dotyczy samego runtime'u procesu (`lithiumd/src/lib.rs`, `main.rs`, `tray.rs`, `util.rs`).
 
 ## Dlaczego `main()` nie jest `#[tokio::main]`
 
@@ -58,13 +58,7 @@ Endpoint jest wybierany przy starcie (`util::default_ipc_endpoint`):
 - **Unix**: `LITHIUMD_SOCKET_PATH`, w przeciwnym razie `{XDG_RUNTIME_DIR}/lithiumd.sock`. Bez `XDG_RUNTIME_DIR` i bez override'u start kończy się błędem (brak bezpiecznej lokalizacji). Socket nasłuchuje z uprawnieniami właściciela; przy starcie `prepare_socket` usuwa nieaktualny socket z poprzedniego uruchomienia.
 - **Windows**: named pipe `LITHIUMD_PIPE_NAME` (domyślnie `\\.\pipe\lithiumd`), `reject_remote_clients(true)`.
 
-Polityka połączeń IPC (`util::load_ipc_policy`):
-
-| Parametr | Zmienna | Domyślnie | Uwagi |
-|----------|---------|-----------|-------|
-| Maks. równoległych połączeń | `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | min 1 |
-| Idle timeout | `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | min 5 |
-| Dozwolony UID (Linux) | `LITHIUMD_IPC_ALLOWED_UID` | brak | niezgodny UID zrywa połączenie bez odpowiedzi JSON |
+Polityka połączeń IPC (`util::load_ipc_policy`) — `LITHIUMD_IPC_MAX_CONNECTIONS`, `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`, `LITHIUMD_IPC_ALLOWED_UID` — zebrana w sekcji [Zmienne środowiskowe](#zmienne-środowiskowe).
 
 ## Start procesu, krok po kroku
 
@@ -76,7 +70,7 @@ Polityka połączeń IPC (`util::load_ipc_policy`):
 4. Wczytuje `server_url` (plik), ścieżkę `server.identity` (`LITHIUMD_SERVER_IDENTITY` lub `{data_dir}/server.identity`) oraz flagę `needs_register` (istnienie `registered.flag`).
 5. Buduje `DaemonState`, startuje wątek daemona i `tray::run` na wątku głównym.
 
-Keystore, `MkRotator`, lokalna baza i `ProtocolManager` nie są tworzone przy starcie — powstają dopiero po `unlock_keystore` / `unlock_storage` (patrz [ipc-reference.md](ipc-reference.md)).
+Keystore, `MkRotator`, lokalna baza i `ProtocolManager` nie są tworzone przy starcie — powstają dopiero po `unlock_keystore` / `unlock_storage` (patrz [ipc-reference.md](../protocol/ipc-reference.md)).
 
 ## Układ katalogu danych
 
@@ -99,4 +93,20 @@ Keystore, `MkRotator`, lokalna baza i `ProtocolManager` nie są tworzone przy st
 └── registered.flag              marker rejestracji (0o600)
 ```
 
-Socket IPC **nie** leży w katalogu danych — domyślnie jest w `{XDG_RUNTIME_DIR}`. Formaty `mk.enc`, `*.keyf` i `server.identity` opisuje [crypto-protocol.md](crypto-protocol.md); schemat tabel `storage/lithiumd.sqlite` — [lithiumd.md](lithiumd.md). Szyfrowanie danych w spoczynku i model „dwóch czynników" (hasło + `server_dek`) opisuje [security-model.md](security-model.md).
+Socket IPC **nie** leży w katalogu danych — domyślnie jest w `{XDG_RUNTIME_DIR}`. Formaty `mk.enc`, `*.keyf` i `server.identity` opisuje [crypto-protocol.md](../protocol/crypto-protocol.md); schemat tabel `storage/lithiumd.sqlite` — [lithiumd.md](../reference/lithiumd.md). Szyfrowanie danych w spoczynku i model „dwóch czynników" (hasło + `server_dek`) opisuje [security-model.md](../security/security-model.md).
+
+## Zmienne środowiskowe
+
+| Zmienna | Domyślnie | Opis |
+|---------|-----------|------|
+| `LITHIUMD_DATA_DIR` | platformowy katalog danych (np. `~/.local/share/lithiumd`) | Katalog danych daemona |
+| `LITHIUMD_SOCKET_PATH` | `{XDG_RUNTIME_DIR}/lithiumd.sock` | Ścieżka Unix socketa |
+| `LITHIUMD_PIPE_NAME` | `\\.\pipe\lithiumd` | Nazwa named pipe (Windows) |
+| `LITHIUMD_SERVER_IDENTITY` | `{data_dir}/server.identity` | Ścieżka pliku tożsamości serwera |
+| `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | Max równoległych połączeń IPC |
+| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | Idle timeout połączenia (min 5) |
+| `LITHIUMD_IPC_ALLOWED_UID` | — | Dozwolony UID (Linux; brak = bez ograniczenia); odmowa zrywa połączenie bez odpowiedzi JSON |
+| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` | Kadencja send dispatchera cover traffic (min 1) |
+| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS` | `20` | Kadencja fetch dispatchera cover traffic / auto-fetch (min 1) |
+
+Adres relay'a nie jest zmienną środowiskową — ustawia się go komendą IPC `set_server_url` i zapisuje do `{data_dir}/server_url`.

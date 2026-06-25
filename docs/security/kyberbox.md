@@ -109,6 +109,10 @@ KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wy
 
 ## Otwarte ryzyka i pytania do audytora
 
+Skonsolidowane uzasadnienie samego kombinatora hybrydowego (porównanie z X-Wing i pytania
+Q1–Q4 postawione wprost jako zakres dla audytora) znajduje się w [`combiner.md`](combiner.md).
+Poniżej szczegółowe ryzyka na poziomie konstrukcji.
+
 **HKDF bez salta w `derive_ecdh_key`.** Wywołanie to `HKDF-SHA256(IKM=ecdh_ss, salt=None, info=...)`. Zgodnie z RFC 5869 §2.2, brak salta powoduje, że HKDF-Extract używa klucza HMAC wypełnionego zerami o długości `HashLen`. Wynik X25519 jest wówczas traktowany bezpośrednio jako IKM. Wynik X25519 to 32-bajtowa wartość na grupie Curve25519 — nie jest jednostajnie losowy na pełnych 256 bitach (najwyższy bit jest zawsze 0, niskie bity są wyczyszczone przez clamping). To standardowa praktyka stosowana w wielu protokołach, ale audytor powinien zweryfikować, że konkretny dowód bezpieczeństwa obejmuje tę dystrybucję IKM.
 
 **Przechowywanie klucza prywatnego X25519 jako raw seed przed clampingiem.** `random_x25519_keypair` zwraca i zapisuje `sk_seed` — 32 bajty przed clampingiem — nie sklamponowany skalar. Clamping jest aplikowany przy każdym użyciu przez `XStaticSecret::from(seed_array)`. Wzorzec jest poprawny i spójny wewnątrz bazy kodu, ale każdy przyszły kod, który bezpośrednio interpretowałby zapisane bajty jako skalar Curve25519, byłby błędny. Audytor powinien zweryfikować wszystkie miejsca użycia, żeby upewnić się, że klucz prywatny zawsze przechodzi przez `XStaticSecret::from()`.
@@ -116,9 +120,6 @@ KyberBox przyjmuje następujące założenia, których dotrzymanie należy do wy
 **Kod C PQClean jest niezaudytowaną zewnętrzną zależnością.** Implementacja ML-KEM-1024 to referencyjny kod C PQClean, kompilowany przez FFI. Ścieżki AVX2 i NEON są włączone domyślnie. Zespół Lithium nie audytował tego kodu. Jakikolwiek side-channel czasowy, problem bezpieczeństwa pamięci lub niezgodność z FIPS 203 w kodzie PQClean byłyby dziedziczone. To standardowe ryzyko zależności, ale warto je odnotować explicite biorąc pod uwagę model zagrożeń.
 
 **Brak explicite powiązania `from_x_pub` wewnątrz KyberBox.** Efemeryczny klucz publiczny X25519 nadawcy (`from_x_pub` w `WireV1`) jest używany jako `peer_pub_x` w wywołaniu `decrypt`, ale nie jest zawarty w żadnym info HKDF ani AAD żadnego AEAD wewnątrz kyberbox.rs. Modyfikacja `from_x_pub` w transporcie powoduje błąd AEAD (inne wyjście ECDH → inny `base_key`), więc aktywny atakujący nie może go po cichu podstawić. Jednak KyberBox sam z siebie nie wskazuje, *który* klucz publiczny był użyty — atrybucja wiadomości do konkretnego nadawcy leży po stronie wywołującego. W `session.rs` zapewnia to weryfikacja zewnętrznego podpisu.
-
-**`SHA256(ct_kem)` jako salt HKDF w derywacji klucza seed.** Salt jest hashem ciphertextu ML-KEM widocznego dla atakującego, który służy jednocześnie jako sprawdzenie integralności. Używanie hashu wartości widocznej dla atakującego jako salta KDF jest niestandardowe. Argument bezpieczeństwa brzmi: `ss_kem` (shared secret ML-KEM) jest właściwym materiałem klucza, a salt musi jedynie być niesekretny i unikalny per ciphertext — co `SHA256(ct_kem)` spełnia. Audytor powinien zweryfikować, że ta konstrukcja nie wprowadza osłabienia w dowodzie bezpieczeństwa HKDF, w szczególności: czy atakujący, który może wybrać `ct_kem` (np. przez złośliwą wiadomość), może wymusić konkretną wartość salta w sposób osłabiający wynikający `aead_key_kem`.
-
 ## Podsumowanie
 
 KyberBox to prosta hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 enkapsuluje świeży 32-bajtowy seed, X25519 dostarcza drugi niezależny shared secret, oba są łączone przez HKDF w `base_key`, a body i headers są szyfrowane przez AES-256-GCM-SIV pod kluczami wyprowadzonymi z `base_key`. Schemat ma na celu osiągnięcie świeżości klucza per wiadomość przez losowy seed, hybrydowego bezpieczeństwa klasyczne/post-kwantowego przez kombinowaną derywację klucza i odporności na nonce reuse przez konstrukcję SIV — o ile użyte prymitywy spełniają standardowe założenia bezpieczeństwa.

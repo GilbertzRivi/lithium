@@ -12,3 +12,6 @@ docker
 
 # leftover z samodzielnego buildu lithiums w kontenerze; pinem jest root Cargo.lock
 /lithiums/Cargo.lock
+
+# wewnętrzne/nieoficjalne notatki — poza dokumentacją publiczną
+/notes/

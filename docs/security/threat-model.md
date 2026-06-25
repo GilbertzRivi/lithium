@@ -1,6 +1,6 @@
 # Model zagrożeń (zorientowany na przeciwnika)
 
-Companion do [security-model.md](security-model.md), który opisuje model zaufania, priorytety i świadome kompromisy. Ten dokument podchodzi od strony **przeciwnika**: dla każdej klasy atakującego wylicza zdolności, obronę Lithium i ryzyko rezydualne. Mechanikę kryptograficzną opisuje [crypto-protocol.md](crypto-protocol.md), a mapę kluczy [key-hierarchy.md](key-hierarchy.md).
+Companion do [security-model.md](security-model.md), który opisuje model zaufania, priorytety i świadome kompromisy. Ten dokument podchodzi od strony **przeciwnika**: dla każdej klasy atakującego wylicza zdolności, obronę Lithium i ryzyko rezydualne. Mechanikę kryptograficzną opisuje [crypto-protocol.md](../protocol/crypto-protocol.md), a mapę kluczy [key-hierarchy.md](key-hierarchy.md).
 
 ## Aktywa chronione
 
@@ -88,7 +88,7 @@ Companion do [security-model.md](security-model.md), który opisuje model zaufan
 
 Precyzuje granice ochrony warstwy E2E (`lithiumd/src/e2e/`) wobec przeciwnika, który **w chwili T
 przejmuje odblokowane urządzenie** i czyta `self_state` + `peer_state` (klasy 4-7 w wariancie pełnej
-kompromitacji). Mechanikę kluczy opisują [crypto-protocol.md](crypto-protocol.md) i [kyberbox.md](kyberbox.md);
+kompromitacji). Mechanikę kluczy opisują [crypto-protocol.md](../protocol/crypto-protocol.md) i [kyberbox.md](kyberbox.md);
 tu chodzi o granice gwarancji.
 
 **Co przeciwnik ma w chwili T:** klucze tożsamości kontaktu `ed_priv` + `dili_priv` (per kontakt,

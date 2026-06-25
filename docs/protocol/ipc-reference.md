@@ -720,7 +720,7 @@ Ustawia tożsamość serwera (cztery klucze publiczne, zakodowane jak opisano w 
 }
 ```
 
-Zapisuje bajty do `state.identity_path` na dysku i natychmiast invaliduje cache bootstrapu (`proto.invalidate_bootstrap_cache()`) — nowa tożsamość obowiązuje od następnego żądania do serwera, bez potrzeby `lock_keystore`/`unlock_keystore`. Patrz [security-model.md](security-model.md#zmiana-serveridentity-jest-celowo-bolesna).
+Zapisuje bajty do `state.identity_path` na dysku i natychmiast invaliduje cache bootstrapu (`proto.invalidate_bootstrap_cache()`) — nowa tożsamość obowiązuje od następnego żądania do serwera, bez potrzeby `lock_keystore`/`unlock_keystore`. Patrz [security-model.md](../security/security-model.md#zmiana-serveridentity-jest-celowo-bolesna).
 
 Odpowiedź:
 ```json
@@ -878,14 +878,4 @@ Auto-fetch (`traffic.rs`) obsługuje błędy per-wiadomość po cichu (`invalid_
 
 ## Zmienne środowiskowe
 
-| Zmienna | Domyślnie | Opis |
-|---------|-----------|------|
-| `LITHIUMD_DATA_DIR` | platformowy katalog danych (np. `~/.local/share/lithiumd`) | Katalog danych daemona |
-| `LITHIUMD_SOCKET_PATH` | `{XDG_RUNTIME_DIR}/lithiumd.sock` | Ścieżka Unix socketa |
-| `LITHIUMD_PIPE_NAME` | `\\.\pipe\lithiumd` | Nazwa named pipe (Windows) |
-| `LITHIUMD_SERVER_IDENTITY` | `{data_dir}/server.identity` | Ścieżka pliku tożsamości serwera |
-| `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | Max równoległych połączeń IPC |
-| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | Idle timeout połączenia (min 5) |
-| `LITHIUMD_IPC_ALLOWED_UID` | — | Dozwolony UID (Linux; brak = bez ograniczenia); odmowa zrywa połączenie bez odpowiedzi JSON |
-| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` | Kadencja send dispatchera cover traffic (min 1) |
-| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS` | `20` | Kadencja fetch dispatchera cover traffic / auto-fetch (min 1) |
+Zmienne runtime daemona (`LITHIUMD_*`: katalog danych, ścieżki IPC, polityka połączeń, kadencja cover traffic) są zebrane w [daemon-runtime.md](../operations/daemon-runtime.md#zmienne-środowiskowe).

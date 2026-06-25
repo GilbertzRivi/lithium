@@ -49,7 +49,7 @@ Algorytmy post-kwantowe (ML-KEM-1024, ML-DSA-87) są standardami zatwierdzonymi 
 
 ### Forward secrecy — przeszłość jest bezpieczna nawet po ujawnieniu klucza
 
-- **Per epoka ratchet:** każda wiadomość niesie świeże ziarno ML-KEM i świeży efemeryczny klucz nadawcy, a klucze odbiorcze (RX) rotują z każdą odpowiedzią peera i są kasowane po wyjściu poza okno 32. Po skasowaniu klucza RX wiadomości do niego zaszyfrowane stają się nieodszyfrowalne. Komponent X25519 jest wspólny dla wiadomości w obrębie jednej epoki (do następnej odpowiedzi peera), więc gwarancja działa na granicy epok, nie pojedynczej wiadomości — szczegóły w `docs/kyberbox.md`.
+- **Per epoka ratchet:** każda wiadomość niesie świeże ziarno ML-KEM i świeży efemeryczny klucz nadawcy, a klucze odbiorcze (RX) rotują z każdą odpowiedzią peera i są kasowane po wyjściu poza okno 32. Po skasowaniu klucza RX wiadomości do niego zaszyfrowane stają się nieodszyfrowalne. Komponent X25519 jest wspólny dla wiadomości w obrębie jednej epoki (do następnej odpowiedzi peera), więc gwarancja działa na granicy epok, nie pojedynczej wiadomości — szczegóły w `docs/security/kyberbox.md`.
 - **Per generację:** klucze skrzynki rotują co 32 wiadomości; stare klucze prywatne są bezpiecznie kasowane.
 - **Transport:** klucze sesji transportowej mają TTL 60–120 sekund; przejęcie sesji nie pozwala odszyfrować wcześniejszego ruchu.
 
@@ -140,14 +140,11 @@ Użytkownik wpisuje tekst w GUI
 ### Odbieranie
 
 ```
-Użytkownik klika Fetch w GUI
-  → GUI wysyła IPC do daemona: contact_fetch(contact_id)
-  → daemon oblicza adres skrzynki (ECDH z kluczami mailbox)
-  → daemon pobiera blobs z serwera przez HTTPS
-  → serwer atomowo zwraca + usuwa wiadomości z bazy
-  → daemon deszyfruje i weryfikuje podpisy
-  → zapisuje plaintext w lokalnym SQLite
-  → GUI wyświetla historię
+Daemon w tle (stała kadencja, traffic.rs) sam odpytuje skrzynki — bez akcji użytkownika
+  → daemon oblicza adresy skrzynek (ECDH z kluczami mailbox) i pobiera blobs przez HTTPS
+  → serwer atomowo zwraca + usuwa wiadomości z bazy (jednorazowe pobranie)
+  → daemon deszyfruje, weryfikuje podpisy, zapisuje plaintext w lokalnym SQLite
+  → GUI odświeża widok przez messages_list (poll z lokalnej bazy — brak komendy fetch)
 ```
 
 ### Dodawanie kontaktu (wymiana zaproszeń)
@@ -173,10 +170,10 @@ Po wymianie obie strony weryfikują emoji fingerprint kanałem głosowym lub oso
 | Właściwość                          | Mechanizm                                                                                               |
 |-------------------------------------|---------------------------------------------------------------------------------------------------------|
 | Odporność post-kwantowa             | ML-KEM-1024 + ML-DSA-87 równolegle z X25519 + Ed25519; oba algorytmy muszą być złamane jednocześnie   |
-| Forward secrecy (per epoka ratchet)       | Świeże ziarno ML-KEM w każdej wiadomości; klucze odbiorcze rotują per odpowiedź peera, kasowane poza oknem 32. Komponent X25519 wspólny w obrębie epoki → gwarancja na granicy epok, nie per wiadomość (`docs/kyberbox.md`)  |
+| Forward secrecy (per epoka ratchet)       | Świeże ziarno ML-KEM w każdej wiadomości; klucze odbiorcze rotują per odpowiedź peera, kasowane poza oknem 32. Komponent X25519 wspólny w obrębie epoki → gwarancja na granicy epok, nie per wiadomość (`docs/security/kyberbox.md`)  |
 | Forward secrecy per generację       | Rotacja kluczy mailbox co 32 wiadomości; stare klucze prywatne nadawcy kasowane                         |
 | Forward secrecy transportu          | Klucze sesji TTL 60–120s; efemeryczne klucze X25519 + ML-KEM per żądanie (tryb Shake)                  |
-| Post-compromise security (ograniczona, przeciwnik pasywny) | Świeże ziarna ML-KEM i rotujące klucze RX wprowadzają entropię nieznaną przeciwnikowi, który po kompromitacji jest pasywny → poufność nowych wiadomości się odbudowuje. Klucze tożsamości (Ed25519/ML-DSA) nie rotują — przeciwnik aktywny zachowuje zdolność podszycia i MITM (`docs/threat-model.md`) |
+| Post-compromise security (ograniczona, przeciwnik pasywny) | Świeże ziarna ML-KEM i rotujące klucze RX wprowadzają entropię nieznaną przeciwnikowi, który po kompromitacji jest pasywny → poufność nowych wiadomości się odbudowuje. Klucze tożsamości (Ed25519/ML-DSA) nie rotują — przeciwnik aktywny zachowuje zdolność podszycia i MITM (`docs/security/threat-model.md`) |
 | Brak plaintextu na serwerze         | Treść szyfrowana przez klienta zanim dotrze do serwera; serwer dokłada drugą warstwę, ale jej nie czyta |
 | Jednorazowe wiadomości              | Atomowe usunięcie przy pierwszym pobraniu; serwer nie może ich odtworzyć                               |
 | Efemeryczne klucze wiadomości       | Klucze per wiadomość żyją wyłącznie w pamięci serwera; restart serwera niszczy klucze                  |
@@ -264,7 +261,7 @@ export LITHIUMD_SERVER_IDENTITY=/ścieżka/do/server.identity   # opcjonalnie; d
 lithiumd
 ```
 
-Adres serwera relay **nie** jest zmienną środowiskową — ustawia się go po starcie daemona komendą IPC `set_server_url` (z GUI: w kroku konfiguracji pierwszego uruchomienia). Tożsamość serwera (`server.identity`) jest również wgrywana przez IPC (`set_server_identity`), a nie wskazywana ścieżką — `LITHIUMD_SERVER_IDENTITY` tylko zmienia, gdzie daemon trzyma lokalną kopię po wgraniu. Plik `server.identity` musi zostać dostarczony przez administratora serwera kanałem out-of-band przed pierwszym połączeniem. Szczegóły: [`docs/ipc-reference.md`](docs/ipc-reference.md#set_server_url).
+Adres serwera relay **nie** jest zmienną środowiskową — ustawia się go po starcie daemona komendą IPC `set_server_url` (z GUI: w kroku konfiguracji pierwszego uruchomienia). Tożsamość serwera (`server.identity`) jest również wgrywana przez IPC (`set_server_identity`), a nie wskazywana ścieżką — `LITHIUMD_SERVER_IDENTITY` tylko zmienia, gdzie daemon trzyma lokalną kopię po wgraniu. Plik `server.identity` musi zostać dostarczony przez administratora serwera kanałem out-of-band przed pierwszym połączeniem. Szczegóły: [`docs/protocol/ipc-reference.md`](docs/protocol/ipc-reference.md#set_server_url).
 
 ### Uruchomienie GUI
 
@@ -341,11 +338,11 @@ W odpowiedzi na te założenia:
 ## Dokumentacja techniczna
 
 - [`docs/`](docs/index.md) — indeks dokumentacji (dla audytorów i integratorów)
-  - [`docs/security-model.md`](docs/security-model.md) — model zaufania, priorytety, świadome kompromisy, klasyfikacja ustaleń audytowych
-  - [`docs/crypto-protocol.md`](docs/crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport, E2E, mailbox, cykl życia kluczy
-  - [`docs/ipc-reference.md`](docs/ipc-reference.md) — referencja protokołu IPC daemona
-  - [`docs/kyberbox.md`](docs/kyberbox.md) — analiza bezpieczeństwa schematu KyberBox
-  - [`docs/deploy-instructions.md`](docs/deploy-instructions.md) — wdrożenie `lithiums` (Docker, TPM, zmienne środowiskowe)
+  - [`docs/security/security-model.md`](docs/security/security-model.md) — model zaufania, priorytety, świadome kompromisy, klasyfikacja ustaleń audytowych
+  - [`docs/protocol/crypto-protocol.md`](docs/protocol/crypto-protocol.md) — specyfikacja protokołu kryptograficznego: transport, E2E, mailbox, parowanie
+  - [`docs/protocol/ipc-reference.md`](docs/protocol/ipc-reference.md) — referencja protokołu IPC daemona
+  - [`docs/security/kyberbox.md`](docs/security/kyberbox.md) — analiza bezpieczeństwa schematu KyberBox
+  - [`docs/operations/deploy-instructions.md`](docs/operations/deploy-instructions.md) — wdrożenie `lithiums` (Docker, TPM, zmienne środowiskowe)
 - [`lithium_core/README.md`](lithium_core/README.md) — kryptografia, typy sekretne, zarządzanie kluczami
 - [`lithiumd/README.md`](lithiumd/README.md) — daemon klienta: IPC, E2E, mailbox, SQLite
 - [`lithiums/README.md`](lithiums/README.md) — serwer relay: REST API, middleware, transport, PostgreSQL

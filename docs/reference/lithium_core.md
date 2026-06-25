@@ -490,28 +490,14 @@ Cały crate ma `#![forbid(unsafe_code)]`.
 
 ## Model bezpieczeństwa
 
-`lithium_core` realizuje następujące właściwości bezpieczeństwa:
+Granicę gwarancji biblioteki (co `lithium_core` zapewnia, a co jest odpowiedzialnością wywołującego) opisuje [lithium_core-threat-model.md](../security/lithium_core-threat-model.md); hybrydowy argument szyfrowania — [kyberbox.md](../security/kyberbox.md). Konkretne mechanizmy realizujące te gwarancje:
 
-**Poufność kluczy prywatnych:** Klucze prywatne nigdy nie opuszczają `KeyManager`
-jako wartości — dostęp jest wyłącznie przez callback (`with_ed_sk`, `with_kyber_sk` itp.), 
-który ogranicza czas życia sekretnego materiału do zakresu wywołania.
-
-**Separacja domen:** Wszystkie operacje KDF i AEAD używają unikalnych etykiet kontekstu 
-(`info`/`aad`). Klucz wyprowadzony dla jednego kontekstu nie może być użyty w innym.
-
-**Hybrydowość post-kwantowa:** Szyfrowanie (`kyberbox`) i podpisy (Ed25519 + ML-DSA-87) są hybrydowe. 
-Bezpieczeństwo nie zależy wyłącznie od odporności na komputery kwantowe — oba algorytmy muszą być złamane jednocześnie.
-
-**Zeroizacja:** `FixedBytes`, `SecretBytes`, `SecretString`, `SecretJson` zeroizują pamięć przy `Drop`. 
-Pliki tymczasowe przy rewrappingu zeroizują stare klucze po użyciu.
-
-**Crash-safety rotacji:** Niedokończona rotacja MK jest wykrywana i kończona (lub wycofywana) przy następnym starcie.
-
-**Bezpieczeństwo I/O:** Zapis kluczowych plików używa atomicznego `tmp + rename` z `fsync` i uprawnieniami `0o600`.
-
-**Opaque błędy w release:** `LithiumError` nie ujawnia szczegółów wewnętrznych w trybie release — tylko kategorię błędu.
-
----
+- **Poufność kluczy prywatnych** — dostęp wyłącznie przez callback (`with_ed_sk`, `with_kyber_sk`), bez wycieku wartości poza zakres wywołania.
+- **Separacja domen** — każda operacja KDF/AEAD pod unikalną etykietą `info`/`aad`.
+- **Zeroizacja** — `FixedBytes`/`SecretBytes`/`SecretString`/`SecretJson` czyszczą pamięć przy `Drop`.
+- **Crash-safety rotacji** — niedokończona rotacja MK jest dokończona lub wycofana przy starcie.
+- **Bezpieczeństwo I/O** — atomiczny zapis `tmp + rename` z `fsync`, uprawnienia `0o600`.
+- **Opaque błędy w release** — `LithiumError` ujawnia tylko kategorię, nie szczegóły wewnętrzne.
 
 ## Non-goals
 

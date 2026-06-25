@@ -12,11 +12,11 @@ Prosimy o coordinated disclosure: daj czas na poprawkę, zanim ujawnisz szczegó
 
 Lithium ma świadome kompromisy projektowe i zachowania, które wyglądają jak luki, a są celowe (serwer z założenia jest hostile relay i widzi metadane opisane w modelu; część operacji jest celowo bolesna lub nieodwracalna). Zanim zgłosisz, sprawdź w `docs/security-model.md`:
 
-- [Co powinno być audytowane jako realny problem](docs/security-model.md#co-powinno-być-audytowane-jako-realny-problem)
-- [Czego nie należy raportować jako podatności bez kontekstu](docs/security-model.md#czego-nie-należy-raportować-jako-podatności-bez-kontekstu)
-- [Klasyfikacja ustaleń audytowych](docs/security-model.md#klasyfikacja-ustaleń-audytowych)
+- [Co powinno być audytowane jako realny problem](docs/security/security-model.md#co-powinno-być-audytowane-jako-realny-problem)
+- [Czego nie należy raportować jako podatności bez kontekstu](docs/security/security-model.md#czego-nie-należy-raportować-jako-podatności-bez-kontekstu)
+- [Klasyfikacja ustaleń audytowych](docs/security/security-model.md#klasyfikacja-ustaleń-audytowych)
 
-Pełny model zaufania i granice odpowiedzialności: [`docs/security-model.md`](docs/security-model.md), [`docs/threat-model.md`](docs/threat-model.md), [`docs/kyberbox.md`](docs/kyberbox.md).
+Pełny model zaufania i granice odpowiedzialności: [`docs/security-model.md`](docs/security/security-model.md), [`docs/threat-model.md`](docs/security/threat-model.md), [`docs/kyberbox.md`](docs/security/kyberbox.md).
 
 ## Zakres
 

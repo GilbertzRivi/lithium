@@ -219,7 +219,7 @@ Co faktycznie trafia na wyjście:
 
 Serwer **nie prowadzi** strukturalnego logu żądań ani access logu, nie ma telemetrii ani „phone-home". Adresy skrzynek widoczne dla serwera nie są logowane.
 
-**Zastrzeżenie operacyjne:** odwrotny proxy przed `lithiums` (terminujący TLS) może we własnym zakresie logować adresy IP klientów i znaczniki czasu — to jest poza kontrolą aplikacji i zależy od konfiguracji operatora. Guard anty-flood (`pre-replay`) kluczuje po `remote_addr` połączenia; konsekwencje pracy za proxy opisuje [deploy-instructions.md](deploy-instructions.md).
+**Zastrzeżenie operacyjne:** odwrotny proxy przed `lithiums` (terminujący TLS) może we własnym zakresie logować adresy IP klientów i znaczniki czasu — to jest poza kontrolą aplikacji i zależy od konfiguracji operatora. Guard anty-flood (`pre-replay`) kluczuje po `remote_addr` połączenia; konsekwencje pracy za proxy opisuje [deploy-instructions.md](../operations/deploy-instructions.md).
 
 ## Operacje destrukcyjne
 

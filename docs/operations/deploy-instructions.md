@@ -177,20 +177,8 @@ cargo build -p lithiums --no-default-features --release
 
 This produces a binary with only `PlainFileMkProvider`. Set `LITHIUM_MK_PROVIDER=plain` when running it (or omit — there is no TPM code path in this build).
 
-## lithiumd
+## lithiumd (client — not server-deployed)
 
-`lithiumd` is not deployed to a server — it runs locally on each user's machine alongside `lithiumg`, manages that user's keys, and talks to `lithiums` as a regular HTTPS client. It is documented here only because it is configured through environment variables the same way `lithiums` is, and someone packaging it (e.g. into a Linux distro package or an installer) needs them.
+`lithiumd` runs locally on each user's machine alongside `lithiumg` and talks to `lithiums` as a regular HTTPS client — it is not deployed to a server. Its environment variables (data dir, IPC socket paths, connection policy, cover-traffic cadence) are collected in [daemon-runtime.md](daemon-runtime.md#zmienne-środowiskowe).
 
-| Variable                       | Default                                              | Description                                                                 |
-|---------------------------------|-------------------------------------------------------|------------------------------------------------------------------------------|
-| `LITHIUMD_DATA_DIR`             | platform data dir (e.g. `~/.local/share/lithiumd`)     | Where keys, the local SQLite DB, `server.identity`, and `server_url` live    |
-| `LITHIUMD_SOCKET_PATH`          | `{XDG_RUNTIME_DIR}/lithiumd.sock`                      | Unix socket path for IPC (Linux/macOS)                                       |
-| `LITHIUMD_PIPE_NAME`            | `\\.\pipe\lithiumd`                                    | Named pipe for IPC (Windows)                                                 |
-| `LITHIUMD_SERVER_IDENTITY`      | `{LITHIUMD_DATA_DIR}/server.identity`                  | Path to the server identity file (see [crypto-protocol.md](crypto-protocol.md#format-pliku-serveridentity)) |
-| `LITHIUMD_IPC_MAX_CONNECTIONS`  | `1`                                                     | Max concurrent IPC connections                                               |
-| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`| `300` (min `5`)                                        | IPC connection idle timeout                                                  |
-| `LITHIUMD_IPC_ALLOWED_UID`      | unset (no restriction)                                 | Linux only. Restricts IPC connections to a specific UID; mismatches are dropped silently before any IPC request is read |
-| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` (min `1`)                                   | Cover-traffic send dispatcher cadence in seconds                            |
-| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS`| `20` (min `1`)                                   | Cover-traffic fetch / auto-fetch dispatcher cadence in seconds              |
-
-There is no `LITHIUMD_BASE_URL` or similar variable for the relay server address — the server URL is set at runtime via the IPC command `set_server_url` and persisted to `{LITHIUMD_DATA_DIR}/server_url`, not read from the environment. See [ipc-reference.md](ipc-reference.md#set_server_url).
+The relay server address is not an environment variable — it is set at runtime via the IPC command `set_server_url` and persisted to `{LITHIUMD_DATA_DIR}/server_url` (see [ipc-reference.md](../protocol/ipc-reference.md#set_server_url)).

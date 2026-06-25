@@ -1,0 +1,70 @@
+name: reproducible-build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - "build/Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/reproducible-build.yml"
+  pull_request:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - "build/Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/reproducible-build.yml"
+  workflow_dispatch:
+
+jobs:
+  # Builds lithiumd twice in the pinned container and asserts the binaries are
+  # bit-identical. A reproducible build lets anyone verify a published binary was
+  # compiled from the public source — a coerced, backdoored build will not reproduce.
+  reproducible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build #1
+        run: docker build -f build/Dockerfile -t lithium-repro:1 .
+
+      - name: Extract binary + hash #1
+        run: |
+          id=$(docker create lithium-repro:1)
+          docker cp "$id:/build/target/release/lithiumd" lithiumd-1
+          docker rm "$id"
+          sha256sum lithiumd-1 | tee sha256-1.txt
+
+      - name: Build #2 (no cache)
+        run: docker build --no-cache -f build/Dockerfile -t lithium-repro:2 .
+
+      - name: Extract binary + hash #2
+        run: |
+          id=$(docker create lithium-repro:2)
+          docker cp "$id:/build/target/release/lithiumd" lithiumd-2
+          docker rm "$id"
+          sha256sum lithiumd-2 | tee sha256-2.txt
+
+      - name: Assert deterministic
+        run: |
+          h1=$(cut -d' ' -f1 sha256-1.txt)
+          h2=$(cut -d' ' -f1 sha256-2.txt)
+          echo "build #1: $h1"
+          echo "build #2: $h2"
+          if [ "$h1" != "$h2" ]; then
+            echo "::error::lithiumd build is not reproducible ($h1 != $h2)"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lithiumd-reproducible
+          path: |
+            lithiumd-1
+            sha256-1.txt

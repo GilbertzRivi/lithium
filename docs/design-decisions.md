@@ -1,6 +1,6 @@
 # Decyzje projektowe (rejestr „dlaczego")
 
-Warstwa ponad „co/jak" z [crypto-protocol.md](crypto-protocol.md): *dlaczego* główne wybory architektoniczne i kryptograficzne są takie, jakie są. Każdy wpis podaje decyzję, uzasadnienie, odrzucone alternatywy i koszt — żeby audytor i nowy kontrybutor nie musieli re-litygować raz podjętych decyzji. Priorytety, na które te decyzje odpowiadają, opisuje [security-model.md](security-model.md).
+Warstwa ponad „co/jak" z [crypto-protocol.md](protocol/crypto-protocol.md): *dlaczego* główne wybory architektoniczne i kryptograficzne są takie, jakie są. Każdy wpis podaje decyzję, uzasadnienie, odrzucone alternatywy i koszt — żeby audytor i nowy kontrybutor nie musieli re-litygować raz podjętych decyzji. Priorytety, na które te decyzje odpowiadają, opisuje [security-model.md](security/security-model.md).
 
 ## 1. Hybryda klasyczna + post-kwantowa
 
@@ -10,7 +10,7 @@ Warstwa ponad „co/jak" z [crypto-protocol.md](crypto-protocol.md): *dlaczego* 
 
 **Odrzucone.** Czysto klasyczny (podatny na kwant); czysto PQ (młode schematy, większe ryzyko wad implementacji i kryptoanalizy).
 
-**Koszt.** Większe klucze i szyfrogramy (ML-KEM 1568 B, ML-DSA 2592 B), wolniejsze operacje, zależność od kodu C PQClean (niezaudytowana — patrz [threat-model.md](threat-model.md) #8).
+**Koszt.** Większe klucze i szyfrogramy (ML-KEM 1568 B, ML-DSA 2592 B), wolniejsze operacje, zależność od kodu C PQClean (niezaudytowana — patrz [threat-model.md](security/threat-model.md) #8).
 
 ## 2. OPAQUE zamiast przechowywanego hasha hasła / SRP
 
@@ -50,7 +50,7 @@ Warstwa ponad „co/jak" z [crypto-protocol.md](crypto-protocol.md): *dlaczego* 
 
 **Odrzucone.** Długi SAS bez commit-reveal (niewygodny w porównaniu głosowym); commit-reveal bez SAS (brak ludzkiej weryfikacji anty-MITM).
 
-**Koszt.** **Niezmiennik sprzężenia**: skrócenie SAS *albo* usunięcie commit-reveal w izolacji ponownie otwiera offline-grind. Obu mechanizmów nie wolno zmieniać niezależnie (patrz [crypto-protocol.md](crypto-protocol.md), „Niezmiennik sprzężenia").
+**Koszt.** **Niezmiennik sprzężenia**: skrócenie SAS *albo* usunięcie commit-reveal w izolacji ponownie otwiera offline-grind. Obu mechanizmów nie wolno zmieniać niezależnie (patrz [crypto-protocol.md](protocol/crypto-protocol.md), „Niezmiennik sprzężenia").
 
 ## 6. Constant-rate cover traffic + brak manual fetch
 
@@ -70,7 +70,7 @@ Warstwa ponad „co/jak" z [crypto-protocol.md](crypto-protocol.md): *dlaczego* 
 
 **Odrzucone.** DEK tylko z hasła (kradzież dysku + brute-force hasła = dane); DEK tylko z serwera (przejęcie serwera = dane).
 
-**Koszt.** Brak dostępu offline-only do bazy — odblokowanie storage wymaga sesji z serwerem, by pobrać `server_dek` (patrz [key-hierarchy.md](key-hierarchy.md)).
+**Koszt.** Brak dostępu offline-only do bazy — odblokowanie storage wymaga sesji z serwerem, by pobrać `server_dek` (patrz [key-hierarchy.md](security/key-hierarchy.md)).
 
 ## 8. Pieczętowanie Master Key serwera w TPM
 
@@ -90,7 +90,7 @@ Warstwa ponad „co/jak" z [crypto-protocol.md](crypto-protocol.md): *dlaczego* 
 
 **Odrzucone.** Jawny handler w DB (wyciek tożsamości); losowe szyfrowanie + osobny indeks (indeks przechowywałby de facto plaintext).
 
-**Koszt (świadomy).** Obserwowalność równości — między snapshotami DB widać, że dwa wiersze to ten sam użytkownik (jeden wiersz per nick). Nigdy „kto", tylko „czy istnieje / czy to samo". Patrz [security-model.md](security-model.md).
+**Koszt (świadomy).** Obserwowalność równości — między snapshotami DB widać, że dwa wiersze to ten sam użytkownik (jeden wiersz per nick). Nigdy „kto", tylko „czy istnieje / czy to samo". Patrz [security-model.md](security/security-model.md).
 
 ## 10. Utrata materiału klucza zamiast wektorów odzysku
 

@@ -1,6 +1,6 @@
 # Słownik pojęć
 
-Zwięzłe definicje terminów własnych Lithium. Głębsze opisy: protokół — [crypto-protocol.md](crypto-protocol.md), klucze — [key-hierarchy.md](key-hierarchy.md), KyberBox — [kyberbox.md](kyberbox.md), komendy IPC — [ipc-reference.md](ipc-reference.md).
+Zwięzłe definicje terminów własnych Lithium. Głębsze opisy: protokół — [crypto-protocol.md](protocol/crypto-protocol.md), klucze — [key-hierarchy.md](security/key-hierarchy.md), KyberBox — [kyberbox.md](security/kyberbox.md), komendy IPC — [ipc-reference.md](protocol/ipc-reference.md).
 
 **AEAD** — Authenticated Encryption with Associated Data. W Lithium zawsze AES-256-GCM-SIV.
 
@@ -58,7 +58,7 @@ Zwięzłe definicje terminów własnych Lithium. Głębsze opisy: protokół —
 
 **`.keyf`** — format pliku klucza z podwójnym opakowaniem: payload pod DEK, DEK pod KEK (z MK). Magic `KEYF`.
 
-**KyberBox** — hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 + X25519 → HKDF → AES-256-GCM-SIV dla `body` i `headers`. Patrz [kyberbox.md](kyberbox.md).
+**KyberBox** — hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 + X25519 → HKDF → AES-256-GCM-SIV dla `body` i `headers`. Patrz [kyberbox.md](security/kyberbox.md).
 
 **lci1** — prefiks i binarny format kodu zaproszenia (hex po `lci1:`); wersja 1, 4361 bajtów danych.
 

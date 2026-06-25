@@ -23,7 +23,7 @@ Kompromitacja warstwy transportu nie ujawnia treści wiadomości — pozostają 
 | KSF / derywacja z hasła | Argon2id |
 | CSRNG | `rand::rngs::SysRng` |
 
-Szczegółowa analiza KyberBox: [kyberbox.md](kyberbox.md).
+Szczegółowa analiza KyberBox: [kyberbox.md](../security/kyberbox.md).
 
 ## Warstwa transportu (daemon–serwer)
 
@@ -345,68 +345,12 @@ braku commitmentu, lub commitment przy krótszym SAS).
 
 ## Cykl życia kluczy
 
-### Master Key (MK)
+Pełny katalog kluczy — derywacja, przechowywanie, czas życia, rotacja i analiza wycieku — jest w [key-hierarchy.md](../security/key-hierarchy.md). Mechanika crash-safe rotacji MK (atomowy rewrap plików `.keyf` bez deszyfrowania payloadu) — [lithium_core.md](../reference/lithium_core.md).
 
-MK jest nadrzędnym kluczem szyfrującym wszystkie pliki kluczy na dysku. Przechowywany zaszyfrowany przez `MkProvider`, którego implementacja zależy od komponentu:
-
-- `lithiumd` — `PlainFileMkProvider`: MK zaszyfrowany hasłem danych (Argon2id + AES-256-GCM-SIV), plik `.keyf`.
-- `lithiums` — domyślnie (feature `tpm`, włączona z definicji) `TpmMkProvider`: MK zapieczętowany w TPM jako obiekt KEYEDHASH, pod parent key ECC P-256 derywowanym deterministycznie z owner seed TPM (parent nigdy nie jest persystowany). Zapieczętowany blob trzymany w `LITHIUM_TPM_SEALED_PATH`. Fallback na `PlainFileMkProvider` (plaintext-na-dysku, analogicznie do `lithiumd`) tylko gdy `LITHIUM_MK_PROVIDER=plain` lub feature `tpm` wyłączona przy kompilacji.
-
-`lithiums` nigdy nie trzyma MK w czystym plaintext na dysku w konfiguracji domyślnej.
-
-Rotacja co 3600s (1 godzina), wykrywana i wywoływana przez `MkRotator` budzący się co 30s.
-
-Rotacja jest crash-safe:
-1. Zapisz stary i nowy MK w `.rotate/`
-2. Przygotuj wszystkie pliki `.keyf` z nowym opakowaniem w `.rotate/staged/`
-3. Zapisz marker `.rotate/ready`
-4. Zastosuj staged pliki do lokalizacji docelowych
-5. Zaktualizuj MK u providera
-6. Usuń katalog `.rotate/`
-
-Przy starcie `KeyManager` wykrywa niedokończoną rotację i kontynuuje lub wycofuje.
-
-### DEK (Data Encryption Key)
-
-DEK szyfrowania lokalnej bazy SQLite jest wyprowadzany z `combined_root`:
-
-```
-root_salt       = losowa 32-bajtowa sol, trwale zapisana w pliku root.salt (ensure_root_salt)
-password_root   = Argon2id(data_password, salt=root_salt)
-combined_root   = HKDF(input=server_dek, salt=password_root, info="lithium/user-provider/combined/v1")
-db_dek          = HKDF(combined_root, info="lithium/db-dek/v1")
-```
-
-Sól nie jest stałą etykietą — jest losowa per instalacja i przechowywana w `root.salt` obok plików `.keyf` (`lithiumd/src/password_provider.rs`).
-
-`server_dek` to blob DEK zaszyfrowany hasłem konta, przechowywany na serwerze jako nieprzejrzysty blob. Serwer go nie używa — zwraca przy logowaniu.
-
-Bez `server_dek` (wymagającego aktywnej sesji z serwerem) lub bez `data_password` nie można wyprowadzić `db_dek`. Jest to świadoma właściwość modelu.
-
-### Klucze per kontakt
-
-Każdy kontakt ma niezależny zestaw kluczy generowany losowo z CSRNG przy tworzeniu zaproszenia:
-- X25519 + ML-KEM-1024 (szyfrowanie E2E)
-- Ed25519 + ML-DSA-87 (podpisy E2E)
-- 3 pary kluczy mailbox (in, out_cur, out_next)
-
-Kompromitacja kluczy jednego kontaktu nie kompromituje pozostałych.
-
-### Klucze RX i bootstrap
-
-Klucze bootstrapowe (z kodu zaproszenia) są przechowywane jako tajny materiał i usuwane z `self_state` gdy tylko peer potwierdzi odbiór i ratchet jest ustanowiony.
-
-Klucze RX (reply) są rotowane przez ratchet — przy każdej odebranej wiadomości peer załącza nową parę RX, nadawca używa jej przy kolejnym wysłaniu. Stare klucze RX (poza oknem 32) są bezpiecznie kasowane.
-
-### Klucze sesji transportowej
-
-Klucze sesji (X25519 + ML-KEM-1024) generowane są przez serwer przy każdej odpowiedzi i przechowywane w `EphemeralStoreManager`. TTL: 60s (Shake) lub 120s (Session). Restart serwera niszczy wszystkie klucze sesji.
-
-### Klucze wiadomości na serwerze
-
-Każda wiadomość na serwerze jest szyfrowana **losowym kluczem per wiadomość** (nie DEK serwera). Klucz jest przechowywany wyłącznie w `EphemeralStoreManager` z TTL 24h. Restart serwera niszczy klucze — przechowywane wiadomości stają się trwale nieodszyfrowalne dla serwera.
-
-Treść wiadomości jest dodatkowo zaszyfrowana przez klienta warstwą E2E przed dotarciem do serwera, więc serwer i tak nie może jej odczytać.
+W skrócie, na potrzeby tego protokołu:
+- **At-rest (klient):** `data_password` → MK → DEK plików `.keyf`; lokalna baza pod `db_dek`, który wymaga jednocześnie `password_root` (z hasła) i `server_dek` (z serwera) — celowy dwuczynnik.
+- **Per kontakt:** niezależny zestaw (X25519+ML-KEM do E2E, Ed25519+ML-DSA do podpisów, 3 klucze mailbox, bootstrap, RX, prekeys) — izolacja między kontaktami.
+- **Efemeryczne:** klucze sesji transportowej (TTL 60 s Shake / 120 s Session) oraz `msg_key` per wiadomość na serwerze (TTL 24 h) — restart serwera niszczy `msg_key`, czyniąc zaległe wiadomości trwale nieodszyfrowalnymi.
 
 ## Szyfrowanie bazy danych (serwer)
 
@@ -430,7 +374,7 @@ handler (znormalizowany) -> UUID v5(namespace, handler) -> id_bytes
 id_enc = AES-256-GCM-SIV(id_bytes, db_dek, nonce=HKDF(id_bytes, db_dek, UIDENC_NONCE_LABEL), aad="user-idenc/v1")
 ```
 
-Ten sam handler zawsze daje ten sam `id_enc` — umożliwia wyszukiwanie PK bez przechowywania plaintext handlera. Świadomy trade-off opisany w [security-model.md](security-model.md).
+Ten sam handler zawsze daje ten sam `id_enc` — umożliwia wyszukiwanie PK bez przechowywania plaintext handlera. Świadomy trade-off opisany w [security-model.md](../security/security-model.md).
 
 ## Format pliku klucza (.keyf)
 
@@ -471,4 +415,4 @@ Plik binarny generowany przez serwer przy pierwszym uruchomieniu. Format (`lithi
 
 Nieznane tagi sa ignorowane przy deserializacji (forward-compat). Cztery znane klucze musza wystapic i miec dokladnie oczekiwana dlugosc (32/32/1568/2592) — `decode` odrzuca plik z brakujacym lub zle dlugim kluczem, zanim zaakceptuje go `set_server_identity`. Rzeczywisty rozmiar pliku z 4 wpisami: **4275 bajtow** (10 bajtow naglowka + 41 bajtow narzutu TLV + 32 + 32 + 1568 + 2592 bajtow danych).
 
-Klient ładuje ten plik przy starcie i weryfikuje pod nim każdą odpowiedź serwera. Zmiana kluczy serwera bez aktualizacji pliku po stronie klienta zrywa komunikację trwale na poziomie kryptograficznym (deszyfrowanie zadania przez serwer lub weryfikacja podpisu odpowiedzi przez klienta zawodzi) — jest to celowe, patrz [security-model.md](security-model.md).
+Klient ładuje ten plik przy starcie i weryfikuje pod nim każdą odpowiedź serwera. Zmiana kluczy serwera bez aktualizacji pliku po stronie klienta zrywa komunikację trwale na poziomie kryptograficznym (deszyfrowanie zadania przez serwer lub weryfikacja podpisu odpowiedzi przez klienta zawodzi) — jest to celowe, patrz [security-model.md](../security/security-model.md).

@@ -175,34 +175,7 @@ Przycisk `[Hide]` zamyka modal; pokazuje się tylko raz per kontakt per sesja.
 
 ## IPC — komunikacja z lithiumd
 
-### Transport
-
-- **Linux/macOS:** Unix domain socket (connect per żądanie)
-- **Windows:** Named pipe
-
-### Protokół
-
-JSON-lines (jedno żądanie = jedna linia JSON, jedna odpowiedź = jedna linia JSON).
-
-**Format żądania:**
-```json
-{
-  "cmd": "nazwa_komendy",
-  "id": 1,
-  "auth_token": "hex_token",
-  ...pola_komendy...
-}
-```
-
-**Format odpowiedzi:**
-```json
-{
-  "id": 1,
-  "ok": true,
-  "result": { ... },
-  "error": null
-}
-```
+Transport (Unix socket / named pipe na Windows), format JSON-lines żądań i odpowiedzi oraz pełny kontrakt komend i kody błędów — [ipc-reference.md](../protocol/ipc-reference.md). Poniżej tylko rzeczy specyficzne dla GUI: przechowywanie tokenu po stronie klienta, podzbiór komend istotnych dla UI oraz typy deserializowanych odpowiedzi.
 
 ### Auth token
 
@@ -213,7 +186,7 @@ Po odblokowaniu keystora daemon zwraca `ipc_auth_token`. Token przechowywany jes
 
 ### Komendy IPC
 
-Pełna referencja: [ipc-reference.md](ipc-reference.md). Komendy istotne dla GUI:
+Pełna referencja: [ipc-reference.md](../protocol/ipc-reference.md). Komendy istotne dla GUI:
 
 | Komenda                | Opis                                       | Kluczowe pola żądania              | Odpowiedź                |
 |------------------------|--------------------------------------------|------------------------------------|--------------------------|
@@ -283,34 +256,7 @@ VerifyEmojiResult      { emojis: Vec<String> }
 
 ## Przepływ zapraszania kontaktu
 
-Parowanie to jednostronny commit-reveal (4 komunikaty out-of-band; kolejność wymusza daemon):
-
-```
-Strona A                              Strona B
----------                             ---------
-create_invite() -> commitment_A
-
-Przekaż commitment_A Stronie B (OOB: czat, e-mail, itp.)
-
-                                      Wklej commitment_A + label
-                                      accept_commitment(commitment_A) -> kod_B
-
-                                      Przekaż kod_B Stronie A
-
-Wklej kod_B
-reveal_invite(contact_id=A, peer_code=kod_B) -> kod_A
-  (A ustawia peera na tożsamość B)
-
-Przekaż kod_A Stronie B
-
-                                      Wklej kod_A
-                                      finalize_pairing(contact_id=B, peer_code=kod_A)
-                                      (B weryfikuje kod_A względem commitment_A)
-
-Teraz obie strony mają peer_set=true -> można wysyłać wiadomości
-```
-
----
+GUI prowadzi użytkownika przez czterokrokowy commit-reveal, którego kolejność wymusza daemon: `create_invite` → `accept_commitment` → `reveal_invite` → `finalize_pairing`. Commitment i kody (`lci1:`) użytkownik przekazuje out-of-band między urządzeniami. Pełny przebieg z polami żądań i regułą weryfikacji commitmentu — [ipc-reference.md](../protocol/ipc-reference.md); kryptografia parowania (SAS, transkrypt tożsamości) — [crypto-protocol.md](../protocol/crypto-protocol.md).
 
 ## Szczegóły implementacyjne
 

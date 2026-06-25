@@ -1,0 +1,8 @@
+target/
+**/target/
+.git/
+.idea/
+docker/
+installer/
+docs/
+fuzz/
