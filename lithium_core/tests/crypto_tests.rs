@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use lithium_core::crypto::{aead, kdf, keys, kyberbox, sign};
 use lithium_core::error::CryptoErrorKind;
 use lithium_core::secrets::{Byte12, Byte32, SecretBytes};

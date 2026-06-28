@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 pub(crate) mod crypto;
 pub(crate) mod header;
 pub mod prekeys;

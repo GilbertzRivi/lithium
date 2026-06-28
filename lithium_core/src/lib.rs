@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Post-quantum hybrid cryptography and at-rest key management, usable as a standalone library.
 //!
 //! Every construction is hybrid classical + post-quantum: X25519 + ML-KEM-1024 for encryption,

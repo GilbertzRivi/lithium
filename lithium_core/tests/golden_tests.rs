@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::collections::HashMap;
 
 use lithium_core::crypto::kyberbox::WirePayload;

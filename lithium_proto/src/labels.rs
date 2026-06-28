@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Lithium-specific domain-separation labels passed into the generic `lithium_core` primitives.
 //!
 //! `lithium_core` takes these as parameters so the crypto stays application-agnostic; the concrete

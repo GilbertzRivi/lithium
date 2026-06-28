@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 pub(crate) const UIDENC_VER: u8 = 1;
 pub(crate) const MSG_VER: u8 = 1;
 

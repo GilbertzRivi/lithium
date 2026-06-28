@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use poem::{IntoResponse, Response, http::StatusCode};
 use serde_json::json;
 use std::fmt;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use crate::error::Result;
 use crate::secrets::{FixedBytes, MasterKey32, Nonce12, SecretBytes, SessionId32};
 use ed25519_dalek::SigningKey;

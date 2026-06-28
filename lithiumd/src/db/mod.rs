@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::path::{Path, PathBuf};
 
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, Schema};

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use lithium_core::{
     crypto::{kdf, sign},
     error::{LithiumError, Result},

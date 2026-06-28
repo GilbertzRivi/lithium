@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use hkdf::Hkdf;
 use pqcrypto::kem::mlkem1024::{
     Ciphertext as KyberCiphertext, PublicKey as KyberPublicKey, SecretKey as KyberSecretKey,
@@ -56,12 +59,26 @@ fn derive_ecdh_key(priv_x: &Byte32, peer_pub_x: &Byte32, ctx: &str) -> Result<By
     )
 }
 
+// msg_x_pub (the sender's ephemeral X25519 public key, i.e. ct_T) and ct_hash (SHA256 of the
+// ML-KEM ciphertext, ct_PQ) are bound into the KDF info so this is a UniversalCombiner instance
+// per draft-irtf-cfrg-hybrid-kems: X25519 lacks C2PRI so its ciphertext must be bound explicitly,
+// not just implicitly through ecdh_ss. See docs/security/combiner.md (D1).
 #[inline]
-fn derive_base_key(ecdh_key: &Byte32, seed_plain: &Byte32, ctx: &str) -> Result<Byte32> {
+fn derive_base_key(
+    ecdh_key: &Byte32,
+    seed_plain: &Byte32,
+    msg_x_pub: &[u8; 32],
+    ct_hash: &[u8; 32],
+    ctx: &str,
+) -> Result<Byte32> {
     let ecdh_input = SecretBytes::from_slice(ecdh_key.as_slice());
     let seed_salt = SecretBytes::from_slice(seed_plain.as_slice());
 
-    kdf::derive32(&ecdh_input, Some(&seed_salt), &label(ctx, "base-key"))
+    let mut info = label(ctx, "base-key").expose_as_slice().to_vec();
+    info.extend_from_slice(msg_x_pub);
+    info.extend_from_slice(ct_hash);
+
+    kdf::derive32(&ecdh_input, Some(&seed_salt), &SecretBytes::new(info))
 }
 
 #[inline]
@@ -86,7 +103,7 @@ fn encrypt_kyber_seed(
     peer_kyber_pub: &[u8],
     plaintext: &[u8],
     user_aad: &[u8],
-) -> Result<SecretBytes> {
+) -> Result<(SecretBytes, [u8; 32])> {
     let pk = KyberPublicKey::from_bytes(peer_kyber_pub).map_err(|_| LithiumError::internal())?;
 
     let (ss_bytes, ct_kem) = {
@@ -135,10 +152,17 @@ fn encrypt_kyber_seed(
     out.extend_from_slice(ct_bytes);
     out.extend_from_slice(aead_blob.expose_as_slice());
 
-    Ok(SecretBytes::new(out))
+    let mut ct_hash = [0u8; 32];
+    ct_hash.copy_from_slice(salt_arr.as_slice());
+
+    Ok((SecretBytes::new(out), ct_hash))
 }
 
-fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> Result<Byte32> {
+fn decrypt_kyber_seed(
+    kyber_priv_bytes: &[u8],
+    blob: &[u8],
+    user_aad: &[u8],
+) -> Result<(Byte32, [u8; 32])> {
     if blob.len() < 1 + 1 + 1 + 1 + 32 + 2 {
         return Err(LithiumError::internal());
     }
@@ -210,7 +234,12 @@ fn decrypt_kyber_seed(kyber_priv_bytes: &[u8], blob: &[u8], user_aad: &[u8]) -> 
         &SecretBytes::new(aad_full),
     )?;
 
-    Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())
+    let mut ct_hash = [0u8; 32];
+    ct_hash.copy_from_slice(salt);
+
+    let seed =
+        Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())?;
+    Ok((seed, ct_hash))
 }
 
 pub fn encrypt(
@@ -223,14 +252,16 @@ pub fn encrypt(
 ) -> Result<WirePayload> {
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
+    let msg_x_pub = *XPublicKey::from(&XStaticSecret::from(*priv_x.as_array())).as_bytes();
+
     let seed_plain = keys::random_32()?;
-    let seed_enc = encrypt_kyber_seed(
+    let (seed_enc, ct_hash) = encrypt_kyber_seed(
         peer_k_pub.expose_as_slice(),
         seed_plain.as_slice(),
         label(ctx, "seed").expose_as_slice(),
     )?;
 
-    let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
+    let base_key = derive_base_key(&ecdh_key, &seed_plain, &msg_x_pub, &ct_hash, ctx)?;
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 
@@ -262,13 +293,13 @@ pub fn decrypt(
 ) -> Result<(SecretBytes, SecretBytes)> {
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
-    let seed_plain = decrypt_kyber_seed(
+    let (seed_plain, ct_hash) = decrypt_kyber_seed(
         kyber_priv.expose_as_slice(),
         wire.seed_enc.expose_as_slice(),
         label(ctx, "seed").expose_as_slice(),
     )?;
 
-    let base_key = derive_base_key(&ecdh_key, &seed_plain, ctx)?;
+    let base_key = derive_base_key(&ecdh_key, &seed_plain, peer_pub_x.as_array(), &ct_hash, ctx)?;
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 

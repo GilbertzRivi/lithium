@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Callers pass already-normalized ids (lowercased handler, hashed remote, body-hash hex).
 
 pub(crate) fn login_fail(handler: &str) -> String {

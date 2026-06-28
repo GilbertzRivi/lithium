@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::{fs, io, path::Path};
 
 use lithium_core::keys::PublicKeys;

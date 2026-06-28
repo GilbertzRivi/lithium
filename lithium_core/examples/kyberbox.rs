@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Hybrid X25519 + ML-KEM-1024 authenticated encryption round-trip (Pillar 2).
 //!
 //! Run with: `cargo run -p lithium_core --example kyberbox`

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 pub mod header {
     pub const KEY_X: &str = "key-x";
     pub const KEY_K: &str = "key-k";

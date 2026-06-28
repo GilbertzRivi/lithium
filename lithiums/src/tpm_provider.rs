@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Requires tss-esapi 7.x and libtss2-esys at link time.
 // Container must expose /dev/tpmrm0 (resource manager) or /dev/tpm0.
 use std::path::PathBuf;

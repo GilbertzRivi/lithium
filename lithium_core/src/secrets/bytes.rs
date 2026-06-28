@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use core::fmt;
 use core::hash::{Hash, Hasher};
 use std::io;

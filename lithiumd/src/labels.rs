@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 pub(crate) const E2E_WIRE_MAGIC: &[u8; 3] = b"LM1";
 pub(crate) const E2E_WIRE_VER: u8 = 1;
 pub(crate) const E2E_LABEL: &str = "lithiumd/e2e-msg/v1";

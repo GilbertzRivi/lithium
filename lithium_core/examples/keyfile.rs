@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! At-rest key management lifecycle (Pillar 1): `KeyManager` generates and persists the hybrid
 //! identity, then reloads it unchanged across a restart.
 //!

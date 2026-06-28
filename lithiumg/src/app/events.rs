@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use crate::{errors, ipc};
 
 use super::{Command, LithiumApp, PairingStep, Screen, WorkerEvent};

@@ -67,4 +67,4 @@ questions for an auditor are documented under [`docs/`](../docs): `combiner.md`,
 
 ## License
 
-PolyForm Noncommercial License 1.0.0 — see [`LICENSE`](../LICENSE).
+GNU AGPL-3.0-only, with a commercial license available (dual licensing) — see [`LICENSE`](../LICENSE).

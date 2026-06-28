@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use lithium_core::crypto::keys;
 use lithium_core::pow;
 use lithium_itest::helpers::{TEST_SEND_POW_BITS, TestServer, random_dek_hex, unique_handle};

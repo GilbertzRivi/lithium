@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /// Translate a raw daemon / IPC error code into a user-facing message.
 pub fn translate(raw: &str) -> String {
     // Check exact daemon error codes first — some start with "bad_" and would

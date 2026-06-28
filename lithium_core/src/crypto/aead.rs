@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use aes_gcm_siv::{
     Aes256GcmSiv, Key, Nonce,
     aead::{Aead, KeyInit, Payload},

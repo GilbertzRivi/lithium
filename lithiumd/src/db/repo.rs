@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
 use sea_orm::{

@@ -352,6 +352,6 @@ W odpowiedzi na te założenia:
 
 ## Licencja
 
-Lithium jest udostępniony na licencji **PolyForm Noncommercial 1.0.0** (plik [`LICENSE`](LICENSE)). Źródło jest jawne — każdy może je czytać, audytować, modyfikować i używać do celów **niekomercyjnych** (nauka, badania, projekty open-source, użytek prywatny, organizacje non-profit).
+Lithium jest udostępniony na licencji **GNU AGPL-3.0-only** (plik [`LICENSE`](LICENSE)) — wolne oprogramowanie open source. Każdy może je czytać, audytować, modyfikować i używać, pod warunkiem spełnienia AGPL (m.in. udostępnienia źródeł także użytkownikom korzystającym z oprogramowania przez sieć).
 
-**Użycie komercyjne wymaga osobnej licencji komercyjnej.** Za komercyjne uznaje się użycie przez firmę lub na rzecz działalności zarobkowej — **również jako narzędzie wewnętrzne** (np. wewnętrzna komunikacja w organizacji). Ewaluacja jest mile widziana; po licencję komercyjną albo w sprawie wdrożenia/integracji pisz na **oktawia.handerek@gmail.com**.
+**Dual licensing.** Dla zastosowań, które nie mogą spełnić AGPL (np. włączenie do produktu zamkniętego), dostępna jest osobna **licencja komercyjna**. Ewaluacja jest mile widziana; po licencję komercyjną albo w sprawie wdrożenia/integracji pisz na **oktawia.handerek@gmail.com**.

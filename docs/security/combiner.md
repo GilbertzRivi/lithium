@@ -1,9 +1,13 @@
 # Combiner story — hybrydowa kompozycja KyberBox
 
 Ten dokument uzasadnia **kombinator hybrydowy** użyty w `lithium_core/src/crypto/kyberbox.rs`:
-co dokładnie składa klasyczną gałąź (X25519) z postkwantową (ML-KEM-1024), czym różni się od
-standaryzowanego X-Wing i jakie pytania zostają otwarte dla audytora. Jest pisany jako wprost
-materiał do audytu — kombinator jest produktem, więc jego poprawność jest centralnym ustaleniem.
+co dokładnie składa klasyczną gałąź (X25519) z postkwantową (ML-KEM-1024), na jakim opublikowanym
+wyniku stoi i jakie odchylenia od kanonu zostają do potwierdzenia przez audytora.
+
+Punkt wyjścia: **kombinator nie jest nowy ani autorski.** Rdzeń (łączenie dwóch sekretów przez
+HKDF, gdzie jeden jest IKM a drugi saltem) to **dualPRF / split-key-PRF combiner** — konstrukcja
+opisana i udowodniona w literaturze. KyberBox jest jej instancją z kilkoma odchyleniami; to one,
+nie sam pomysł, są przedmiotem walidacji.
 
 Opis konstrukcji na poziomie wire i przepływu kluczy: [`kyberbox.md`](kyberbox.md). Tutaj skupiamy
 się na *samym kombinatorze* i jego uzasadnieniu.
@@ -34,70 +38,87 @@ Kluczowy moment kombinacji: **`ecdh_key` jest IKM, a `seed_plain` (odzyskany prz
 saltem** w derywacji `base_key`. Obie gałęzie wchodzą do jednego HKDF; bez obu nie da się
 policzyć `base_key`.
 
-## 2. Dlaczego nie X-Wing
+## 2. Na czym to stoi (literatura)
 
-Pierwsze pytanie kryptografa kupującego brzmi: „czemu nie X-Wing i czy Twój kombinator jest
-dowiedlnie poprawny?". X-Wing to standaryzowany hybrydowy KEM:
+`base_key` to instancja kanonicznego kombinatora hybrydowego. Mapowanie:
 
 ```
-X-Wing: ML-KEM-768 + X25519, jeden kombinator:
+Kanon (dualPRF combiner):   k        = HKDF-Expand( HKDF-Extract(salt=k1, IKM=k2), info=c1||c2 )
+KyberBox:                   base_key = HKDF-Expand( HKDF-Extract(salt=seed_plain, IKM=ecdh_key), info="base-key/v1" )
+```
+
+Część `HKDF-Extract(salt, IKM)` jest dokładnie funkcją dual-PRF: pseudolosową, gdy *którykolwiek*
+z dwóch argumentów jest losowy. To daje bezpieczeństwo hybrydowe (złamanie jednej gałęzi nie daje
+przewagi). Źródła:
+
+- **Bindel, Brendel, Fischlin, Gonçalves, Stebila**, *Hybrid Key Encapsulation Mechanisms and
+  Authenticated Key Exchange*, PQCrypto 2019 (eprint 2018/903), sek. 3.2 — definiuje **dualPRF
+  combiner** `PRF(dPRF(k1,k2), c1||c2)` z `dPRF=HKDF-Extract`, `PRF=HKDF-Expand`, modelowany na
+  TLS 1.3; robustność pod założeniem HMAC=dual-PRF.
+- **Bellare, Lysyanskaya**, generic validation of the dual-PRF assumption for HMAC.
+- **Giacon, Heuer, Poettering**, *KEM Combiners* (PKC 2018) — **split-key PRF**: jeśli kombinator
+  jest split-key-PRF i choć jeden składowy KEM jest IND-CCA, to złożony KEM jest IND-CCA.
+- **draft-irtf-cfrg-hybrid-kems** (CFRG, w toku) — rekomendowane konstrukcje **UniversalCombiner**
+  i **C2PRICombiner** (patrz sek. 3).
+- **Barbosa et al.**, *X-Wing: The Hybrid KEM You've Been Looking For* (eprint 2024/039) — dowód,
+  że szyfrogram ML-KEM można pominąć pod założeniem C2PRI.
+
+Wniosek: nie potrzeba dowodu od zera. Potrzeba pokazać, że KyberBox mapuje się na te konstrukcje,
+i ocenić odchylenia z sek. 4.
+
+## 3. Czym różni się od X-Wing i kanonu
+
+X-Wing to standaryzowany hybrydowy KEM:
+
+```
+X-Wing: ML-KEM-768 + X25519:
   ss = SHA3-256( ss_mlkem || ss_x25519 || ct_x25519 || pk_x25519 || XWingLabel )
 ```
 
-Lithium różni się **trzema** rzeczami i z każdej wynika, że X-Wing nie wkleja się 1:1:
+KyberBox różni się trzema rzeczami, ale tylko jedna jest realnym pytaniem:
 
-1. **Poziom bezpieczeństwa.** Lithium używa ML-KEM-**1024** (NIST kategoria 5), nie ML-KEM-768
-   (kategoria 1) jak X-Wing. Cała reszta stosu (ML-DSA-87) jest dobrana do tej samej kategorii.
-2. **KEM vs AEAD.** X-Wing zwraca wspólny sekret `ss` do dalszego użycia. KyberBox jest pełnym
-   szyfrowaniem wiadomości — gałąź ML-KEM transportuje świeży `seed_plain` (KEM-DEM), a nie
-   bezpośrednio dostarcza materiał klucza do konkatenacji.
-3. **Struktura kombinatora.** X-Wing konkatenuje *oba* wspólne sekrety jako wejście jednego
-   SHA3-256 (z transkryptem `ct_x25519 || pk_x25519`). Lithium używa HKDF z `ecdh_key` jako IKM
-   i `seed_plain` jako **saltem** — asymetria salt-vs-IKM zamiast symetrycznej konkatenacji.
+1. **Poziom bezpieczeństwa (niegroźne).** ML-KEM-**1024** (kat. 5) zamiast 768 (kat. 1). Cały stos
+   (ML-DSA-87) dobrany do kat. 5. Zmiana parametru, nie konstrukcji.
+2. **KEM vs AEAD + KEM-DEM (do potwierdzenia).** X-Wing zwraca wspólny sekret; KyberBox to pełny
+   AEAD, a gałąź ML-KEM transportuje świeży `seed_plain` (KEM-DEM). Skutek: założenie C2PRI dotyczy
+   konstrukcji KEM-DEM, nie gołego ML-KEM — do potwierdzenia.
+3. **Wiązanie szyfrogramów (realne pytanie).** Oba kombinatory IETF wiążą szyfrogram klasyczny
+   `ct_T`:
+   - **UniversalCombiner**: `KDF(ss_PQ, ss_T, ct_PQ, ct_T, ek_PQ, ek_T, label)` — wiąże oba.
+   - **C2PRICombiner**: `KDF(ss_PQ, ss_T, ct_T, ek_T, label)` — wolno pominąć `ct_PQ` (= `ct_kem`)
+     pod C2PRI, ale `ct_T` (= efemeryczny klucz X25519 `msg_x_pub`) zostaje.
 
-Wniosek dla audytu: potrzebna jest **odpowiedź** uzasadniająca własny kombinator, nie adopcja
-X-Wing. Poniższe pytania są tą odpowiedzią postawioną wprost.
+   KyberBox **nie wiąże** w `info` ani `ct_kem`, ani `msg_x_pub` — `msg_x_pub` jest związany tylko
+   implicite przez `ecdh_ss`. Pominięcie `ct_kem` jest zgodne z C2PRICombiner/X-Wing. Pominięcie
+   jawnego `msg_x_pub` jest **odchyleniem od obu kombinatorów IETF** (patrz Q-D1 niżej).
 
-## 3. Argument bezpieczeństwa hybrydy
+## 4. Odchylenia do rozstrzygnięcia przez audytora
 
-Twierdzenie konstrukcyjne: żeby policzyć `base_key`, atakujący musi znać **oba** wejścia HKDF —
-`ecdh_key` (co wymaga złamania X25519, bo `ecdh_ss` jest sekretny) **oraz** `seed_plain` (co
-wymaga złamania ML-KEM-1024, bo `seed_plain` jest odzyskiwany wyłącznie przez decapsulację). O ile
-HKDF-SHA256 nie ma słabości pozwalającej policzyć wyjście bez znajomości jednego z (IKM, salt),
-złamanie tylko jednej gałęzi nie wystarcza. Świeży `seed_plain` per wiadomość daje też unikalny
-`base_key` per wiadomość (świeżość klucza nawet przy reużyciu kluczy publicznych odbiorcy).
+Numeracja D1–D4 spójna z `notes/brief.md`. Werdykt wstępny = co już mówi literatura; wymaga
+potwierdzenia.
 
-To twierdzenie wynika z zamierzeń projektowych i analizy konstrukcji — **nie z formalnego
-dowodu**. Formalizacja w standardowym modelu hybrid-KEM jest właśnie tym, czego oczekujemy od
-audytu.
-
-## 4. Otwarte pytania do audytora
-
-- **Q1 — `SHA256(ct_kem)` jako salt HKDF.** W derywacji `aead_key_kem` salt jest hashem
-  ciphertextu ML-KEM widocznego dla atakującego; ten sam hash służy jako sprawdzenie integralności
-  blobu. Używanie hashu wartości wybieralnej/widocznej dla atakującego jako salta KDF jest
-  niestandardowe. Argument: `ss_kem` jest właściwym materiałem klucza, a salt musi tylko być
-  niesekretny i unikalny per ciphertext. Pytanie: czy atakujący wybierający `ct_kem` (przez
-  złośliwą wiadomość) może wymusić salt osłabiający wynikowe `aead_key_kem` w dowodzie HKDF?
-
-- **Q2 — salt-vs-IKM dla gałęzi PQ.** W `base_key` gałąź klasyczna jest IKM, a gałąź PQ
-  (`seed_plain`) jest saltem — w przeciwieństwie do X-Wing, gdzie oba sekrety są symetrycznie
-  konkatenowane jako wejście. Pytanie: czy ta asymetria zachowuje pełną hybrid-security, tj. czy
-  przeciwnik łamiący jedną gałąź (klasyczną *albo* PQ) nadal nie zyskuje żadnej przewagi nad
-  `base_key`?
-
-- **Q3 — `ecdh_ss` jako IKM bez salta.** `ecdh_key` jest wyprowadzany HKDF z `salt=brak`. Wejście
-  jest sekretne (wynik DH), więc standardowo brak salta jest dopuszczalny — do potwierdzenia w tym
-  konkretnym złożeniu.
-
-- **Q4 — filtr integralności przed decapsulacją.** `decrypt_kyber_seed` weryfikuje
-  `SHA256(ct_kem)` względem zapisanego salta *przed* decapsulacją, co ma ograniczać użycie blobu
-  jako wyroczni decapsulacji. Pytanie: czy ten deterministyczny filtr wystarcza wobec atakującego
-  adaptacyjnego w modelu IND-CCA2 ML-KEM?
+- **D1 — wiązanie szyfrogramów w `base_key` (najważniejsze).** Brak `ct_T` (`msg_x_pub`) w `info`,
+  podczas gdy oba kombinatory IETF go wiążą (X25519 nie ma C2PRI). **Werdykt wstępny:** odchylenie
+  realne; tania naprawa — związać `msg_x_pub` (i dla bezpieczeństwa `ct_kem`) w `info`, co czyni
+  z KyberBoxa instancję UniversalCombinera. **Pytanie do audytora:** czy implicite wiązanie przez
+  `ecdh_ss` wystarcza dla wymaganych własności binding (MAL-BIND-K-CT/PK), czy konieczne jest
+  jawne związanie.
+- **D2 — KEM-DEM na gałęzi PQ.** `seed_plain` (transportowany) zamiast gołego `ss_kem` jako wejście
+  kombinatora. **Werdykt wstępny:** prawdopodobnie OK, ale C2PRI dotyczy wtedy konstrukcji KEM-DEM.
+  **Pytanie:** czy KEM-DEM zachowuje C2PRI potrzebne do pominięcia `ct_kem`.
+- **D3 — `ecdh_ss`/`ecdh_key` jako niejednostajny IKM bez salta.** Wynik X25519 nie jest jednostajny
+  (clamping, zerowy najwyższy bit). **Werdykt wstępny:** pokryte — HKDF-Extract jest zaprojektowany
+  pod niejednostajne IKM (Krawczyk 2010, RFC 5869), a w `base_key` losowy `seed_plain` jako salt
+  dodatkowo pomaga. Najmniejsze ryzyko.
+- **D4 — `SHA256(ct_kem)` jako salt HKDF w transporcie seeda.** Salt jest hashem widocznego
+  ciphertextu. **Werdykt wstępny:** standardowo dopuszczalne (salt HKDF musi być tylko niesekretny
+  i unikalny per ciphertext; właściwym materiałem klucza jest `ss_kem`). **Pytanie do audytora:**
+  czy atakujący wybierający `ct_kem` może adaptacyjnie wymusić salt osłabiający `aead_key_kem`
+  w modelu IND-CCA2 ML-KEM. Najbardziej wskazane do oka eksperta.
 
 ## 5. Co dostaje audytor
 
 - Kod kombinatora: `lithium_core/src/crypto/kyberbox.rs` (oraz `crypto/kdf.rs`, `crypto/aead.rs`).
 - Opis wire i przepływu kluczy: [`kyberbox.md`](kyberbox.md).
 - Granice odpowiedzialności biblioteki: [`lithium_core-threat-model.md`](lithium_core-threat-model.md).
-- Niniejsze pytania Q1–Q4 jako zakres pytań do rozstrzygnięcia.
+- Mapowanie na literaturę (sek. 2) i odchylenia D1–D4 (sek. 4) jako zakres do rozstrzygnięcia.

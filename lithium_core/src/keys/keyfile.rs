@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use lithium_core::crypto::kyberbox::WirePayload;
 use lithium_core::secrets::bytes::SecretBytes;
 use lithium_core::secrets::{Byte32, SecretJson};

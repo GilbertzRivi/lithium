@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Lithium Project
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use lithium_proto::db::DataManager;
