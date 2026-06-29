@@ -6,6 +6,8 @@ Lithium nie jest komunikatorem konsumenckim. Powstał dla organizacji i użytkow
 
 > **Priorytet projektowy:** Poufność treści jest ważniejsza od wygody. Jeśli te dwie wartości wchodzą w kolizję, Lithium wybiera poufność.
 
+> **Status: przedaudytowy (unaudited).** Lithium nie przeszedł jeszcze niezależnego audytu kryptograficznego i nie ma wydań produkcyjnych. Mimo wysokich celów bezpieczeństwa **nie używaj go do ochrony realnie wrażliwej komunikacji**, dopóki implementacja nie zostanie niezależnie zaudytowana. Kod jest udostępniony do wglądu, recenzji i integracji — nie jako gotowy produkt.
+
 ---
 
 ## Dla kogo jest Lithium

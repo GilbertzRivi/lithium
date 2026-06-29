@@ -1,5 +1,7 @@
 # Polityka bezpieczeństwa
 
+> **Status: przedaudytowy.** Implementacja nie przeszła niezależnego audytu kryptograficznego i nie ma wydań produkcyjnych. Używasz jej na własne ryzyko — nie do ochrony realnie wrażliwej komunikacji przed audytem.
+
 ## Zgłaszanie podatności
 
 Zgłoszenia kieruj prywatnie na **oktawia.handerek@gmail.com**. Nie otwieraj publicznego issue dla podatności.
