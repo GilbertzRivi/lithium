@@ -7,7 +7,7 @@ edition = "2024"
 fuzzing = ["dep:arbitrary"]
 
 [dependencies]
-lithium_core = { path = "../lithium_core" }
+lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", branch = "main" }
 lithium_proto = { path = "../lithium_proto" }
 rand = "0.10.0"
 tokio = { version = "1.50.0", features = ["full"] }

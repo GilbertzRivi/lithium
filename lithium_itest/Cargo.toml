@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-lithium_core = { path = "../lithium_core" }
+lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", branch = "main" }
 lithium_proto = { path = "../lithium_proto" }
 lithiums = { path = "../lithiums" }
 tokio = { version = "1.50.0", features = ["full"] }

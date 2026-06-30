@@ -35,7 +35,7 @@ the [Developer Certificate of Origin](https://developercertificate.org/).
   cargo clippy --workspace --all-targets -- -D warnings
   cargo test --workspace
   ```
-- Match the surrounding code. Comments explain *why*, not *what* (see `CLAUDE.md` for the house style).
+- Match the surrounding code. Comments explain *why*, not *what*.
 
 ## Security
 

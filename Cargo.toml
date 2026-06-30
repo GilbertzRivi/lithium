@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "lithium_core",
     "lithium_proto",
     "lithiumd",
     "lithiumg",

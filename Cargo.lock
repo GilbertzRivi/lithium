@@ -3122,6 +3122,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 [[package]]
 name = "lithium_core"
 version = "0.1.0"
+source = "git+https://github.com/GilbertzRivi/lithium-core.git?branch=main#1c4dfa7dc7e510bb3ecca93f1355f68cd71c7541"
 dependencies = [
  "aes-gcm-siv",
  "argon2",
