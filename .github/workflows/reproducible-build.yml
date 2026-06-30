@@ -25,7 +25,7 @@ on:
 jobs:
   # Builds lithiumd twice in the pinned container and asserts the binaries are
   # bit-identical. A reproducible build lets anyone verify a published binary was
-  # compiled from the public source — a coerced, backdoored build will not reproduce.
+  # compiled from the public source - a coerced, backdoored build will not reproduce.
   reproducible:
     runs-on: ubuntu-latest
     steps:

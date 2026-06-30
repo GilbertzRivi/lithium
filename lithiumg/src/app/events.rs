@@ -45,7 +45,7 @@ impl LithiumApp {
         };
 
         let status = if ping.ui_state != "keystore_locked" && !has_ipc_auth {
-            "Session expired — re-enter your data password to continue.".to_string()
+            "Session expired - re-enter your data password to continue.".to_string()
         } else {
             match self.screen {
                 Screen::Connecting => "Connecting...".to_string(),
@@ -56,7 +56,7 @@ impl LithiumApp {
                 }
                 Screen::SetDataPassword => {
                     if s.first_run {
-                        "First run — set a data password to protect your local keys.".to_string()
+                        "First run - set a data password to protect your local keys.".to_string()
                     } else {
                         "No local keystore found. Set a new data password to reinitialize."
                             .to_string()
@@ -67,7 +67,7 @@ impl LithiumApp {
                 }
                 Screen::Credentials => "Enter your account credentials.".to_string(),
                 Screen::Register => {
-                    "Account not registered yet — register before continuing.".to_string()
+                    "Account not registered yet - register before continuing.".to_string()
                 }
                 Screen::UnlockStorage => "Unlocking local storage...".to_string(),
                 Screen::Ready => "Ready.".to_string(),
@@ -119,7 +119,7 @@ impl LithiumApp {
                         self.set_status("Registered successfully.");
                     } else {
                         self.set_status(
-                            "Registered. Save your delete capability — it will be shown now.",
+                            "Registered. Save your delete capability - it will be shown now.",
                         );
                     }
 
@@ -192,7 +192,7 @@ impl LithiumApp {
                         self.account_password.clear();
                         self.account_password_confirm.clear();
                         self.set_error(
-                            "Wrong username or password — please re-enter your credentials.",
+                            "Wrong username or password - please re-enter your credentials.",
                         );
                     } else {
                         self.set_error(format!(
@@ -371,7 +371,7 @@ impl LithiumApp {
 
             WorkerEvent::LockKeystore(res) => match res {
                 Ok(()) => {
-                    // State cleared in ipc::lock_keystore — just ping to re-detect screen.
+                    // State cleared in ipc::lock_keystore - just ping to re-detect screen.
                     self.contacts.clear();
                     self.selected_contact_id = None;
                     self.messages.clear();

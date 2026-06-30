@@ -116,5 +116,5 @@ async fn test_concurrent_send_both_stored() {
 // the raw token string: EphemeralStoreManager does not expose it and the client
 // takes (not peeks) the token before sending. The store.take() atomicity is the
 // same primitive used by the fetch transaction above, so the property is covered
-// transitively. Do not "fix" this by injecting a dummy token string — that would
+// transitively. Do not "fix" this by injecting a dummy token string - that would
 // bypass the actual code path.

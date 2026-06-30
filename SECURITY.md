@@ -2,7 +2,7 @@
 
 > **Status: pre-audit.** The implementation has not gone through an independent
 > cryptographic audit and has no production releases. You use it at your own
-> risk — not to protect actually sensitive communication before the audit.
+> risk - not to protect actually sensitive communication before the audit.
 
 ## Reporting vulnerabilities
 
@@ -10,10 +10,10 @@ Send reports privately to **[oktawia.handerek@gmail.com](mailto:oktawia.handerek
 issue for vulnerabilities.
 
 PGP for encrypted reports: *fingerprint to be added*. Until it is published, do
-not include a sensitive PoC in the email body — ask for the key first.
+not include a sensitive PoC in the email body - ask for the key first.
 
 Please use coordinated disclosure: give time for a fix before disclosing details
-publicly (default up to 90 days from confirmation). Report acknowledgement — as
+publicly (default up to 90 days from confirmation). Report acknowledgement - as
 soon as possible; this is a small project, there is no 24/7 on-call rotation.
 
 ## Before you report
@@ -36,7 +36,7 @@ Full trust model and responsibility boundaries:
 
 In scope: `lithium_core` (crypto, KDF, secret types), `lithiumd` (IPC, E2E,
 mailbox), `lithiums` (transport, rate limiting). Out of scope: properties that
-the trust model consciously accepts as cost — server-side metadata visibility,
+the trust model consciously accepts as cost - server-side metadata visibility,
 no delivery guarantee, no recovery for lost key material.
 
 ## Supported versions

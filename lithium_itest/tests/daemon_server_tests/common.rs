@@ -34,7 +34,7 @@ pub async fn start_daemon() -> DaemonProcess {
     }
 }
 
-// Returns (cid_a, cid_b) — A's local ID for B and B's local ID for A.
+// Returns (cid_a, cid_b) - A's local ID for B and B's local ID for A.
 pub async fn connect_pair(
     ca: &mut IpcClient,
     tok_a: &str,

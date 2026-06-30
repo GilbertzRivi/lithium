@@ -390,7 +390,7 @@ async fn test_body_over_limit_rejected() {
 async fn test_garbage_encrypted_body_rejected() {
     let srv = TestServer::start().await;
     let http = reqwest::Client::new();
-    // Valid-looking headers, but body is random noise — kyberbox decrypt must fail.
+    // Valid-looking headers, but body is random noise - kyberbox decrypt must fail.
     let resp = http
         .post(format!("http://{}/shake", srv.addr))
         .header("key-x", "ab".repeat(32))

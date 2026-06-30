@@ -225,7 +225,7 @@ fn default_socket_path() -> PathBuf {
         return PathBuf::from(xdg).join("lithiumd.sock");
     }
 
-    // No safe fallback — connect will fail and the GUI will show DaemonOffline.
+    // No safe fallback - connect will fail and the GUI will show DaemonOffline.
     PathBuf::from("/dev/null/lithiumd.sock")
 }
 

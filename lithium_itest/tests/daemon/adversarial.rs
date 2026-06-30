@@ -69,7 +69,7 @@ async fn test_request_id_echoed() {
 #[tokio::test]
 async fn test_max_connections_enforced() {
     // The second connection is accepted at OS level but the daemon drops the stream
-    // when the semaphore is exhausted — client sees EOF immediately.
+    // when the semaphore is exhausted - client sees EOF immediately.
     let d = DaemonProcess::start_max_conn(1).await;
 
     let mut c1 = IpcClient::connect(&d.socket_path).await;

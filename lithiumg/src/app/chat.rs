@@ -118,7 +118,7 @@ impl LithiumApp {
             if !contact.peer_set {
                 ui.separator();
                 ui.label(
-                    egui::RichText::new("Pending — awaiting contact reply")
+                    egui::RichText::new("Pending - awaiting contact reply")
                         .weak()
                         .italics(),
                 );
@@ -173,7 +173,7 @@ impl LithiumApp {
                             .clone()
                             .unwrap_or_else(|| "(unsupported message type)".into());
 
-                        // Show time only — drop internal message ID.
+                        // Show time only - drop internal message ID.
                         let time = msg
                             .created_at
                             .split('T')
@@ -207,7 +207,7 @@ impl LithiumApp {
             egui::TextEdit::multiline(&mut self.message_text)
                 .desired_rows(3)
                 .desired_width(f32::INFINITY)
-                .hint_text("Write a message…"),
+                .hint_text("Write a message..."),
         );
 
         let can_send = !self.busy && contact.peer_set && !self.message_text.trim().is_empty();

@@ -123,7 +123,7 @@ async fn main() -> AppResult<()> {
         }
     };
 
-    // Plain HTTP — TLS is terminated by the reverse proxy in front of this process.
+    // Plain HTTP - TLS is terminated by the reverse proxy in front of this process.
     Server::new(TcpListener::bind(bind))
         .run_with_graceful_shutdown(app, shutdown, Some(Duration::from_secs(30)))
         .await

@@ -41,7 +41,7 @@ impl LithiumApp {
                     }
 
                     PairingStep::InitiatorCommitment => {
-                        ui.label("Step 1 — send this commitment to your contact:");
+                        ui.label("Step 1 - send this commitment to your contact:");
                         ui.add_space(4.0);
                         draw_invite_box(
                             ui,
@@ -52,7 +52,7 @@ impl LithiumApp {
                         );
 
                         ui.add_space(8.0);
-                        ui.label("Step 2 — paste the code they send back:");
+                        ui.label("Step 2 - paste the code they send back:");
                         ui.add_space(4.0);
                         ui.add_sized(
                             [ui.available_width(), 24.0],
@@ -141,7 +141,7 @@ impl LithiumApp {
                     }
 
                     PairingStep::ResponderCode => {
-                        ui.label("Step 1 — send this code back to your contact:");
+                        ui.label("Step 1 - send this code back to your contact:");
                         ui.add_space(4.0);
                         draw_invite_box(
                             ui,
@@ -152,7 +152,7 @@ impl LithiumApp {
                         );
 
                         ui.add_space(8.0);
-                        ui.label("Step 2 — paste their final code to finish:");
+                        ui.label("Step 2 - paste their final code to finish:");
                         ui.add_space(4.0);
                         draw_invite_box(
                             ui,
@@ -252,7 +252,7 @@ impl LithiumApp {
             .show(ctx, |ui| {
                 ui.colored_label(
                     egui::Color32::from_rgb(220, 150, 50),
-                    "Save this now — it will not be shown again.",
+                    "Save this now - it will not be shown again.",
                 );
                 ui.add_space(4.0);
                 ui.label(
@@ -261,7 +261,7 @@ impl LithiumApp {
                 );
                 ui.label(
                     egui::RichText::new(
-                        "Treat it like a password — anyone who has it can request deletion.",
+                        "Treat it like a password - anyone who has it can request deletion.",
                     )
                     .weak()
                     .small(),
@@ -328,7 +328,7 @@ impl LithiumApp {
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(
-                        "The server always responds with success — it does not confirm whether \
+                        "The server always responds with success - it does not confirm whether \
                          the capability was correct. Use 'Reset local data' separately if \
                          you also need to clear local files.",
                     )

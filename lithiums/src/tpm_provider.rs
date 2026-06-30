@@ -77,7 +77,7 @@ fn primary_pub() -> std::result::Result<Public, tss_esapi::Error> {
         .build()
 }
 
-// KEYEDHASH object with no scheme — stores the 32-byte MK as opaque sealed data.
+// KEYEDHASH object with no scheme - stores the 32-byte MK as opaque sealed data.
 fn sealing_pub() -> std::result::Result<Public, tss_esapi::Error> {
     let attrs = ObjectAttributesBuilder::new()
         .with_user_with_auth(true)

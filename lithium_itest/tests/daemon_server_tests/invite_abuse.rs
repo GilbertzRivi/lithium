@@ -18,7 +18,7 @@ async fn test_contact_send_to_pending_invite_fails() {
     assert!(inv["ok"].as_bool().unwrap(), "{:?}", inv);
     let cid = inv["result"]["contact_id"].as_str().unwrap().to_owned();
 
-    // Peer has not accepted yet — no public key material to encrypt for.
+    // Peer has not accepted yet - no public key material to encrypt for.
     let r = c
         .send(json!({"cmd": "contact_send", "contact_id": cid, "plaintext": "early", "auth_token": tok}))
         .await;
@@ -61,7 +61,7 @@ async fn test_reveal_with_unknown_contact_id_fails() {
 
 #[tokio::test]
 async fn test_peer_takeover_rejected() {
-    // A commitment is public — two different peers can accept the same one. Once A reveals
+    // A commitment is public - two different peers can accept the same one. Once A reveals
     // against B's identity, a second reveal using C's identity must be rejected so C cannot
     // take over A's established contact slot.
     let srv = TestServer::start().await;
@@ -134,7 +134,7 @@ async fn test_finalize_rejects_wrong_code_then_accepts_correct() {
     let cid_b = acc_b["result"]["contact_id"].as_str().unwrap().to_owned();
     let code_b = acc_b["result"]["code"].as_str().unwrap().to_owned();
 
-    // A code whose hash does not open the commitment must be rejected — here B's own code
+    // A code whose hash does not open the commitment must be rejected - here B's own code
     // stands in for keys a channel attacker swapped after seeing the commitment.
     let bad = cb
         .send(json!({"cmd": "finalize_pairing", "contact_id": cid_b, "peer_code": code_b, "auth_token": tok_b}))

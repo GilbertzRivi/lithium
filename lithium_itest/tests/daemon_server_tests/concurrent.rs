@@ -19,7 +19,7 @@ async fn test_two_senders_to_same_recipient_both_delivered() {
     let tok_b = full_setup(&mut cb, &srv, &unique_handle("two_b")).await;
     let tok_c = full_setup(&mut cc, &srv, &unique_handle("two_c")).await;
 
-    // B creates invite, A accepts — A gets cid_a_b (A's slot for B), B keeps cid_b_a.
+    // B creates invite, A accepts - A gets cid_a_b (A's slot for B), B keeps cid_b_a.
     let inv_b = cb
         .send(json!({"cmd": "create_invite", "auth_token": tok_b}))
         .await;

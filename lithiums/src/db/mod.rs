@@ -109,7 +109,7 @@ const MIGRATIONS: &[Migration] = &[
             "CREATE INDEX IF NOT EXISTS messages_expires_at_idx ON messages (expires_at)",
         ],
     },
-    // Never modify existing entries — only append.
+    // Never modify existing entries - only append.
 ];
 
 const MIGRATION_LOCK_ID: i64 = 0x4c69_7468_6975_6d00; // "Lithiu\0"

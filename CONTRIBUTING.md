@@ -13,13 +13,13 @@ By submitting a contribution (a pull request, patch, or any code/content), you a
 1. Your contribution is licensed to the project and its users under **AGPL-3.0-only**; and
 2. You grant the Lithium Project a perpetual, worldwide, irrevocable, royalty-free right to also
    license your contribution under **other terms, including commercial/proprietary licenses**; and
-3. You have the right to grant the above — the work is yours, or you are authorised to contribute it,
+3. You have the right to grant the above - the work is yours, or you are authorised to contribute it,
    and it is not encumbered by an employer or third party.
 
 If you cannot agree to all three, please do not submit the contribution. For anything substantial,
 the simplest path is to open an issue first so we can confirm fit before you spend time.
 
-Add a `Signed-off-by:` line to your commits (`git commit -s`) to certify the above — this follows
+Add a `Signed-off-by:` line to your commits (`git commit -s`) to certify the above - this follows
 the [Developer Certificate of Origin](https://developercertificate.org/).
 
 ## Code

@@ -107,7 +107,7 @@ impl Drop for DaemonProcess {
 }
 
 pub async fn wait_for_socket(path: &Path) {
-    // Check file existence only — connecting would consume a connection slot.
+    // Check file existence only - connecting would consume a connection slot.
     for _ in 0..80 {
         if tokio::fs::metadata(path).await.is_ok() {
             return;

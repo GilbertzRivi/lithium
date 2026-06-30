@@ -122,7 +122,7 @@ async fn test_pending_invite_contact_survives_restart() {
     let contacts = list["result"]["contacts"].as_array().unwrap();
     assert_eq!(contacts.len(), 1);
     assert_eq!(contacts[0]["contact_id"].as_str().unwrap(), cid);
-    // invite was created but not accepted — peer_set must be false
+    // invite was created but not accepted - peer_set must be false
     assert!(!contacts[0]["peer_set"].as_bool().unwrap());
 }
 
@@ -159,7 +159,7 @@ async fn test_received_message_survives_restart() {
 
     ca.send(json!({"cmd": "contact_send", "contact_id": cid_a, "plaintext": "persisted", "auth_token": tok_a})).await;
 
-    // B auto-fetches — message is written to B's local SQLite and deleted from server
+    // B auto-fetches - message is written to B's local SQLite and deleted from server
     let inbound = wait_for_inbound(&mut cb, &cid_b, &tok_b, 1).await;
     assert_eq!(inbound.len(), 1);
     drop(db);

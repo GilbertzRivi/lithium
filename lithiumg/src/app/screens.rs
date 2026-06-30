@@ -56,7 +56,7 @@ impl LithiumApp {
                 ui.add_space(8.0);
             }
 
-            if ui.button("Browse…").clicked()
+            if ui.button("Browse...").clicked()
                 && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Server identity", &["identity"])
                     .pick_file()

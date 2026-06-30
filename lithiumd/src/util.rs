@@ -72,7 +72,7 @@ pub fn default_ipc_endpoint() -> Result<IpcEndpoint> {
             return Ok(IpcEndpoint::Unix(PathBuf::from(rt).join("lithiumd.sock")));
         }
 
-        // No safe location available — require explicit override via LITHIUMD_SOCKET_PATH.
+        // No safe location available - require explicit override via LITHIUMD_SOCKET_PATH.
         Err(LithiumError::env_missing("XDG_RUNTIME_DIR"))
     }
 }

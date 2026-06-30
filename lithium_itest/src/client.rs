@@ -553,11 +553,11 @@ impl TestLithiumClient {
             let px = self
                 .st_take_byte32(ST_PEER_X)
                 .await
-                .expect("server peer_x missing — call shake() first");
+                .expect("server peer_x missing - call shake() first");
             let pk = self
                 .st_take(ST_PEER_K)
                 .await
-                .expect("server peer_k missing — call shake() first");
+                .expect("server peer_k missing - call shake() first");
             let sx = self.st_take_str(ST_SES_X).await;
             let sk = self.st_take_str(ST_SES_K).await;
             (px, pk, sx, sk)

@@ -11,7 +11,7 @@ impl LithiumApp {
     pub(super) fn draw_top_bar(&mut self, ui: &mut egui::Ui) {
         let has_ipc_auth = ipc::has_auth_token();
 
-        // Button row — always the same height, never pushed by status text.
+        // Button row - always the same height, never pushed by status text.
         ui.horizontal(|ui| {
             if ui.button("Refresh").clicked() && !self.busy {
                 self.send(Command::Ping);
@@ -93,7 +93,7 @@ impl LithiumApp {
 
         ui.separator();
 
-        // Status line — separate row so its height never affects the button row above.
+        // Status line - separate row so its height never affects the button row above.
         ui.horizontal(|ui| {
             let text = egui::RichText::new(&self.status).small();
             let text = if self.status_is_error {

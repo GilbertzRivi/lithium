@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Reproducible build of the Lithium client daemon (lithiumd) — the client TCB.
+# Reproducible build of the Lithium client daemon (lithiumd) - the client TCB.
 # Build context is the repository root:
 #
 #   docker build -f build/Dockerfile -t lithium-repro .

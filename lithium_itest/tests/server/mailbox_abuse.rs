@@ -65,7 +65,7 @@ async fn test_odd_length_hex_content_rejected() {
 
 #[tokio::test]
 async fn test_empty_content_round_trips() {
-    // hex("") = "" — server must store and return zero bytes without error.
+    // hex("") = "" - server must store and return zero bytes without error.
     let srv = TestServer::start().await;
     let mut c = authenticated_client(&srv, "emptycnt").await;
     let mailbox = hex::encode(keys::random_32().unwrap().as_slice());

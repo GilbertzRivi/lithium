@@ -6,7 +6,7 @@ use lithium_itest::helpers::{TestServer, random_dek_hex, unique_handle};
 #[tokio::test]
 async fn test_login_wrong_signing_keys_rejected() {
     // LoginByHandler verifies the signature against stored keys, not the ones
-    // presented in the request — different failure path than wrong password.
+    // presented in the request - different failure path than wrong password.
     let srv = TestServer::start().await;
     let handle = unique_handle("sigfail");
     let dek = random_dek_hex();

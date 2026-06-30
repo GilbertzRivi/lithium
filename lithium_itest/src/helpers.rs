@@ -64,7 +64,7 @@ async fn ensure_postgres() -> &'static SharedPg {
                     .output()
                     .await
                     .expect(
-                        "docker run failed — is Docker installed and running?\n\
+                        "docker run failed - is Docker installed and running?\n\
                          Alternatively set LITHIUM_TEST_DATABASE_URL to skip Docker.",
                     );
 
