@@ -1,112 +1,168 @@
-# Runtime daemona lithiumd — model procesu, system tray, cykl życia
+# lithiumd daemon runtime: process model, system tray, lifecycle
 
-Dokument opisuje, jak proces `lithiumd` jest zbudowany i jak się uruchamia, restartuje oraz zamyka. Komendy IPC opisuje [ipc-reference.md](../protocol/ipc-reference.md); ten plik dotyczy samego runtime'u procesu (`lithiumd/src/lib.rs`, `main.rs`, `tray.rs`, `util.rs`).
+This document describes how the `lithiumd` process is built and how 
+it starts, restarts, and shuts down. The IPC commands are in 
+[ipc-reference.md](../protocol/ipc-reference.md); this file is 
+about the process runtime itself (`lithiumd/src/lib.rs`, `main.rs`, 
+`tray.rs`, `util.rs`).
 
-## Dlaczego `main()` nie jest `#[tokio::main]`
+## Why `main()` is not `#[tokio::main]`
 
-System tray musi być właścicielem głównego wątku procesu, dlatego start jest rozdzielony na dwa wątki (`lithiumd/src/lib.rs`):
+The system tray must own the process's main thread, so startup is 
+split across two threads (`lithiumd/src/lib.rs`):
 
-- **Wątek główny** uruchamia `tray::run` — pętlę menu zasobnika.
-- **Osobny `std::thread`** tworzy runtime Tokio i wykonuje cały asynchroniczny daemon (`daemon_async`).
+- The **main thread** runs `tray::run`, the tray menu loop.
+- A **separate `std::thread`** creates the Tokio runtime and runs 
+  the whole async daemon (`daemon_async`).
 
-`main()` (`lithiumd/src/main.rs`) tylko woła `lithiumd::run()` i mapuje błąd na `eprintln!("fatal: {e}")` + `exit(1)`. Na Windows `#![cfg_attr(windows, windows_subsystem = "windows")]` tłumi okno konsoli.
+`main()` (`lithiumd/src/main.rs`) only calls `lithiumd::run()` and 
+maps an error to `eprintln!("fatal: {e}")` + `exit(1)`. On Windows 
+`#![cfg_attr(windows, windows_subsystem = "windows")]` suppresses 
+the console window.
 
-## Prymitywy łączące oba wątki
+## The primitives bridging the two threads
 
-| Prymityw | Kierunek | Rola |
-|----------|----------|------|
-| `watch::channel<bool>` (`stop_tx`/`stop_rx`) | tray → daemon | tray sygnalizuje daemonowi zatrzymanie |
-| `Arc<AtomicBool>` (`daemon_done`) | daemon → tray | daemon informuje tray, że zakończył pracę |
-| `oneshot::channel<()>` (`shutdown_tx`/`shutdown_rx`) | IPC → daemon | komenda IPC `shutdown` przerywa pętlę daemona |
+| Primitive | Direction | Role |
+|-----------|-----------|------|
+| `watch::channel<bool>` (`stop_tx`/`stop_rx`) | tray -> daemon | the tray signals the daemon to stop |
+| `Arc<AtomicBool>` (`daemon_done`) | daemon -> tray | the daemon tells the tray it has finished |
+| `oneshot::channel<()>` (`shutdown_tx`/`shutdown_rx`) | IPC -> daemon | the IPC `shutdown` command breaks the daemon loop |
 
-## Pętla daemona (`daemon_async`)
+## The daemon loop (`daemon_async`)
 
-Daemon czeka w jednym `tokio::select!` na cztery zdarzenia (`lithiumd/src/lib.rs`):
+The daemon waits in one `tokio::select!` on four events 
+(`lithiumd/src/lib.rs`):
 
 ```
 tokio::select! {
-    _ = ipc_task        => {}   // zadanie nasłuchu IPC zakończyło się
-    _ = shutdown_rx     => {}   // komenda IPC `shutdown`
-    _ = stop_rx.changed() => {} // sygnał z tray (Close/Restart)
-    _ = signal          => {}   // SIGTERM lub Ctrl+C (na Unix), Ctrl+C (Windows)
+    _ = ipc_task        => {}   // the IPC listener task finished
+    _ = shutdown_rx     => {}   // the IPC `shutdown` command
+    _ = stop_rx.changed() => {} // a signal from the tray (Close/Restart)
+    _ = signal          => {}   // SIGTERM or Ctrl+C (Unix), Ctrl+C (Windows)
 }
 ```
 
-Każda z tych ścieżek rozwija ten sam `select!` i kończy daemona. Po jego zakończeniu wątek daemona ustawia `daemon_done = true`.
+Each of these paths unwinds the same `select!` and ends the 
+daemon. After it ends, the daemon thread sets `daemon_done = true`.
 
 ## System tray (`tray.rs`)
 
-Menu zasobnika ma pozycje: nieaktywny nagłówek `Lithium`, separator, **Restart**, **Close**. Ikona to generowany programowo niebieski okrąg 32×32. Pętla tray:
+The tray menu has: an inactive `Lithium` header, a separator, 
+**Restart**, **Close**. The icon is a programmatically generated 
+blue 32x32 circle. The tray loop:
 
-1. Na Linuxie najpierw `gtk::init()`; pętla woła `gtk::main_iteration_do(false)` i co 16 ms sprawdza zdarzenia menu.
-2. Kliknięcie **Restart** lub **Close** wysyła `stop.send(true)` (zatrzymuje daemona) i zwraca odpowiednią `Action`.
-3. Jeśli `daemon_done` zrobi się `true` niezależnie (np. `shutdown` przez IPC), tray kończy z `Action::Close`.
+1. On Linux it first calls `gtk::init()`; the loop calls 
+   `gtk::main_iteration_do(false)` and checks menu events every 16 
+   ms.
+2. Clicking **Restart** or **Close** sends `stop.send(true)` 
+   (stops the daemon) and returns the matching `Action`.
+3. If `daemon_done` becomes `true` on its own (for example a 
+   `shutdown` through IPC), the tray exits with `Action::Close`.
 
-**Degradacja headless:** jeśli `gtk::init()` zawiedzie albo `TrayIconBuilder::build()` się nie powiedzie (brak środowiska graficznego), tray degraduje się do `wait_daemon_done` — blokuje bez ikony, dopóki daemon nie zakończy pracy. Daemon działa wtedy normalnie, tylko bez ikony w zasobniku.
+**Headless degradation:** if `gtk::init()` fails or 
+`TrayIconBuilder::build()` doesn't succeed (no graphical 
+environment), the tray degrades to `wait_daemon_done`, it blocks 
+without an icon until the daemon finishes. The daemon then runs 
+normally, just without a tray icon.
 
-## Zamknięcie i restart
+## Shutdown and restart
 
-- **Close**, **SIGTERM**/Ctrl+C oraz IPC `shutdown` prowadzą do tego samego rozwinięcia `select!` i zakończenia daemona.
-- Po zakończeniu pętli `tray::run` wątek daemona jest dołączany (`daemon_thread.join()`).
-- **Restart** dodatkowo: po dołączeniu wątku daemona `run()` re-spawnuje bieżący plik wykonywalny (`std::env::current_exe()`), po czym kończy stary proces.
-- `WipeLocal` (komenda IPC) najpierw bezpiecznie czyści `{data_dir}` (nadpisanie losowymi danymi, `fsync`, usunięcie — `util::wipe_dir_all`), a następnie zamyka daemona.
+- **Close**, **SIGTERM**/Ctrl+C, and the IPC `shutdown` all lead 
+  to the same `select!` unwind and end the daemon.
+- After the `tray::run` loop ends, the daemon thread is joined 
+  (`daemon_thread.join()`).
+- **Restart** additionally: after joining the daemon thread, 
+  `run()` re-spawns the current executable 
+  (`std::env::current_exe()`), then ends the old process.
+- `WipeLocal` (an IPC command) first securely wipes `{data_dir}` 
+  (overwrite with random data, `fsync`, delete, 
+  `util::wipe_dir_all`), then shuts the daemon down.
 
-## Endpoint IPC i jego cykl życia
+## The IPC endpoint and its lifecycle
 
-Endpoint jest wybierany przy starcie (`util::default_ipc_endpoint`):
+The endpoint is chosen at startup (`util::default_ipc_endpoint`):
 
-- **Unix**: `LITHIUMD_SOCKET_PATH`, w przeciwnym razie `{XDG_RUNTIME_DIR}/lithiumd.sock`. Bez `XDG_RUNTIME_DIR` i bez override'u start kończy się błędem (brak bezpiecznej lokalizacji). Socket nasłuchuje z uprawnieniami właściciela; przy starcie `prepare_socket` usuwa nieaktualny socket z poprzedniego uruchomienia.
-- **Windows**: named pipe `LITHIUMD_PIPE_NAME` (domyślnie `\\.\pipe\lithiumd`), `reject_remote_clients(true)`.
+- **Unix**: `LITHIUMD_SOCKET_PATH`, otherwise 
+  `{XDG_RUNTIME_DIR}/lithiumd.sock`. Without `XDG_RUNTIME_DIR` and 
+  without an override, startup fails (no safe location). The 
+  socket listens with owner permissions; at startup 
+  `prepare_socket` removes a stale socket from a previous run.
+- **Windows**: the named pipe `LITHIUMD_PIPE_NAME` (default 
+  `\\.\pipe\lithiumd`), `reject_remote_clients(true)`.
 
-Polityka połączeń IPC (`util::load_ipc_policy`) — `LITHIUMD_IPC_MAX_CONNECTIONS`, `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`, `LITHIUMD_IPC_ALLOWED_UID` — zebrana w sekcji [Zmienne środowiskowe](#zmienne-środowiskowe).
+The IPC connection policy (`util::load_ipc_policy`), 
+`LITHIUMD_IPC_MAX_CONNECTIONS`, `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`, 
+`LITHIUMD_IPC_ALLOWED_UID`, is collected in the [Environment 
+variables](#environment-variables) section.
 
-## Start procesu, krok po kroku
+## Process startup, step by step
 
-`run()` (`lithiumd/src/lib.rs`) wykonuje kolejno:
+`run()` (`lithiumd/src/lib.rs`) does, in order:
 
-1. `util::default_data_dir()` — rozwiązanie katalogu danych (patrz niżej).
-2. `prepare_private_dir` — tworzy katalog danych z uprawnieniami `0o700` (Unix).
-3. `prepare_ipc_endpoint` — usuwa nieaktualny socket.
-4. Wczytuje `server_url` (plik), ścieżkę `server.identity` (`LITHIUMD_SERVER_IDENTITY` lub `{data_dir}/server.identity`) oraz flagę `needs_register` (istnienie `registered.flag`).
-5. Buduje `DaemonState`, startuje wątek daemona i `tray::run` na wątku głównym.
+1. `util::default_data_dir()`, resolve the data directory (see 
+   below).
+2. `prepare_private_dir`, create the data directory with `0o700` 
+   permissions (Unix).
+3. `prepare_ipc_endpoint`, remove a stale socket.
+4. Load `server_url` (a file), the `server.identity` path 
+   (`LITHIUMD_SERVER_IDENTITY` or `{data_dir}/server.identity`), 
+   and the `needs_register` flag (whether `registered.flag` 
+   exists).
+5. Build `DaemonState`, start the daemon thread and `tray::run` on 
+   the main thread.
 
-Keystore, `MkRotator`, lokalna baza i `ProtocolManager` nie są tworzone przy starcie — powstają dopiero po `unlock_keystore` / `unlock_storage` (patrz [ipc-reference.md](../protocol/ipc-reference.md)).
+The keystore, `MkRotator`, the local database, and 
+`ProtocolManager` are not created at startup, they come up only 
+after `unlock_keystore` / `unlock_storage` (see 
+[ipc-reference.md](../protocol/ipc-reference.md)).
 
-## Układ katalogu danych
+## Data directory layout
 
-`default_data_dir()` zwraca `LITHIUMD_DATA_DIR`, a w razie braku platformowy katalog (Linux: `{XDG_DATA_HOME}/lithiumd` lub `~/.local/share/lithiumd`; Windows: `%LOCALAPPDATA%\Lithiumd`). Zawartość:
+`default_data_dir()` returns `LITHIUMD_DATA_DIR`, or failing that 
+the platform directory (Linux: `{XDG_DATA_HOME}/lithiumd` or 
+`~/.local/share/lithiumd`; Windows: `%LOCALAPPDATA%\Lithiumd`). 
+The contents:
 
 ```
 {data_dir}/                       (0o700)
-├── keystore/
-│   ├── user/
-│   │   ├── mk.enc                Master Key opakowany hasłem danych (Argon2id + AES-256-GCM-SIV)
-│   │   └── root.salt             losowa per-instalacja sól Argon2 do derywacji DEK
-│   ├── pub/                      publiczne klucze (cache: ed25519.pub, x25519.pub, ...)
-│   ├── priv/                     prywatne klucze (*.keyf, opakowane pod MK)
-│   ├── secrets/                  sekrety pochodne (*.keyf, opakowane pod MK)
-│   └── .rotate/                  tymczasowy katalog rotacji MK
-├── storage/
-│   └── lithiumd.sqlite           lokalna baza (kontakty, wiadomości, prekeys)
-├── server.identity              klucze publiczne serwera (lub LITHIUMD_SERVER_IDENTITY)
-├── server_url                   adres relay'a (tekst)
-└── registered.flag              marker rejestracji (0o600)
+  keystore/
+    user/
+      mk.enc                Master Key wrapped by the data password (Argon2id + AES-256-GCM-SIV)
+      root.salt             random per-install Argon2 salt for DEK derivation
+    pub/                    public keys (cache: ed25519.pub, x25519.pub, ...)
+    priv/                   private keys (*.keyf, wrapped under the MK)
+    secrets/                derived secrets (*.keyf, wrapped under the MK)
+    .rotate/                temporary MK rotation directory
+  storage/
+    lithiumd.sqlite         local database (contacts, messages, prekeys)
+  server.identity           server public keys (or LITHIUMD_SERVER_IDENTITY)
+  server_url                relay address (text)
+  registered.flag           registration marker (0o600)
 ```
 
-Socket IPC **nie** leży w katalogu danych — domyślnie jest w `{XDG_RUNTIME_DIR}`. Formaty `mk.enc`, `*.keyf` i `server.identity` opisuje [crypto-protocol.md](../protocol/crypto-protocol.md); schemat tabel `storage/lithiumd.sqlite` — [lithiumd.md](../reference/lithiumd.md). Szyfrowanie danych w spoczynku i model „dwóch czynników" (hasło + `server_dek`) opisuje [security-model.md](../security/security-model.md).
+The IPC socket does **not** live in the data directory, by default 
+it's in `{XDG_RUNTIME_DIR}`. The `mk.enc`, `*.keyf`, and 
+`server.identity` formats are in 
+[crypto-protocol.md](../protocol/crypto-protocol.md); the 
+`storage/lithiumd.sqlite` table schema is in 
+[lithiumd.md](../crates/lithiumd.md). At-rest data encryption and 
+the "two-factor" model (password + `server_dek`) are in 
+[security-model.md](../security-model.md).
 
-## Zmienne środowiskowe
+## Environment variables
 
-| Zmienna | Domyślnie | Opis |
-|---------|-----------|------|
-| `LITHIUMD_DATA_DIR` | platformowy katalog danych (np. `~/.local/share/lithiumd`) | Katalog danych daemona |
-| `LITHIUMD_SOCKET_PATH` | `{XDG_RUNTIME_DIR}/lithiumd.sock` | Ścieżka Unix socketa |
-| `LITHIUMD_PIPE_NAME` | `\\.\pipe\lithiumd` | Nazwa named pipe (Windows) |
-| `LITHIUMD_SERVER_IDENTITY` | `{data_dir}/server.identity` | Ścieżka pliku tożsamości serwera |
-| `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | Max równoległych połączeń IPC |
-| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | Idle timeout połączenia (min 5) |
-| `LITHIUMD_IPC_ALLOWED_UID` | — | Dozwolony UID (Linux; brak = bez ograniczenia); odmowa zrywa połączenie bez odpowiedzi JSON |
-| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` | Kadencja send dispatchera cover traffic (min 1) |
-| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS` | `20` | Kadencja fetch dispatchera cover traffic / auto-fetch (min 1) |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LITHIUMD_DATA_DIR` | the platform data directory (e.g. `~/.local/share/lithiumd`) | The daemon's data directory |
+| `LITHIUMD_SOCKET_PATH` | `{XDG_RUNTIME_DIR}/lithiumd.sock` | Unix socket path |
+| `LITHIUMD_PIPE_NAME` | `\\.\pipe\lithiumd` | Named pipe name (Windows) |
+| `LITHIUMD_SERVER_IDENTITY` | `{data_dir}/server.identity` | Server identity file path |
+| `LITHIUMD_IPC_MAX_CONNECTIONS` | `1` | Max parallel IPC connections |
+| `LITHIUMD_IPC_IDLE_TIMEOUT_SECS` | `300` | Connection idle timeout (min 5) |
+| `LITHIUMD_IPC_ALLOWED_UID` | - | Allowed UID (Linux; none = no restriction); a denial drops the connection with no JSON reply |
+| `LITHIUMD_TRAFFIC_SEND_INTERVAL_SECS` | `20` | Cadence of the cover-traffic send dispatcher (min 1) |
+| `LITHIUMD_TRAFFIC_FETCH_INTERVAL_SECS` | `20` | Cadence of the cover-traffic fetch dispatcher / auto-fetch (min 1) |
 
-Adres relay'a nie jest zmienną środowiskową — ustawia się go komendą IPC `set_server_url` i zapisuje do `{data_dir}/server_url`.
+The relay address is not an environment variable, it's set with 
+the IPC `set_server_url` command and saved to 
+`{data_dir}/server_url`.

@@ -1,127 +1,235 @@
-# Słownik pojęć
+# Glossary
 
-Zwięzłe definicje terminów własnych Lithium. Głębsze opisy: protokół — [crypto-protocol.md](protocol/crypto-protocol.md), klucze — [key-hierarchy.md](security/key-hierarchy.md), KyberBox — [kyberbox.md](security/kyberbox.md), komendy IPC — [ipc-reference.md](protocol/ipc-reference.md).
+Short definitions of Lithium's own terms. Deeper descriptions: 
+protocol [crypto-protocol.md](protocol/crypto-protocol.md), keys 
+[key-hierarchy.md](key-hierarchy.md), KyberBox in the `lithium_core` 
+[docs](../lithium_core/README.md), IPC commands 
+[ipc-reference.md](protocol/ipc-reference.md).
 
-**AEAD** — Authenticated Encryption with Associated Data. W Lithium zawsze AES-256-GCM-SIV.
+**AEAD** - Authenticated Encryption with Associated Data. In 
+Lithium always AES-256-GCM-SIV.
 
-**aPAKE** — asymmetric Password-Authenticated Key Exchange. Realizowany przez OPAQUE: klient dowodzi znajomości hasła bez ujawniania go serwerowi.
+**aPAKE** - asymmetric Password-Authenticated Key Exchange. Done 
+with OPAQUE: the client proves it knows the password without 
+showing it to the server.
 
-**Argon2id** — funkcja kosztowa (KSF) i derywacja z hasła; parametry 64 MiB, t=3, p=1. Używana w OPAQUE oraz do `password_root`.
+**Argon2id** - key-stretching function (KSF) and password 
+derivation; parameters 64 MiB, t=3, p=1. Used in OPAQUE and for 
+`password_root`.
 
-**AuthMode** — tryb autoryzacji endpointu serwera: `KeysInHeaders` (klucze efemeryczne w nagłówkach, anonimowo), `LoginByHandler` (weryfikacja po `handler` w trakcie OPAQUE), `JwtUser` (tożsamość z JWT — tylko `/user/delete`).
+**AuthMode** - authorization mode of a server endpoint: 
+`KeysInHeaders` (ephemeral keys in headers, anonymous), 
+`LoginByHandler` (checks `handler` during OPAQUE), `JwtUser` 
+(identity from JWT, only `/user/delete`).
 
-**bootstrap** — klucze (X25519 + ML-KEM) wzięte z kodu zaproszenia `lci1:` i użyte do pierwszej wiadomości do kontaktu; usuwane z `self_state` po potwierdzeniu odbioru przez peera i ustanowieniu ratchetu. Też: tryb szyfrowania E2E używający tych kluczy.
+**bootstrap** - keys (X25519 + ML-KEM) taken from the `lci1:` 
+invite code and used for the first message to a contact; removed 
+from `self_state` once the peer confirms receipt and the ratchet 
+is set up. Also the E2E encryption mode that uses these keys.
 
-**cid** — patrz **contact_id**.
+**cid** - see **contact_id**.
 
-**combined_root** — `HKDF(server_dek, salt=password_root, "lithium/user-provider/combined/v1")`; źródło `db_dek`. Tylko w RAM.
+**combined_root** - `HKDF(server_dek, salt=password_root, 
+"lithium/user-provider/combined/v1")`; source of `db_dek`. RAM 
+only.
 
-**commitment** — `SHA256("lithiumd/pair-commit/v1" || kod_zaproszenia)`. Jawny hash publikowany przed ujawnieniem kodu.
+**commitment** - `SHA256("lithiumd/pair-commit/v1" || 
+invite_code)`. A public hash published before the code is 
+revealed.
 
-**commit-reveal** — jednostronny protokół parowania (4 komunikaty OOB), w którym twórca publikuje najpierw commitment, a kody są ujawniane w wymuszonej przez daemon kolejności. Sprzężony z krótkim **SAS** (patrz [design-decisions.md](design-decisions.md) #5).
+**commit-reveal** - one sided pairing protocol (4 OOB messages) 
+where the creator publishes the commitment first, and the codes 
+are revealed in an order the daemon enforces. Coupled with the 
+short **SAS** (see [design-decisions.md](design-decisions.md) #3).
 
-**contact_id (cid)** — 32-bajtowy losowy identyfikator kontaktu, lokalny dla każdej strony (A ma `cid_a_b`, B ma `cid_b_a`).
+**contact_id (cid)** - 32-byte random contact identifier, local 
+to each side (A has `cid_a_b`, B has `cid_b_a`).
 
-**cover traffic** — ruch o stałej kadencji ukrywający czas i wolumen realnej komunikacji; realne wysyłki jadą w slotach, dummy wypełniają luki do self-loop cover-skrzynki. Odbiór jest automatyczny (brak manual fetch).
+**cover traffic** - fixed-rate traffic that hides the timing and 
+volume of real communication; real messages go in the slots, 
+dummy ones fill the gaps to a self-loop cover mailbox. Receiving 
+is automatic (no manual fetch).
 
-**CryptoMiddleware** — middleware serwera per trasa: deszyfruje ciało (Shake/Session), weryfikuje timestamp i dual-podpis, stosuje `AuthMode`.
+**CryptoMiddleware** - per-route server middleware: decrypts the 
+body (Shake/Session), checks the timestamp and dual signature, 
+applies `AuthMode`.
 
-**DataManager** — warstwa zaszyfrowanej bazy (SQLite u klienta, PostgreSQL na serwerze); `encrypt_db_blob`/`decrypt_db_blob` pod DEK z osobnym AAD per pole.
+**DataManager** - the encrypted database layer (SQLite on the 
+client, PostgreSQL on the server); `encrypt_db_blob` / 
+`decrypt_db_blob` under the DEK with a separate AAD per field.
 
-**db_dek** — DEK bazy danych, `HKDF(…, "lithium/db-dek/v1")`. U klienta wyprowadzany z `combined_root`, na serwerze z server MK.
+**db_dek** - the database DEK, `HKDF(..., "lithium/db-dek/v1")`. On 
+the client derived from `combined_root`, on the server from the 
+server MK.
 
-**DEK (Data Encryption Key)** — klucz szyfrujący dane: w pliku `.keyf` losowy per plik (opakowany pod KEK), w bazie `db_dek`.
+**DEK (Data Encryption Key)** - the key that encrypts data: in a 
+`.keyf` file it's random per file (wrapped under the KEK), in the 
+database it's `db_dek`.
 
-**EphemeralStore / EphemeralStoreManager** — magazyn w pamięci z TTL: klucze sesji transportowej, `msg_key`, JWT, liczniki rate-limit. Restart procesu czyści go w całości.
+**EphemeralStore / EphemeralStoreManager** - in-memory store with 
+TTL: transport session keys, `msg_key`, JWT, rate-limit counters. 
+A process restart wipes all of it.
 
-**export_key** — sekret wyprowadzany klient-side z OPAQUE, owijający `server_dek`.
+**export_key** - a secret derived client-side from OPAQUE that 
+wraps `server_dek`.
 
-**generacja (mailbox)** — licznik rotacji klucza nadawczego skrzynki. Fetch sprawdza okno `−2..+1` względem ostatnio widzianej generacji.
+**generation (mailbox)** - rotation counter of the mailbox's 
+sending key. A fetch checks the window -2..+1 around the last 
+seen generation.
 
-**GuardMiddleware** — zewnętrzne middleware serwera: rate-limit pre-replay per IP, limity rozmiaru (1 MiB ciało/nagłówki), anti-replay po `SHA256(ciało)`.
+**GuardMiddleware** - the outer server middleware: pre-replay 
+rate-limit per IP, size limits (1 MiB body/headers), anti-replay 
+on `SHA256(body)`.
 
-**handler** — nazwa użytkownika (login). Normalizowana (trim + małe litery); **nigdy** nie przechowywana jawnie na serwerze — mapowana na deterministyczne `id_enc`.
+**handler** - the username (login). Normalized (trim + 
+lowercase); never stored in the clear on the server, it's mapped 
+to a deterministic `id_enc`.
 
-**harvest-now-decrypt-later** — model przeciwnika nagrywającego szyfrogram dziś, by odszyfrować go kwantowo w przyszłości. Powód hybrydy post-kwantowej.
+**harvest-now-decrypt-later** - an attacker who records ciphertext 
+today to decrypt it with a quantum computer later. The reason for 
+the post-quantum hybrid.
 
-**id_enc** — deterministyczny szyfrogram UUID v5 znormalizowanego handlera; klucz główny wiersza `users`. Umożliwia wyszukiwanie bez plaintextu handlera (kosztem obserwowalności równości).
+**id_enc** - deterministic ciphertext of the UUID v5 of the 
+normalized handler; primary key of the `users` row. Lets you look 
+users up without the plaintext handler (at the cost of equality 
+being observable).
 
-**IPC** — kanał GUI ↔ daemon: JSON-lines po Unix socket (Linux/macOS) lub named pipe (Windows).
+**IPC** - the channel between the GUI and the daemon: JSON-lines 
+over a Unix socket (Linux/macOS) or a named pipe (Windows).
 
-**JWT** — jednorazowy token HS256 wystawiany przy logowaniu OPAQUE; zużywany przy użyciu (`store.take`); wymagany wyłącznie przez `/user/delete`.
+**JWT** - a one-time HS256 token issued at OPAQUE login; consumed 
+on use (`store.take`); required only by `/user/delete`.
 
-**KEK (Key Encryption Key)** — `HKDF(MK, salt_pliku, "kek/v1")`; opakowuje DEK wewnątrz pliku `.keyf`.
+**KEK (Key Encryption Key)** - `HKDF(MK, file_salt, "kek/v1")`; 
+wraps the DEK inside a `.keyf` file.
 
-**KEM** — Key Encapsulation Mechanism; w Lithium hybryda X25519 + ML-KEM-1024.
+**KEM** - Key Encapsulation Mechanism; in Lithium the X25519 + 
+ML-KEM-1024 hybrid.
 
-**KeyManager** — zarządzanie plikami kluczy `.keyf` i rotacją Master Key.
+**KeyManager** - manages `.keyf` key files and Master Key 
+rotation.
 
-**`.keyf`** — format pliku klucza z podwójnym opakowaniem: payload pod DEK, DEK pod KEK (z MK). Magic `KEYF`.
+**`.keyf`** - key file format with double wrapping: payload under 
+the DEK, DEK under the KEK (from the MK). Magic `KEYF`.
 
-**KyberBox** — hybrydowa konstrukcja KEM-DEM: ML-KEM-1024 + X25519 → HKDF → AES-256-GCM-SIV dla `body` i `headers`. Patrz [kyberbox.md](security/kyberbox.md).
+**KyberBox** - hybrid KEM-DEM construction: ML-KEM-1024 + X25519 
+feed HKDF, then AES-256-GCM-SIV for `body` and `headers`. See the 
+`lithium_core` [docs](../lithium_core/README.md).
 
-**lci1** — prefiks i binarny format kodu zaproszenia (hex po `lci1:`); wersja 1, 4361 bajtów danych.
+**lci1** - prefix and binary format of the invite code (hex after 
+`lci1:`); version 1, 4361 bytes of data.
 
-**lithium_core / lithiumd / lithiumg / lithiums** — crate'y: wspólna biblioteka / daemon klienta / GUI / serwer relay.
+**lithium_core / lithiumd / lithiumg / lithiums** - the crates: 
+shared library / client daemon / GUI / relay server.
 
-**Master Key (MK)** — nadrzędny klucz szyfrujący pliki `.keyf`. U klienta opakowany hasłem danych; rotowany co 1 godzinę.
+**Master Key (MK)** - the top key that encrypts `.keyf` files. On 
+the client it's wrapped with the data password; rotated every 
+hour.
 
-**mailbox (adres skrzynki)** — pseudolosowy 32-bajtowy adres na serwerze, liczony niezależnie przez nadawcę i odbiorcę z ECDH+HKDF. Serwer widzi tylko adres, nie wie kto z kim koresponduje.
+**mailbox (mailbox address)** - a pseudo-random 32-byte address on 
+the server, computed independently by sender and receiver from 
+ECDH+HKDF. The server only sees the address, it doesn't know who 
+talks to whom.
 
-**MkProvider** — wymienne źródło MK: `PlainFileMkProvider` (plik), `TpmMkProvider` (sealed w TPM), `ServerMkProvider` (enum dispatchujący na serwerze).
+**MkProvider** - pluggable source of the MK: `PlainFileMkProvider` 
+(file), `TpmMkProvider` (sealed in the TPM), `ServerMkProvider` 
+(enum that dispatches on the server).
 
-**MkRotator** — zadanie w tle budzące się co 30 s i rotujące MK po upływie interwału (domyślnie 3600 s).
+**MkRotator** - background task that wakes every 30 s and rotates 
+the MK once the interval passes (3600 s by default).
 
-**ML-DSA-87** (Dilithium) — post-kwantowy schemat podpisu; składnik dual-sign.
+**ML-DSA-87** (Dilithium) - post-quantum signature scheme; part of 
+the dual-sign.
 
-**ML-KEM-1024** (Kyber) — post-kwantowy KEM; składnik hybrydy szyfrowania.
+**ML-KEM-1024** (Kyber) - post-quantum KEM; part of the encryption 
+hybrid.
 
-**msg_id** — losowy 16-bajtowy identyfikator wiadomości w **podpisanym** nagłówku; deduplikacja przez ograniczenie `UNIQUE`.
+**msg_id** - random 16-byte message identifier in the signed 
+header; deduplicated by a `UNIQUE` constraint.
 
-**msg_key** — losowy klucz per wiadomość na serwerze (`EphemeralStore`, TTL 24 h). Restart serwera czyni zaległe wiadomości trwale nieodszyfrowalnymi.
+**msg_key** - random per-message key on the server 
+(`EphemeralStore`, TTL 24 h). A server restart makes pending 
+messages permanently undecryptable.
 
-**one-time fetch** — serwer kasuje wiadomość atomowo przy pierwszym pobraniu (`SELECT FOR UPDATE SKIP LOCKED` + `DELETE`).
+**one-time fetch** - the server deletes a message atomically on 
+the first fetch (`SELECT FOR UPDATE SKIP LOCKED` + `DELETE`).
 
-**OPAQUE** — aPAKE (`opaque-ke 4.0.1`, ristretto255 + Argon2) używany do uwierzytelniania kont; rejestracja i logowanie są dwufazowe (`start`/`finish`).
+**OPAQUE** - the aPAKE (`opaque-ke 4.0.1`, ristretto255 + Argon2) 
+used for account authentication; registration and login are 
+two-phase (`start`/`finish`).
 
-**party transcript** — `HKDF` po konkatenacji 8 pól tożsamości strony (`cid`, `x_pub`, `ed_pub`, `dili_pub`, `k_pub`, 3 klucze mailbox); posortowane `t_a`/`t_b` wchodzą do `info` przy liczeniu SAS, wiążąc go z całą tożsamością obu stron.
+**party transcript** - `HKDF` over the concatenation of a side's 8 
+identity fields (`cid`, `x_pub`, `ed_pub`, `dili_pub`, `k_pub`, 3 
+mailbox keys); the sorted `t_a`/`t_b` go into the `info` when 
+computing the SAS, binding it to the full identity of both sides.
 
-**password_root** — `Argon2id(data_password, root.salt)`; hasłowy czynnik `db_dek`. Cache'owany w RAM.
+**password_root** - `Argon2id(data_password, root.salt)`; the 
+password factor of `db_dek`. Cached in RAM.
 
-**peer_set** — flaga kontaktu: druga strona zaakceptowała parowanie i wymieniono klucze — można wysyłać wiadomości.
+**peer_set** - contact flag: the other side accepted the pairing 
+and keys were exchanged, so you can send messages.
 
-**pinning (tożsamości serwera)** — klient przypina klucze publiczne serwera z pliku `server.identity`. Nie istnieje endpoint do ich pobrania — plik trafia do klienta zawsze kanałem out-of-band.
+**pinning (server identity)** - the client pins the server's 
+public keys from the `server.identity` file. There is no endpoint 
+to fetch them, the file always reaches the client out-of-band.
 
-**PoW (proof-of-work)** — anty-spam na `/msg/send`: SHA-256 z wymaganą liczbą bitów zer wiodących (`LITHIUMS_SEND_POW_BITS`, domyślnie 18).
+**PoW (proof-of-work)** - anti-spam on `/msg/send`: SHA-256 with a 
+required number of leading zero bits (`LITHIUMS_SEND_POW_BITS`, 18 
+by default).
 
-**prekey** — para kluczy (X25519 + ML-KEM) publikowana peerowi; pozwala wznowić komunikację po desynchronizacji. Usuwana po użyciu.
+**prekey** - a key pair (X25519 + ML-KEM) published to a peer; 
+lets you resume after desync. Deleted after use.
 
-**prekey recover** — tryb szyfrowania E2E celujący w opublikowany prekey peera; odzyskuje kanał bez nowej wymiany zaproszeń.
+**prekey recover** - E2E mode that targets a peer's published 
+prekey; recovers the channel without a new invite exchange.
 
-**ProtocolManager** — klient transportu HTTP daemona do serwera; szyfruje KyberBoxem, dual-podpisuje, zarządza sesją, JWT i DEK.
+**ProtocolManager** - the daemon's HTTP transport client to the 
+server; encrypts with KyberBox, dual-signs, manages the session, 
+JWT and DEK.
 
-**ratchet** — tryb E2E po pierwszej wiadomości zwrotnej: celuje w rotowane klucze `reply` (RX keyring) ostatnio odebranej wiadomości.
+**ratchet** - E2E mode after the first reply: targets the rotated 
+`reply` keys (RX keyring) of the last received message.
 
-**relay (wrogie)** — serwer Lithium jako jawnie niegodny zaufania; przechowuje i przekazuje wyłącznie szyfrogram, nigdy nie widzi plaintextu.
+**relay (hostile)** - the Lithium server as openly untrusted; it 
+stores and forwards only ciphertext, never sees plaintext.
 
-**root.salt** — losowa, per-instalacja 32-bajtowa sól Argon2 dla `password_root`; plik `keystore/user/root.salt`.
+**root.salt** - random, per-install 32-byte Argon2 salt for 
+`password_root`; file `keystore/user/root.salt`.
 
-**RX keyring (reply keys)** — rotowane klucze odbiorcze generowane przy każdym wysłaniu; peer szyfruje do nich kolejną wiadomość. Okno 32 sekwencji od `ack_seq`, starsze bezpiecznie kasowane.
+**RX keyring (reply keys)** - rotated receiving keys generated on 
+every send; the peer encrypts the next message to them. A window 
+of 32 sequences from `ack_seq`, older ones safely deleted.
 
-**SAS (Short Authentication String)** — 6-symbolowy fingerprint (alfabet 64) do weryfikacji tożsamości kanałem głosowym/osobistym. Bezpieczny dzięki sprzężeniu z commit-reveal.
+**SAS (Short Authentication String)** - 6-symbol fingerprint 
+(64-symbol alphabet) for verifying identity over a voice or 
+in-person channel. Safe because it's coupled with commit-reveal.
 
-**server_dek** — losowy DEK przechowywany na serwerze (owinięty pod `export_key`, zwracany przy logowaniu); drugi czynnik `db_dek` klienta. Nigdy na dysku klienta.
+**server_dek** - random DEK kept on the server (wrapped under 
+`export_key`, returned at login); the second factor of the 
+client's `db_dek`. Never on the client's disk.
 
-**server.identity** — plik z kluczami publicznymi serwera (format TLV: x25519, ed25519, mlkem1024, mldsa87). Pinowany u klienta.
+**server.identity** - file with the server's public keys (TLV 
+format: x25519, ed25519, mlkem1024, mldsa87). Pinned on the 
+client.
 
-**Session (tryb)** — tryb transportu po Shake: klient używa kluczy sesji otrzymanych w poprzedniej odpowiedzi; TTL 120 s.
+**Session (mode)** - transport mode after Shake: the client uses 
+the session keys from the previous response; TTL 120 s.
 
-**Shake (tryb)** — tryb inicjalizacji sesji: efemeryczne klucze klienta + długoterminowe klucze serwera z `server.identity`; TTL 60 s.
+**Shake (mode)** - session init mode: the client's ephemeral keys 
++ the server's long-term keys from `server.identity`; TTL 60 s.
 
-**to_id** — `HKDF(x_pub || k_pub, "lithiumd/e2e-peer-kid/v1")`; identyfikator pary kluczy odbiorczych adresata w nagłówku `WireV1`.
+**to_id** - `HKDF(x_pub || k_pub, "lithiumd/e2e-peer-kid/v1")`; 
+identifier of the recipient's receiving key pair in the `WireV1` 
+header.
 
-**TPM sealing** — pieczętowanie Master Key serwera w TPM jako obiekt KEYEDHASH pod parentem ECC P-256 derywowanym z owner seed (parent nigdy nie persystowany).
+**TPM sealing** - sealing the server's Master Key in the TPM as a 
+KEYEDHASH object under an ECC P-256 parent derived from the owner 
+seed (the parent is never persisted).
 
-**two-factor DEK** — `db_dek` wymaga jednocześnie `password_root` (z hasła) i `server_dek` (z serwera); żaden czynnik sam nie wystarcza.
+**two-factor DEK** - `db_dek` needs both `password_root` (from the 
+password) and `server_dek` (from the server); neither factor is 
+enough on its own.
 
-**WireV1** — binarny format wiadomości E2E (magic `LM1`): `to_id`, efemeryczny `from_x_pub`, `seed` (ML-KEM), `enc_headers`, `enc_body`.
+**WireV1** - binary format of an E2E message (magic `LM1`): 
+`to_id`, ephemeral `from_x_pub`, `seed` (ML-KEM), `enc_headers`, 
+`enc_body`.

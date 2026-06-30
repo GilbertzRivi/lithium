@@ -4,5 +4,5 @@ target/
 .idea/
 docker/
 installer/
-docs/
+docs-pl/
 fuzz/

@@ -25,8 +25,8 @@ rotation and rewrap. Secret types (`Byte32`, `SecretBytes`, `MasterKey32`, …) 
 
 `crypto::kyberbox` is the X25519 + ML-KEM-1024 AEAD construction: the KEM encapsulates a fresh
 seed per message that is mixed with the ECDH output through HKDF, so recovering the message key
-requires breaking *both* branches. See [`docs/combiner.md`](../docs/security/combiner.md) for the exact
-construction and its rationale, and [`docs/kyberbox.md`](../docs/security/kyberbox.md) for the wire format.
+requires breaking *both* branches. See [`docs/combiner.md`](docs/combiner.md) for the exact
+construction and its rationale, and [`docs/kyberbox.md`](docs/kyberbox.md) for the wire format.
 
 ## Helpers
 
@@ -62,8 +62,8 @@ let (body, headers) =
 ## Security status
 
 **Not yet independently audited.** The constructions, the hybrid-combiner rationale and the open
-questions for an auditor are documented under [`docs/`](../docs): `combiner.md`, `kyberbox.md`,
-`lithium_core-threat-model.md`. The public API is intended to be frozen at `0.1` through the audit.
+questions for an auditor are documented under [`docs/`](docs/index.md): `combiner.md`, `kyberbox.md`,
+`threat-model.md`. The public API is intended to be frozen at `0.1` through the audit.
 
 ## License
 

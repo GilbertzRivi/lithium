@@ -1,3 +1,3 @@
 # lithiums
 
-Dokumentacja tego cratu została przeniesiona do [`docs/lithiums.md`](../docs/reference/lithiums.md).
+This crate's documentation has moved to [`docs/crates/lithiums.md`](../docs/crates/lithiums.md).

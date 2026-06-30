@@ -1,103 +1,102 @@
-# Decyzje projektowe (rejestr „dlaczego")
+# Design decisions 
 
-Warstwa ponad „co/jak" z [crypto-protocol.md](protocol/crypto-protocol.md): *dlaczego* główne wybory architektoniczne i kryptograficzne są takie, jakie są. Każdy wpis podaje decyzję, uzasadnienie, odrzucone alternatywy i koszt — żeby audytor i nowy kontrybutor nie musieli re-litygować raz podjętych decyzji. Priorytety, na które te decyzje odpowiadają, opisuje [security-model.md](security/security-model.md).
+Answers the "why" questions about the main architectural decisions, explains 
+their reasons, and cost. The priorities are described in [security-model.md](security-model.md).
+These are the system-level decisions; the ones that belong to the crypto 
+library (the classic + PQ hybrid, AES-256-GCM-SIV) are in the `lithium_core` 
+[docs](../lithium_core/README.md).
 
-## 1. Hybryda klasyczna + post-kwantowa
+## 1. OPAQUE 
 
-**Decyzja.** Każdy KEM to X25519 + ML-KEM-1024, każdy podpis to Ed25519 + ML-DSA-87; sekrety łączone tak, że trzeba złamać **oba** schematy.
+**Decision**: Authentication with OPAQUE (aPAKE, `opaque-ke 4.0.1`, 
+ristretto255 + Argon2 as KSF).
 
-**Dlaczego.** Chroni przed „harvest-now-decrypt-later" (przeciwnik kwantowy) nie rezygnując z dojrzałego bezpieczeństwa klasycznego. Gdyby któryś schemat PQ okazał się wadliwy kryptoanalitycznie, klasyczny nadal trzyma — i odwrotnie.
+**Why**: Server (hostile relay) never should see the password or the hash. 
+This way there is nothing to steal from the server, nothing to crack. 
+People also tend to reuse their passwords on many platforms, this way 
+the server can't leak them, because it never holds them.
 
-**Odrzucone.** Czysto klasyczny (podatny na kwant); czysto PQ (młode schematy, większe ryzyko wad implementacji i kryptoanalizy).
+**Cost**: More complicated authentication and handshake. Dependency
+on OPAQUE lib.
 
-**Koszt.** Większe klucze i szyfrogramy (ML-KEM 1568 B, ML-DSA 2592 B), wolniejsze operacje, zależność od kodu C PQClean (niezaudytowana — patrz [threat-model.md](security/threat-model.md) #8).
+## 2. Anonymous mailboxes
 
-## 2. OPAQUE zamiast przechowywanego hasha hasła / SRP
+**Decision**: Server never routes messages based on the identity.
 
-**Decyzja.** Uwierzytelnianie kont przez OPAQUE (aPAKE, `opaque-ke 4.0.1`, ristretto255 + Argon2 jako KSF).
+**Why**: Server is a hostile relay, so it shouldn't be able to make a social
+graph who talks to whom. Instead, both clients calculate the mailbox address 
+using ECDH and rotate it once per a few messages.
 
-**Dlaczego.** Serwer **nigdy** nie widzi hasła ani jego hasha — nie ma czego ukraść z DB ani podsłuchać; offline-crack bazy jest niemożliwy (brak weryfikatora hasła po stronie serwera). Dodatkowo `export_key` z OPAQUE owija `server_dek`, wiążąc dostęp do DEK z poprawnym hasłem.
+**Cost**: Complexity, no simple inbox. 
 
-**Odrzucone.** Hash hasła (PHC Argon2) w DB — kradzież DB umożliwia offline crack; SRP — starszy, brak PQ-friendly właściwości i więcej pułapek implementacyjnych; hand-rolled PAKE — duża bespoke surface.
+## 3. Commit reveal + short SAS
 
-**Koszt.** Dwufazowy handshake (`start`/`finish`) zamiast jednego żądania; zależność od biblioteki OPAQUE.
+**Decision**: Adding a contact is a 1 sided commit reveal, and the
+identity verification is a 36 bit SAS.
 
-## 3. AES-256-GCM-SIV jako jedyny AEAD
+**Why**: A short SAS is safe because it's commit reveal, without it an offline
+grind is possible (2^18 to grind vs 1 shot with a 2^-36 chance).
 
-**Decyzja.** Cały AEAD to AES-256-GCM-SIV (nonce-misuse-resistant, SIV).
+**Cost**: Shortening the SAS or removing commit-reveal makes offline MITM grind
+possible again.
 
-**Dlaczego.** W systemie jest wiele miejsc, gdzie nonce pochodzi z derywacji lub struktury (np. nonce z HKDF, deterministyczne `id_enc`). SIV degraduje się łagodnie przy powtórzeniu nonce — ujawnia jedynie równość plaintextu, nie klucz — zamiast katastrofy jak zwykły GCM. To „szelka bezpieczeństwa" przeciw błędom w zarządzaniu nonce.
+## 4. Constant-rate cover traffic
 
-**Odrzucone.** AES-GCM (katastrofalny przy nonce-reuse); ChaCha20-Poly1305 (również wrażliwy na nonce-reuse, brak SIV).
+**Decision**: The daemon sends and fetches at a fixed rate. Real messages go in
+the slots, dummy ones fill the gaps, and there is no manual fetch.
 
-**Koszt.** Deterministyczność (ten sam plaintext+nonce+klucz → ten sam szyfrogram) — świadomie wykorzystywana (np. `id_enc`), ale wymaga uwagi tam, gdzie potrzebna losowość (KyberBox używa świeżych nonce per wiadomość).
+**Why**: Otherwise when and how much you send leaks how active you are, 
+even when the content is encrypted. A fixed rate hides that from the 
+server and the network. A manual fetch would make a visible pattern too.
 
-## 4. Adresowanie skrzynek per kontakt (anonimowe mailboxy)
+**Cost**: Constant bandwidth even when idle, and real messages are capped
+by the rate.
 
-**Decyzja.** Serwer nigdy nie routuje po tożsamości; adres skrzynki = `HKDF(ECDH(out_priv, in_pub), salt=cid||cid||gen, "lithium/mbox/address/v1")` — pseudolosowe 32 B liczone niezależnie przez obie strony.
+## 5. Two-factor DEK
 
-**Dlaczego.** Serwer widzi wyłącznie nieprzejrzysty adres — nie powiąże nadawcy z odbiorcą ani nie zbuduje grafu społecznego. Rotacja klucza nadawczego co 32 wysłania dodatkowo rozprasza adresy.
+**Decision**: The database key comes from two parts combined, 
+one from your password and one from the server. Both are required.
 
-**Odrzucone.** Routing po user-id/handlerze (serwer zna graf); jedna stała skrzynka per użytkownik (linkowalna w czasie).
+**Why**: It splits two threats. Stealing the disk isn't enough 
+without the server, and the server never has the password. 
+You need both to read the local data.
 
-**Koszt.** Złożoność (generacje, fetch w oknie −2..+1), brak prostego „inbox" po stronie serwera; klient sam liczy adresy.
+**Cost**: No offline access, unlocking the storage needs a 
+server session to get server_dek.
 
-## 5. Commit-reveal sprzężony z krótkim SAS
+## 6. Sealing the server Master Key in the TPM
 
-**Decyzja.** Parowanie to jednostronny commit-reveal (4 komunikaty OOB), a weryfikacja tożsamości to 6-symbolowy SAS (alfabet 64 → 36 bitów).
+**Decision**: By default the server's master key is sealed in 
+the TPM, not stored as a plain file.
 
-**Dlaczego.** Krótki SAS (wygodny do porównania głosem) jest bezpieczny **wyłącznie** dzięki commit-reveal — bez niego MITM mógłby offline grindować własne klucze pod SAS ofiary (~2^18 ewaluacji, trywialne na GPU). Commit-reveal zmusza atakującego do zafiksowania kluczy zanim druga strona ujawni kod → jeden ślepy strzał 2^-36 na całą ceremonię.
+**Why**: So stealing the server's disk doesn't give you the 
+master key without that exact TPM.
 
-**Odrzucone.** Długi SAS bez commit-reveal (niewygodny w porównaniu głosowym); commit-reveal bez SAS (brak ludzkiej weryfikacji anty-MITM).
+**Cost**: Needs a TPM 2.0 and the `tpm` build feature. There is 
+a plaintext fallback, but it gives up the guarantee.
 
-**Koszt.** **Niezmiennik sprzężenia**: skrócenie SAS *albo* usunięcie commit-reveal w izolacji ponownie otwiera offline-grind. Obu mechanizmów nie wolno zmieniać niezależnie (patrz [crypto-protocol.md](protocol/crypto-protocol.md), „Niezmiennik sprzężenia").
+## 7. Deterministic encryption of the user id
 
-## 6. Constant-rate cover traffic + brak manual fetch
+**Decision**: The encrypted user id is deterministic, so the 
+same handle always maps to the same row.
 
-**Decyzja.** Daemon wysyła i pobiera w stałej kadencji; realne wysyłki jadą w slotach, dummy wypełniają luki do self-loop cover-skrzynki; nie ma komendy manual fetch — odbiór jest automatyczny.
+**Why**: This way the server can look users up by handle without 
+storing the plain handle or a separate mapping table.
 
-**Dlaczego.** Ukrywa przed obserwatorem sieci i serwerem czas oraz wolumen realnej komunikacji — bez stałej stopy samo „kiedy" i „ile" zdradza aktywność. Manual fetch tworzyłby obserwowalny wzorzec ruchu.
+**Cost**: You can see equality, across DB snapshots you can tell 
+two rows are the same user. Never who, just if they exist or 
+are the same.
 
-**Odrzucone.** Wysyłka/fetch na żądanie (wzorzec ruchu = metadane); brak cover traffic (wyciek timingu).
+## 8. Losing key material instead of recovery
 
-**Koszt.** Stała szerokość pasma nawet przy braku ruchu; throughput realnych wysyłek capowany stopą; latencja odbioru ograniczona kadencją.
+**Decision**: No password or key recovery, no seed backup. 
+Losing them means losing the data.
 
-## 7. Dwuczynnikowy DEK (hasło + server_dek)
+**Why**: Every recovery option (escrow, security questions, 
+server-side codes) is something to attack and something to 
+force out of you legally. That breaks the whole point, that 
+the server can't reveal anything. Lithium picks loss over 
+recovery on purpose.
 
-**Decyzja.** `db_dek = HKDF(combined_root)`, gdzie `combined_root` łączy `password_root` (z hasła danych) i `server_dek` (z serwera) — oba wymagane.
-
-**Dlaczego.** Rozdziela dwa zagrożenia: sama kradzież dysku (nawet z hasłem) nie wystarcza bez współpracy serwera, a sam serwer nigdy nie ma hasła. Odczyt lokalnych danych wymaga obu niezależnych czynników.
-
-**Odrzucone.** DEK tylko z hasła (kradzież dysku + brute-force hasła = dane); DEK tylko z serwera (przejęcie serwera = dane).
-
-**Koszt.** Brak dostępu offline-only do bazy — odblokowanie storage wymaga sesji z serwerem, by pobrać `server_dek` (patrz [key-hierarchy.md](security/key-hierarchy.md)).
-
-## 8. Pieczętowanie Master Key serwera w TPM
-
-**Decyzja.** Domyślnie `TpmMkProvider` — MK serwera zapieczętowany jako obiekt KEYEDHASH pod parentem ECC P-256 derywowanym deterministycznie z owner seed (parent nigdy nie persystowany).
-
-**Dlaczego.** MK serwera nie leży w plaintext na dysku w konfiguracji domyślnej — kradzież obrazu dysku serwera nie daje MK bez tego konkretnego TPM.
-
-**Odrzucone.** MK w pliku (plaintext na dysku — dostępny tylko jako fallback `LITHIUM_MK_PROVIDER=plain`); zewnętrzny KMS (dodatkowa zależność i zaufanie).
-
-**Koszt.** Wymóg TPM 2.0 na hoście; build z feature `tpm` (`tss-esapi`); fallback plaintext degraduje gwarancję.
-
-## 9. Deterministyczne szyfrowanie identyfikatora użytkownika
-
-**Decyzja.** `id_enc = AES-256-GCM-SIV(uuid_v5(handler), db_dek, nonce=HKDF(uuid, …), aad="user-idenc/v1")` — deterministyczne, by ten sam handler zawsze dawał ten sam wiersz.
-
-**Dlaczego.** Umożliwia indeksowane wyszukiwanie użytkownika po handlerze **bez** przechowywania jawnego handlera ani osobnej tablicy mapowań — serwer nie ma plaintextu handlera.
-
-**Odrzucone.** Jawny handler w DB (wyciek tożsamości); losowe szyfrowanie + osobny indeks (indeks przechowywałby de facto plaintext).
-
-**Koszt (świadomy).** Obserwowalność równości — między snapshotami DB widać, że dwa wiersze to ten sam użytkownik (jeden wiersz per nick). Nigdy „kto", tylko „czy istnieje / czy to samo". Patrz [security-model.md](security/security-model.md).
-
-## 10. Utrata materiału klucza zamiast wektorów odzysku
-
-**Decyzja.** Brak recovery hasła i kluczy, brak backupu seedów; utrata = utrata danych.
-
-**Dlaczego.** Każdy wektor odzysku (escrow, pytania pomocnicze, recovery codes na serwerze) jest powierzchnią ataku i celem przymusu prawnego — sprzeczny z priorytetem „operator matematycznie nie może ujawnić treści". Lithium świadomie przedkłada utratę nad odzysk.
-
-**Odrzucone.** Key escrow, social recovery, server-side backup — wszystkie osłabiają model zaufania.
-
-**Koszt.** Błąd użytkownika (zapomniane hasło, utracone urządzenie) jest nieodwracalny; wyższy ciężar UX i edukacji.
+**Cost**: A forgotten password or a lost device can't be 
+recovered, so the weight goes on UX and warning the user.

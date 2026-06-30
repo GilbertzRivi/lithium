@@ -1,51 +1,99 @@
-# Wersjonowanie i ewolucja protokołu
+# Versioning and protocol evolution
 
-Jak Lithium wersjonuje swoje formaty i jaka jest obecna filozofia ich zmiany. Konkretne formaty opisuje [crypto-protocol.md](crypto-protocol.md); listę etykiet — [key-hierarchy.md](../security/key-hierarchy.md).
+How Lithium versions its formats and the current philosophy for 
+changing them. The concrete formats are in 
+[crypto-protocol.md](crypto-protocol.md); the list of labels is in 
+[key-hierarchy.md](../key-hierarchy.md).
 
-## Dwie warstwy wersjonowania
+## Two layers of versioning
 
-**1. Etykiety domeny `/vN`** — łańcuchy używane jako `info` w HKDF, AAD w AEAD oraz konteksty KyberBox. Ich rolą jest **separacja domen**: ten sam materiał klucza pod różną etykietą daje różne klucze, a szyfrogram z jedną etykietą nie odszyfruje się pod inną. Przykłady: `kek/v1`, `lithium/db-dek/v1`, `lithium/mbox/address/v1`, `lithiumd/e2e-msg/v1`, `lithiumd/pair-commit/v1`, `lithiumd/contact-verify-emoji/v1`, `user-opaque-record/v1`, `lithium/send-pow/v1`. Konteksty transportu są budowane per endpoint przez `ctx_req`/`ctx_resp` (np. `shake-req`, `msg_send-resp`).
+**1. Domain labels `/vN`**: strings used as the `info` in HKDF, 
+the AAD in AEAD, and as KyberBox contexts. Their job is **domain 
+separation**: the same key material under a different label gives 
+different keys, and a ciphertext made with one label won't decrypt 
+under another. Examples: `kek/v1`, `lithium/db-dek/v1`, 
+`lithium/mbox/address/v1`, `lithiumd/e2e-msg/v1`, 
+`lithiumd/pair-commit/v1`, `lithiumd/contact-verify-emoji/v1`, 
+`user-opaque-record/v1`, `lithium/send-pow/v1`. Transport contexts 
+are built per endpoint by `ctx_req`/`ctx_resp` (for example 
+`shake-req`, `msg_send-resp`).
 
-**2. Bajty `VER` + magici** — w formatach binarnych. Ich rolą jest **identyfikacja i odrzucenie** nieznanego formatu (fail-closed). Aktualny stan:
+**2. `VER` bytes + magics**: in the binary formats. Their job is 
+to **identify and reject** an unknown format (fail-closed). The 
+current state:
 
-| Format | Magic | Wersja |
-|--------|-------|--------|
-| Blob AEAD | — | 1 (pierwszy bajt) |
-| KyberBox (`seed_enc`) | — | 1 (+ `kem_id=1`, `aead_id=1`) |
-| Plik klucza `.keyf` | `KEYF` | 1 |
-| Wiadomość E2E `WireV1` | `LM1` | 1 |
-| Kod zaproszenia `lci1:` | `LCI1` | 1 |
-| Plik MK | `LMK1` | 1 |
+| Format | Magic | Version |
+|--------|-------|---------|
+| AEAD blob | - | 1 (first byte) |
+| KyberBox (`seed_enc`) | - | 1 (+ `kem_id=1`, `aead_id=1`) |
+| Key file `.keyf` | `KEYF` | 1 |
+| E2E message `WireV1` | `LM1` | 1 |
+| Invite code `lci1:` | `LCI1` | 1 |
+| MK file | `LMK1` | 1 |
 | `server.identity` | `LITHIUPK` | 1 |
-| Owinięcie DEK (OPAQUE) | — | 1 (`DEK_WRAP_VER`) |
-| `id_enc` / wiadomość serwera | — | 1 (`UIDENC_VER` / `MSG_VER`) |
+| DEK wrapping (OPAQUE) | - | 1 (`DEK_WRAP_VER`) |
+| `id_enc` / server message | - | 1 (`UIDENC_VER` / `MSG_VER`) |
 
-## Postawa: „v1-only, fail-closed"
+## Stance: "v1-only, fail-closed"
 
-Wszystko jest dziś w wersji **1**. Dekodery **odrzucają** każdy inny bajt wersji zamiast próbować interpretacji — nie ma negocjacji wersji ani równoległej obsługi wielu wersji. Zła wersja, zły magic lub zła długość to twardy błąd (np. blob AEAD z wersją ≠ 1 nie deszyfruje się; `lci1:` z wersją ≠ 1 jest odrzucany). To celowy wybór: brak „miękkiej" tolerancji ogranicza powierzchnię ataku na parsery.
+Everything is at version **1** today. Decoders **reject** any 
+other version byte instead of trying to interpret it, there is no 
+version negotiation and no parallel handling of several versions. 
+A wrong version, wrong magic, or wrong length is a hard error (for 
+example an AEAD blob with a version other than 1 won't decrypt; an 
+`lci1:` with a version other than 1 is rejected). This is on 
+purpose: no "soft" tolerance limits the attack surface on the 
+parsers.
 
-Jedyny wyjątek forward-compat: `server.identity` **ignoruje nieznane tagi TLV** przy deserializacji (pozwala dodać przyszłe klucze bez zrywania starych klientów), ale cztery znane tagi muszą wystąpić i mieć dokładną długość.
+The only forward-compat exception: `server.identity` **ignores 
+unknown TLV tags** on deserialization (so future keys can be added 
+without breaking old clients), but the four known tags must be 
+present and have the exact length.
 
-## Pinowanie wartości
+## Pinning values
 
-Każda etykieta, magic i bajt wersji są przypięte testami `registry_values_are_pinned` (`lithium_core/src/labels.rs`, `lithiums/src/labels.rs`, `lithium_core/src/contract/protocol.rs` i odpowiedniki E2E). Test asercją sprawdza dokładny bajt-w-bajt. Konsekwencja: etykieta/wersja to **kontrakt**, nie przypadkowy string — przypadkowa zmiana (literówka, refaktor) wywala testy, zanim trafi na wire. Każda celowa zmiana wymaga równoległej aktualizacji pinu.
+Every label, magic, and version byte is pinned by the 
+`registry_values_are_pinned` tests (`lithium_core/src/labels.rs`, 
+`lithiums/src/labels.rs`, `lithium_core/src/contract/protocol.rs` 
+and the E2E equivalents). The test asserts the exact bytes. The 
+consequence: a label/version is a **contract**, not an incidental 
+string, an accidental change (a typo, a refactor) breaks the tests 
+before it reaches the wire. Every deliberate change needs the pin 
+updated alongside it.
 
-## Filozofia ewolucji
+## Evolution philosophy
 
-Lithium **nie jest jeszcze wdrożony** — nie ma zainstalowanej bazy klientów ani danych produkcyjnych, z którymi trzeba zachować kompatybilność wire. Wynika z tego zasada **correct-by-construction ponad kompatybilność wsteczną**: gdy format musi się zmienić, zmienia się go czysto, a nie obrasta shimami zgodności.
+Lithium **is not deployed yet**, there is no installed client base 
+and no production data that needs wire compatibility. From that 
+follows the rule **correct-by-construction over backward 
+compatibility**: when a format has to change, it changes cleanly 
+instead of growing compatibility shims.
 
-W praktyce, zmiana formatu = jeden spójny krok:
-1. Zmień bajt `VER` lub etykietę (`/v1` → `/v2`).
-2. Zaktualizuj **jednocześnie** enkoder i dekoder po obu stronach.
-3. Zaktualizuj test pinujący.
-4. **Nie** dodawaj ścieżki obsługi starej wersji ani feature-flag — backwards-compat shimy i re-eksporty dla usuniętego kodu są w tym projekcie niedozwolone.
+In practice, a format change is one coherent step:
+1. Change the `VER` byte or the label (`/v1` -> `/v2`).
+2. Update the encoder and decoder on both sides **at the same 
+   time**.
+3. Update the pinning test.
+4. Do **not** add a handling path for the old version or a feature 
+   flag, backwards-compat shims and re-exports for removed code 
+   aren't allowed in this project.
 
-Gdy projekt zostanie wdrożony, ta postawa będzie musiała się zmienić na właściwą migrację (równoległa obsługa `vN`/`vN+1`, okno przejściowe) — to świadomy, przyszły punkt zwrotny, nie obecny stan.
+Once the project is deployed, this stance will have to change to 
+proper migration (parallel handling of `vN`/`vN+1`, a transition 
+window), that is a deliberate future turning point, not the 
+current state.
 
-## Co jest sprzężone (nie wersjonować w izolacji)
+## What is coupled (don't version in isolation)
 
-Niektóre wartości są ze sobą związane i ich zmiana wymaga rekompensaty gdzie indziej:
+Some values are tied together, and changing one needs compensation 
+elsewhere:
 
-- **Konteksty kierunkowe transportu** (`-req`/`-resp`) i etykiety AEAD muszą być identyczne po obu stronach wrapa — inaczej deszyfracja zawodzi.
-- **Długość SAS i commit-reveal** są sprzężone (patrz [design-decisions.md](../design-decisions.md) #5): skrócenie jednego bez drugiego ponownie otwiera offline-grind.
-- **Etykiety derywacji** (`combined/v1`, `db-dek/v1`, …) definiują tożsamość wyprowadzonych kluczy — zmiana wersji etykiety unieważnia wszystkie dane zaszyfrowane starym kluczem.
+- **Directional transport contexts** (`-req`/`-resp`) and the AEAD 
+  labels must be identical on both sides of a wrap, otherwise 
+  decryption fails.
+- **The SAS length and commit-reveal** are coupled (see 
+  [design-decisions.md](../design-decisions.md) #5): shortening 
+  one without the other reopens the offline grind.
+- **Derivation labels** (`combined/v1`, `db-dek/v1`, ...) define 
+  the identity of the derived keys, changing a label's version 
+  invalidates all data encrypted under the old key.

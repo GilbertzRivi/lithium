@@ -1,36 +1,51 @@
-# Referencja IPC daemona Lithium
+# Lithium daemon IPC reference
 
-Daemon `lithiumd` wystawia lokalny endpoint IPC umożliwiający GUI (lub innemu klientowi) sterowanie wszystkimi operacjami kryptograficznymi. Klucze prywatne istnieją wyłącznie po stronie daemona.
+The `lithiumd` daemon exposes a local IPC endpoint that lets the 
+GUI (or another client) drive all cryptographic operations. The 
+private keys exist only on the daemon side.
 
 ## Transport
 
-- **Linux / macOS**: Unix socket, domyślnie `{XDG_RUNTIME_DIR}/lithiumd.sock`, uprawnienia `0o600`
-- **Windows**: named pipe, domyślnie `\\.\pipe\lithiumd`, `reject_remote_clients(true)`
+- **Linux / macOS**: a Unix socket, default 
+  `{XDG_RUNTIME_DIR}/lithiumd.sock`, permissions `0o600`
+- **Windows**: a named pipe, default `\\.\pipe\lithiumd`, 
+  `reject_remote_clients(true)`
 
-Protokół: **JSON-lines** — jedno żądanie = jedna linia JSON zakończona `\n`, jedna odpowiedź = jedna linia JSON zakończona `\n`.
+Protocol: **JSON-lines**, one request = one JSON line ending in 
+`\n`, one response = one JSON line ending in `\n`.
 
-Maksymalny rozmiar linii: **4 MiB** (`IPC_MAX_LINE_BYTES`). Przekroczenie skutkuje zamknięciem połączenia.
+Maximum line size: **4 MiB** (`IPC_MAX_LINE_BYTES`). Exceeding it 
+closes the connection.
 
-Idle timeout: **300 sekund** (domyślnie; konfigurowalny przez `LITHIUMD_IPC_IDLE_TIMEOUT_SECS`, min. 5).
+Idle timeout: **300 seconds** (default; configurable via 
+`LITHIUMD_IPC_IDLE_TIMEOUT_SECS`, min 5).
 
-Maksymalna liczba równoległych połączeń: **1** (domyślnie; konfigurowalny przez `LITHIUMD_IPC_MAX_CONNECTIONS`, min. 1). Nadmiarowe połączenie jest odrzucane przy `accept` (klient nie dostaje żadnej odpowiedzi — po stronie klienta to wygląda jak natychmiastowy EOF/reset).
+Maximum number of parallel connections: **1** (default; 
+configurable via `LITHIUMD_IPC_MAX_CONNECTIONS`, min 1). An excess 
+connection is rejected at `accept` (the client gets no response, 
+on the client side it looks like an immediate EOF/reset).
 
-## Format żądania
+## Request format
 
 ```json
 {
     "id": 1,
-    "auth_token": "hex_token_64_znaki",
-    "cmd": "nazwa_komendy",
-    ...pola komendy...
+    "auth_token": "hex_token_64_chars",
+    "cmd": "command_name",
+    ...command fields...
 }
 ```
 
-- `id` — dowolna liczba całkowita; odpowiedź zwraca to samo `id`. Przy błędzie parsowania JSON (`bad_json`) odpowiedź zwraca `id: 0`, bo żądanie nie zostało jeszcze odczytane.
-- `auth_token` — wymagany dla większości komend; pomijany (lub `null`) dla `ping`, `unlock_keystore`, `remote_delete`, `set_server_identity`, `set_server_url`
-- `cmd` — nazwa komendy (snake_case, odpowiada wariantom `IpcCommand` w `lithiumd/src/ipc/types.rs`)
+- `id`, any integer; the response returns the same `id`. On a JSON 
+  parse error (`bad_json`) the response returns `id: 0`, because 
+  the request wasn't read yet.
+- `auth_token`, required for most commands; omitted (or `null`) for 
+  `ping`, `unlock_keystore`, `remote_delete`, `set_server_identity`, 
+  `set_server_url`
+- `cmd`, the command name (snake_case, matching the `IpcCommand` 
+  variants in `lithiumd/src/ipc/types.rs`)
 
-## Format odpowiedzi
+## Response format
 
 ```json
 {
@@ -41,75 +56,117 @@ Maksymalna liczba równoległych połączeń: **1** (domyślnie; konfigurowalny 
 }
 ```
 
-Przy błędzie:
+On error:
 ```json
 {
     "id": 1,
     "ok": false,
-    "error": "kod_bledu"
+    "error": "error_code"
 }
 ```
 
-`result` i `error` są pomijane w JSON gdy `None` (`skip_serializing_if`), nie serializowane jako `null`.
+`result` and `error` are omitted from the JSON when `None` 
+(`skip_serializing_if`), not serialized as `null`.
 
-## Autoryzacja IPC
+## IPC authorization
 
-Bez tokenu działają: `ping`, `unlock_keystore`, `remote_delete`, `set_server_identity`, `set_server_url` (`cmd_requires_auth` w `lithiumd/src/ipc/mod.rs`). Wszystkie pozostałe komendy wymagają `auth_token` w każdym żądaniu.
+These work without a token: `ping`, `unlock_keystore`, 
+`remote_delete`, `set_server_identity`, `set_server_url` 
+(`cmd_requires_auth` in `lithiumd/src/ipc/mod.rs`). All other 
+commands need an `auth_token` in every request.
 
-Token sesji jest emitowany po pomyślnym `unlock_keystore` jako pole `ipc_auth_token`, dopisane do `result` tej odpowiedzi. Token = 64 hex znaków (32 losowe bajty). Wydawany przy **każdym** udanym `unlock_keystore`, także gdy keystore był już odblokowany i podano to samo hasło ponownie.
+The session token is emitted after a successful `unlock_keystore` 
+as the `ipc_auth_token` field, added to that response's `result`. 
+The token = 64 hex characters (32 random bytes). It is issued on 
+**every** successful `unlock_keystore`, including when the 
+keystore was already unlocked and the same password was given 
+again.
 
-Na **Linuxie** token jest dodatkowo wiązany z UID i PID klienta (odczytanym przez `SO_PEERCRED`). Żądania z innego PID lub UID zwracają `ipc_auth_failed`. Porównanie tokenu jest stałoczasowe (`subtle::ConstantTimeEq`).
+On **Linux** the token is additionally bound to the client's UID 
+and PID (read via `SO_PEERCRED`). Requests from a different PID or 
+UID return `ipc_auth_failed`. The token comparison is 
+constant-time (`subtle::ConstantTimeEq`).
 
-Token jest unieważniany przez `lock_keystore` i `wipe_local`.
+The token is invalidated by `lock_keystore` and `wipe_local`.
 
-### Kody błędów autoryzacji
+### Authorization error codes
 
-| Kod | Znaczenie |
-|-----|-----------|
-| `ipc_auth_required` | Brak tokenu (pustego lub `null`) albo brak aktywnej sesji |
-| `ipc_auth_failed` | Niepoprawny token lub niepasujący UID/PID |
-| `ipc_auth_issue_failed` | Tylko po `unlock_keystore`: nie udało się wygenerować tokenu (`random_32` zawiodło) |
+| Code | Meaning |
+|------|---------|
+| `ipc_auth_required` | No token (empty or `null`) or no active session |
+| `ipc_auth_failed` | Wrong token or mismatched UID/PID |
+| `ipc_auth_issue_failed` | Only after `unlock_keystore`: failed to generate a token (`random_32` failed) |
 
 ### LITHIUMD_IPC_ALLOWED_UID
 
-Niezależnie od tokenu sesji, na Linuksie `LITHIUMD_IPC_ALLOWED_UID` ogranicza, kto może nawet otworzyć połączenie. Sprawdzenie odbywa się **przed** odczytaniem jakiejkolwiek linii — połączenie z niedozwolonego UID jest po prostu zrywane (`continue` w pętli `accept` w `lithiumd/src/ipc/unix.rs`), klient nie dostaje żadnej odpowiedzi JSON, ani `ipc_auth_failed`, ani czegokolwiek innego. To inny mechanizm odmowy niż błędy auth tokenu powyżej.
+Independently of the session token, on Linux 
+`LITHIUMD_IPC_ALLOWED_UID` limits who can even open a connection. 
+The check happens **before** any line is read, a connection from a 
+disallowed UID is simply dropped (`continue` in the `accept` loop 
+in `lithiumd/src/ipc/unix.rs`), the client gets no JSON response, 
+not `ipc_auth_failed`, not anything else. This is a different 
+denial mechanism than the auth token errors above.
 
-## Stan daemona
+## Daemon state
 
-Daemon przechodzi przez sekwencję stanów. Komendy wywołane poza kolejnością zwracają błąd.
+The daemon moves through a sequence of states. Commands called out 
+of order return an error.
 
 ```
 start
-  -> set_server_url (wymagane jako pierwsze — unlock_keystore zwraca server_url_not_set bez tego)
-  -> set_server_identity (nieblokowane przez stan daemona, ale bez tego każde żądanie sieciowe
-     do serwera i tak zawiedzie, więc w praktyce robione w tym samym momencie co set_server_url)
+  -> set_server_url (required first, unlock_keystore returns server_url_not_set without it)
+  -> set_server_identity (not blocked by daemon state, but without it every network request
+     to the server fails anyway, so in practice done at the same moment as set_server_url)
   -> keystore_locked (ui_state=keystore_locked)
   -> unlock_keystore
-  -> ipc_auth_token wyemitowany, ui_state=needs_credentials
-  -> set_credentials (wymagane po każdym unlock_keystore — credentials są tylko w pamięci)
-  -> ui_state=needs_register (jeśli needs_register) albo storage_locked
-  -> [register] (tylko gdy needs_register=true)
+  -> ipc_auth_token emitted, ui_state=needs_credentials
+  -> set_credentials (required after every unlock_keystore, credentials are memory-only)
+  -> ui_state=needs_register (if needs_register) or storage_locked
+  -> [register] (only when needs_register=true)
   -> unlock_storage
-  -> ui_state=ready, komendy kontaktowe dostepne
+  -> ui_state=ready, contact commands available
 ```
 
-`set_server_url` i `set_server_identity` nie są częścią stanu pilotowanego przez `ui_state` (nie mają własnej fazy w `ui_state`) — `ping.status.has_server_url`/`has_server_identity` istnieją jako osobne, niezależne flagi. Klient (np. GUI `lithiumg`) musi sam je sprawdzić i poprosić użytkownika o URL/identity przed wywołaniem `unlock_keystore`, inaczej dostanie `server_url_not_set`. `lithiumg` robi to dokładnie w tej kolejności — dwa pierwsze ekrany onboardingu to "Server URL" i "Server identity", zanim pojawi się ekran hasła do keystora.
+`set_server_url` and `set_server_identity` aren't part of the 
+state driven by `ui_state` (they have no phase of their own in 
+`ui_state`), `ping.status.has_server_url`/`has_server_identity` 
+exist as separate, independent flags. The client (for example the 
+`lithiumg` GUI) must check them itself and ask the user for the 
+URL/identity before calling `unlock_keystore`, otherwise it gets 
+`server_url_not_set`. `lithiumg` does it exactly in this order, 
+the first two onboarding screens are "Server URL" and "Server 
+identity", before the keystore password screen appears.
 
-Mimo że te dwa kroki sąsiadują w onboardingu, to dwa niezależne wejścia z rozłącznych źródeł: `set_server_url` przyjmuje adres wpisany przez użytkownika (służy wyłącznie do otwarcia połączenia HTTP), a `set_server_identity` przyjmuje bajty pliku, który użytkownik musi dostać kanałem out-of-band od operatora serwera i wybrać ręcznie z dysku (`server_identity_path` + `Browse…` w GUI). Daemon nigdy nie pobiera `data` dla `set_server_identity` sam, ani z adresu ustawionego przez `set_server_url`, ani z żadnego innego adresu sieciowego — nie istnieje i nie będzie istniał endpoint służący do automatycznej dystrybucji tożsamości serwera. To jest świadome — automatyczne dociąganie nowej tożsamości pozwoliłoby operatorowi (albo komuś, kto przejął serwer) podmienić klucze serwera bez wiedzy użytkownika.
+Even though those two steps are adjacent in onboarding, they are 
+two independent inputs from disjoint sources: `set_server_url` 
+takes an address typed by the user (used only to open the HTTP 
+connection), and `set_server_identity` takes the bytes of a file 
+the user must get over an out-of-band channel from the server 
+operator and pick manually from disk (`server_identity_path` + 
+`Browse...` in the GUI). The daemon never fetches the `data` for 
+`set_server_identity` itself, not from the address set by 
+`set_server_url`, not from any other network address, there is no 
+endpoint for automatically distributing the server identity and 
+there won't be one. This is deliberate, automatic fetching of a 
+new identity would let the operator (or someone who took over the 
+server) swap the server keys without the user's knowledge.
 
-`ping` zwraca aktualny stan we wszystkich fazach — patrz pełny opis pola `status` poniżej.
+`ping` returns the current state in all phases, see the full 
+description of the `status` field below.
 
-## Komendy
+## Commands
 
 ### `ping`
 
-Bez autoryzacji.
+No authorization.
 
 ```json
 { "id": 1, "cmd": "ping" }
 ```
 
-Odpowiedź — zwraca surowy stan (`status`), zsyntetyzowaną fazę (`ui_state`) i listę komend, które klient powinien teraz wywołać (`actions_needed`):
+Response, returns the raw state (`status`), the synthesized phase 
+(`ui_state`), and the list of commands the client should call now 
+(`actions_needed`):
 
 ```json
 {
@@ -139,29 +196,35 @@ Odpowiedź — zwraca surowy stan (`status`), zsyntetyzowaną fazę (`ui_state`)
 }
 ```
 
-`ui_state` to jedna z: `keystore_locked`, `needs_credentials`, `needs_register`, `storage_locked`, `ready`.
+`ui_state` is one of: `keystore_locked`, `needs_credentials`, 
+`needs_register`, `storage_locked`, `ready`.
 
 ---
 
 ### `unlock_keystore`
 
-Bez autoryzacji.
+No authorization.
 
-Odblokowuje lokalny keystore hasłem danych (`PasswordFileMkProvider`), startuje `MkRotator`, tworzy `ProtocolManager`. Emituje token sesji IPC.
+Unlocks the local keystore with the data password 
+(`PasswordFileMkProvider`), starts `MkRotator`, creates 
+`ProtocolManager`. Emits the IPC session token.
 
 ```json
 {
     "id": 1,
     "cmd": "unlock_keystore",
-    "data_password": "HasloMinimum12Znakow!"
+    "data_password": "PasswordMin12Chars!"
 }
 ```
 
-Wymagania `data_password` walidowane przez `PasswordPolicy::default()` (`validate_password`).
+`data_password` requirements are validated by 
+`PasswordPolicy::default()` (`validate_password`).
 
-Jeśli keystore jest już odblokowany — porównuje hasło z bieżącym stałoczasowo; przy zgodności zwraca sukces (nowy token wydawany ponownie), przy niezgodności `bad_data_password`.
+If the keystore is already unlocked, it compares the password to 
+the current one constant-time; on a match it returns success (a 
+new token is issued again), on a mismatch `bad_data_password`.
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -173,27 +236,30 @@ Odpowiedź:
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `bad_data_password` | Hasło nie spełnia polityki, albo nie zgadza się z już ustawionym |
-| `passwords_must_be_distinct` | Hasło danych identyczne z już ustawionym hasłem konta |
-| `crypto_error` | `KeyManager::start` nie powiódł się (np. uszkodzony plik klucza) |
-| `internal_error` | `EphemeralStoreManager::new` zawiodło |
-| `server_url_not_set` | Nie wywołano jeszcze `set_server_url` |
+| Error code | Meaning |
+|------------|---------|
+| `bad_data_password` | The password doesn't meet the policy, or doesn't match the one already set |
+| `passwords_must_be_distinct` | The data password is identical to the already set account password |
+| `crypto_error` | `KeyManager::start` failed (e.g. a corrupt key file) |
+| `internal_error` | `EphemeralStoreManager::new` failed |
+| `server_url_not_set` | `set_server_url` hasn't been called yet |
 
 ---
 
 ### `lock_keystore`
 
-Wymaga auth.
+Requires auth.
 
-Blokuje keystore i usuwa z pamięci wszystkie sekrety (`dek_plain`, `data_pass`, `account_creds`, `proto`, `local_db`, `keys`), unieważnia token IPC. Zatrzymuje `MkRotator`. Zawsze się powodzi.
+Locks the keystore and removes all secrets from memory 
+(`dek_plain`, `data_pass`, `account_creds`, `proto`, `local_db`, 
+`keys`), invalidates the IPC token. Stops `MkRotator`. Always 
+succeeds.
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "lock_keystore" }
 ```
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "locked": true } }
 ```
@@ -202,9 +268,11 @@ Odpowiedź:
 
 ### `set_credentials`
 
-Wymaga auth.
+Requires auth.
 
-Ustawia handler i hasło konta serwera. Dane przechowywane wyłącznie w pamięci (`SecretString`). Wymagane po każdym `unlock_keystore` przed `register`/`unlock_storage`.
+Sets the handler and the server account password. The data is held 
+only in memory (`SecretString`). Required after every 
+`unlock_keystore` before `register`/`unlock_storage`.
 
 ```json
 {
@@ -212,38 +280,43 @@ Ustawia handler i hasło konta serwera. Dane przechowywane wyłącznie w pamięc
     "auth_token": "...",
     "cmd": "set_credentials",
     "handler": "alice",
-    "password": "HasloKonta!1"
+    "password": "AccountPass!1"
 }
 ```
 
-- `password` przechodzi `validate_password` (`PasswordPolicy`)
-- `password` musi różnić się od `data_password` (jeśli już ustawione)
+- `password` passes `validate_password` (`PasswordPolicy`)
+- `password` must differ from `data_password` (if already set)
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "stored": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `bad_account_password` | Hasło konta nie spełnia polityki |
-| `passwords_must_be_distinct` | Hasło konta identyczne z hasłem keystora |
+| Error code | Meaning |
+|------------|---------|
+| `bad_account_password` | The account password doesn't meet the policy |
+| `passwords_must_be_distinct` | The account password is identical to the keystore password |
 
 ---
 
 ### `register`
 
-Wymaga auth + keystore odblokowany (`proto` ustawiony).
+Requires auth + an unlocked keystore (`proto` set).
 
-Rejestruje konto na serwerze. **Idempotentne**: jeśli `needs_register == false`, zwraca sukces bez żadnej akcji sieciowej.
+Registers the account on the server. **Idempotent**: if 
+`needs_register == false`, it returns success with no network 
+action.
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "register" }
 ```
 
-Generuje losowy DEK (32B), szyfruje go hasłem konta (`Argon2id + AES-256-GCM-SIV`), wysyła do serwera. Serwer przechowuje zaszyfrowany blob i zwraca go przy każdym logowaniu.
+Generates a random DEK (32B), encrypts it with the account 
+password (`Argon2id + AES-256-GCM-SIV`), sends it to the server. 
+The server stores the encrypted blob and returns it on every 
+login.
 
-Odpowiedź (pierwsza rejestracja):
+Response (first registration):
 ```json
 {
     "id": 1,
@@ -255,60 +328,68 @@ Odpowiedź (pierwsza rejestracja):
 }
 ```
 
-Odpowiedź (już zarejestrowany — wywołanie ponowne):
+Response (already registered, called again):
 ```json
 { "id": 1, "ok": true, "result": { "registered": true } }
 ```
-(bez pola `capability` — nie jest regenerowane).
+(no `capability` field, it isn't regenerated).
 
-`capability` to token do awaryjnego usunięcia konta bez logowania (patrz `remote_delete`). Serwer przechowuje wyłącznie jego hash. **Daemon nie przechowuje `capability` — po wyświetleniu w tej jednej odpowiedzi jest niedostępny.** Utrata = brak możliwości zdalnego usunięcia konta przez właściciela.
+`capability` is a token for emergency account deletion without 
+logging in (see `remote_delete`). The server stores only its hash. 
+**The daemon doesn't store `capability`, after being shown in this 
+one response it is gone.** Losing it means the owner can't delete 
+the account remotely.
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `keystore_locked` | `proto` nie ustawiony (keystore zablokowany) |
-| `missing_data_password` | Brak `data_password` w pamięci |
-| `missing_account_credentials` | Brak `set_credentials` |
-| `passwords_must_be_distinct` | Hasło danych = hasło konta |
-| `crypto_error` | Generowanie lub wrap DEK-a zawiodło |
-| `protocol_error` | Błąd sieciowy lub odpowiedzi serwera |
-| `internal_error` | Konwersja DEK-a do `Byte32` zawiodła |
-| `internal_state_error` | Niespodziewana kombinacja stanu (nie powinno wystąpić) |
+| Error code | Meaning |
+|------------|---------|
+| `keystore_locked` | `proto` not set (keystore locked) |
+| `missing_data_password` | No `data_password` in memory |
+| `missing_account_credentials` | No `set_credentials` |
+| `passwords_must_be_distinct` | Data password = account password |
+| `crypto_error` | DEK generation or wrap failed |
+| `protocol_error` | Network or server response error |
+| `internal_error` | DEK conversion to `Byte32` failed |
+| `internal_state_error` | An unexpected state combination (shouldn't occur) |
 
 ---
 
 ### `unlock_storage`
 
-Wymaga auth + keystore odblokowany + zarejestrowany.
+Requires auth + an unlocked keystore + registered.
 
-Pobiera zaszyfrowany DEK z serwera, deszyfruje go i inicjalizuje lokalną bazę SQLite (jeśli jeszcze nie istnieje w pamięci).
+Fetches the encrypted DEK from the server, decrypts it, and 
+initializes the local SQLite database (if not already in memory).
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "unlock_storage" }
 ```
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "unlocked": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `keystore_locked` | `proto` nie ustawiony |
+| Error code | Meaning |
+|------------|---------|
+| `keystore_locked` | `proto` not set |
 | `register_required` | `needs_register == true` |
-| `missing_data_password` | Brak `data_password` w pamięci |
-| `protocol_error` | Błąd pobierania DEK-a z serwera (np. brak `set_credentials`/login) |
-| `crypto_error` | Deszyfrowanie DEK-a zawiodło |
-| `internal_error` | Konwersja DEK-a do `Byte32` zawiodła |
-| `storage_init_failed` | Inicjalizacja lokalnej bazy SQLite zawiodła |
-| `internal_state_error` | Niespodziewana kombinacja stanu |
+| `missing_data_password` | No `data_password` in memory |
+| `protocol_error` | DEK fetch from the server failed (e.g. no `set_credentials`/login) |
+| `crypto_error` | DEK decryption failed |
+| `internal_error` | DEK conversion to `Byte32` failed |
+| `storage_init_failed` | Local SQLite database initialization failed |
+| `internal_state_error` | An unexpected state combination |
 
 ---
 
 ### `create_invite`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Krok 1 z 4 parowania commit-reveal. Tworzy **commitment** zaproszenia (`SHA256("lithiumd/pair-commit/v1" || kod)`) dla nowego lub istniejącego kontaktu — surowy kod `lci1:` nie opuszcza daemona na tym etapie.
+Step 1 of 4 of commit-reveal pairing. Creates the invite 
+**commitment** (`SHA256("lithiumd/pair-commit/v1" || code)`) for a 
+new or existing contact, the raw `lci1:` code doesn't leave the 
+daemon at this stage.
 
 ```json
 {
@@ -319,11 +400,14 @@ Krok 1 z 4 parowania commit-reveal. Tworzy **commitment** zaproszenia (`SHA256("
 }
 ```
 
-- `contact_id`: `null` = nowy kontakt; hex = istniejący kontakt (ponowne zaproszenie, generuje kod z aktualnych kluczy publicznych)
+- `contact_id`: `null` = a new contact; hex = an existing contact 
+  (a re-invite, generates a code from the current public keys)
 
-Nowy kontakt: generuje `contact_id` (32B losowe) i kompletny zestaw kluczy per-kontakt (X25519, ML-KEM-1024, Ed25519, ML-DSA-87, 3 pary mailbox). Zapisuje stan w SQLite.
+New contact: generates `contact_id` (32B random) and a full set of 
+per-contact keys (X25519, ML-KEM-1024, Ed25519, ML-DSA-87, 3 
+mailbox pairs). Stores the state in SQLite.
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -335,23 +419,24 @@ Odpowiedź:
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | Podany `contact_id` nie jest poprawnym hex |
-| `contact_not_found` | Podany `contact_id` nie istnieje w DB |
-| `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `json_error` | Serializacja nowego stanu zawiodła |
-| `storage_error` | Błąd zapisu/odczytu DB |
-| `internal_error` | Kodowanie kodu zaproszenia zawiodło |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | The given `contact_id` isn't valid hex |
+| `contact_not_found` | The given `contact_id` doesn't exist in the DB |
+| `self_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `json_error` | Serialization of the new state failed |
+| `storage_error` | DB read/write error |
+| `internal_error` | Invite code encoding failed |
 
 ---
 
 ### `accept_commitment`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Krok 2 z 4. Strona przyjmująca (B) zapisuje commitment twórcy (A) i generuje **własny** kod do odesłania A.
+Step 2 of 4. The accepting side (B) stores the creator's (A) 
+commitment and generates **its own** code to send back to A.
 
 ```json
 {
@@ -363,12 +448,14 @@ Krok 2 z 4. Strona przyjmująca (B) zapisuje commitment twórcy (A) i generuje *
 }
 ```
 
-- `commitment` — 32-bajtowy commitment (hex) otrzymany od A z `create_invite`
-- `label` — lokalna etykieta kontaktu
+- `commitment`, the 32-byte commitment (hex) received from A's 
+  `create_invite`
+- `label`, the local contact label
 
-Generuje nowy `contact_id` i komplet kluczy per-kontakt, zapisuje `pending_commit = commitment` w stanie peera.
+Generates a new `contact_id` and a full set of per-contact keys, 
+stores `pending_commit = commitment` in the peer state.
 
-Odpowiedź (`code` to kod B do odesłania A):
+Response (`code` is B's code to send back to A):
 ```json
 {
     "id": 1,
@@ -380,20 +467,23 @@ Odpowiedź (`code` to kod B do odesłania A):
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_commitment` | Commitment nie jest 32-bajtowym hex |
-| `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `json_error` | Serializacja nowego stanu zawiodła |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_commitment` | The commitment isn't 32-byte hex |
+| `self_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `json_error` | Serialization of the new state failed |
 
 ---
 
 ### `reveal_invite`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Krok 3 z 4. Twórca (A) — po otrzymaniu kodu B — ustawia peera na tożsamość z kodu B i ujawnia **swój** kod do odesłania B. Daemon wymusza kolejność: własny kod jest emitowany dopiero po podaniu kodu peera.
+Step 3 of 4. The creator (A), after receiving B's code, sets the 
+peer to the identity from B's code and reveals **its own** code to 
+send back to B. The daemon enforces the order: its own code is 
+emitted only after the peer's code is given.
 
 ```json
 {
@@ -406,11 +496,11 @@ Krok 3 z 4. Twórca (A) — po otrzymaniu kodu B — ustawia peera na tożsamoś
 }
 ```
 
-- `contact_id` — kontakt A utworzony przez `create_invite`
-- `peer_code` — kod B (`lci1:`) otrzymany z `accept_commitment`
-- `label` — lokalna etykieta kontaktu
+- `contact_id`, contact A created by `create_invite`
+- `peer_code`, B's code (`lci1:`) received from `accept_commitment`
+- `label`, the local contact label
 
-Odpowiedź (`code` to kod A do odesłania B):
+Response (`code` is A's code to send back to B):
 ```json
 {
     "id": 1,
@@ -421,23 +511,26 @@ Odpowiedź (`code` to kod A do odesłania B):
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
-| `invalid_invite_code` | `peer_code` nie deserializuje się (zły magic/wersja/długość) |
-| `contact_not_found` | `contact_id` nie istnieje w DB |
-| `peer_already_set` | Kontakt już ma ustawionego peera |
-| `peer_state_corrupt` / `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `json_error` | Serializacja nowego stanu zawiodła |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | `contact_id` isn't valid hex |
+| `invalid_invite_code` | `peer_code` doesn't deserialize (wrong magic/version/length) |
+| `contact_not_found` | `contact_id` doesn't exist in the DB |
+| `peer_already_set` | The contact already has a peer set |
+| `peer_state_corrupt` / `self_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `json_error` | Serialization of the new state failed |
 
 ---
 
 ### `finalize_pairing`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Krok 4 z 4. Strona przyjmująca (B) weryfikuje ujawniony kod A względem zapisanego commitmentu (`ct_eq(SHA256("lithiumd/pair-commit/v1" || kod_A), pending_commit)`) i ustawia peera na tożsamość A. Po tym kroku obie strony mają `peer_set=true`.
+Step 4 of 4. The accepting side (B) verifies A's revealed code 
+against the stored commitment (`ct_eq(SHA256("lithiumd/pair-commit/v1" 
+|| code_A), pending_commit)`) and sets the peer to A's identity. 
+After this step both sides have `peer_set=true`.
 
 ```json
 {
@@ -449,10 +542,10 @@ Krok 4 z 4. Strona przyjmująca (B) weryfikuje ujawniony kod A względem zapisan
 }
 ```
 
-- `contact_id` — kontakt B utworzony przez `accept_commitment`
-- `peer_code` — kod A (`lci1:`) otrzymany z `reveal_invite`
+- `contact_id`, contact B created by `accept_commitment`
+- `peer_code`, A's code (`lci1:`) received from `reveal_invite`
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -463,29 +556,29 @@ Odpowiedź:
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
-| `invalid_invite_code` | `peer_code` nie deserializuje się |
-| `contact_not_found` | `contact_id` nie istnieje w DB |
-| `peer_already_set` | Kontakt już ma ustawionego peera |
-| `no_pending_commit` | Brak zapisanego commitmentu dla tego kontaktu |
-| `commitment_mismatch` | Hash ujawnionego kodu nie zgadza się z commitmentem — możliwa ingerencja w kanał |
-| `peer_state_corrupt` / `self_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `json_error` | Serializacja nowego stanu zawiodła |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | `contact_id` isn't valid hex |
+| `invalid_invite_code` | `peer_code` doesn't deserialize |
+| `contact_not_found` | `contact_id` doesn't exist in the DB |
+| `peer_already_set` | The contact already has a peer set |
+| `no_pending_commit` | No stored commitment for this contact |
+| `commitment_mismatch` | The revealed code's hash doesn't match the commitment, possible channel tampering |
+| `peer_state_corrupt` / `self_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `json_error` | Serialization of the new state failed |
 
 ---
 
 ### `contacts_list`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "contacts_list" }
 ```
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -498,19 +591,22 @@ Odpowiedź:
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `storage_error` | Błąd odczytu DB |
-| `peer_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `storage_error` | DB read error |
+| `peer_state_corrupt` | The contact state in the DB doesn't deserialize |
 
 ---
 
 ### `contact_send`
 
-Wymaga auth + storage odblokowane + keystore odblokowane (`proto`).
+Requires auth + unlocked storage + unlocked keystore (`proto`).
 
-Szyfruje i wysyła wiadomość do kontaktu. Tryb szyfrowania (`bootstrap`/`ratchet`/`prekey_recover`) jest wybierany automatycznie wewnątrz `encrypt_for_peer`, klient nie wybiera go w żądaniu.
+Encrypts and sends a message to a contact. The encryption mode 
+(`bootstrap`/`ratchet`/`prekey_recover`) is chosen automatically 
+inside `encrypt_for_peer`, the client doesn't pick it in the 
+request.
 
 ```json
 {
@@ -518,11 +614,11 @@ Szyfruje i wysyła wiadomość do kontaktu. Tryb szyfrowania (`bootstrap`/`ratch
     "auth_token": "...",
     "cmd": "contact_send",
     "contact_id": "hex64...",
-    "plaintext": "Tresc wiadomosci"
+    "plaintext": "Message content"
 }
 ```
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -531,38 +627,44 @@ Odpowiedź:
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `keystore_locked` | `proto` nie ustawiony |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym 32-bajtowym hex |
-| `contact_not_found` | Kontakt nie istnieje w DB |
-| `self_state_corrupt` / `peer_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `crypto_error` | Inicjalizacja keyringu/mailboxa lub szyfrowanie zawiodło |
-| `invalid_prekey_id` / `storage_error` | Generowanie/zapis lokalnych prekeys zawiodło |
-| `need_recover_but_no_remote_prekey` | Peer wymaga recovery, ale nie opublikował prekey |
-| `protocol_error` | Wysyłka do serwera (`/msg/send`) zawiodła |
-| `json_error` | Serializacja nowego stanu lub wiadomości do zapisu zawiodła |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `keystore_locked` | `proto` not set |
+| `invalid_contact_id` | `contact_id` isn't valid 32-byte hex |
+| `contact_not_found` | The contact doesn't exist in the DB |
+| `self_state_corrupt` / `peer_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `crypto_error` | Keyring/mailbox initialization or encryption failed |
+| `invalid_prekey_id` / `storage_error` | Generating/storing local prekeys failed |
+| `need_recover_but_no_remote_prekey` | The peer needs recovery but published no prekey |
+| `protocol_error` | The send to the server (`/msg/send`) failed |
+| `json_error` | Serialization of the new state or the message to store failed |
 
-`peer_set == false` nie jest osobnym błędem — w praktyce skończy się jednym z błędów stanu kontaktu wyżej, bo brak peera oznacza brak kluczy do szyfrowania.
+`peer_set == false` isn't a separate error, in practice it ends in 
+one of the contact-state errors above, because no peer means no 
+keys to encrypt with.
 
 ---
 
-### Pobieranie wiadomości — automatyczne (brak komendy IPC)
+### Fetching messages: automatic (no IPC command)
 
-Manual `contact_fetch` został usunięty. Pobieranie przychodzących robi w tle stałokadencyjny fetch
-dispatcher daemona (`lithiumd/src/traffic.rs`): jeden `MsgFetch` na tick, round-robin po skrzynkach
-inbound wszystkich kontaktów (do 4 generacji: `peer_tx_gen_seen - 2` .. `+ 1`) plus cover-skrzynka.
-Serwer kasuje wiadomość przy odczycie (one-time fetch); daemon dedupuje po `msg_id`. Klient nie
-inicjuje fetcha — odczytuje lokalny store przez `messages_list` (poll co kilka sekund).
+The manual `contact_fetch` was removed. Fetching incoming messages 
+is done in the background by the daemon's fixed-cadence fetch 
+dispatcher (`lithiumd/src/traffic.rs`): one `MsgFetch` per tick, 
+round-robin over the inbound mailboxes of all contacts (up to 4 
+generations: `peer_tx_gen_seen - 2` .. `+ 1`) plus the cover 
+mailbox. The server deletes a message on read (one-time fetch); 
+the daemon dedups by `msg_id`. The client doesn't initiate a 
+fetch, it reads the local store through `messages_list` (polling 
+every few seconds).
 
 ---
 
 ### `messages_list`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Zwraca stronę wiadomości z danym kontaktem (paginacja).
+Returns a page of messages with a given contact (pagination).
 
 ```json
 {
@@ -575,12 +677,14 @@ Zwraca stronę wiadomości z danym kontaktem (paginacja).
 }
 ```
 
-- `limit`: domyślnie 50, clampowane do 1–200
-- `before_id`: `null` = najnowsze; ID wiadomości = starsze od podanego
+- `limit`: default 50, clamped to 1-200
+- `before_id`: `null` = newest; a message ID = older than the 
+  given one
 
-Wyniki zwracane w kolejności chronologicznej (od najstarszych do najnowszych w bieżącej stronie).
+Results are returned in chronological order (oldest to newest 
+within the current page).
 
-Odpowiedź:
+Response:
 ```json
 {
     "id": 1,
@@ -591,7 +695,7 @@ Odpowiedź:
                 "id": 42,
                 "direction": "in",
                 "kind": "text",
-                "text": "Tresc",
+                "text": "Content",
                 "ui": {},
                 "created_at": "2024-01-01T12:00:00+00:00"
             }
@@ -604,21 +708,28 @@ Odpowiedź:
 }
 ```
 
-`direction` to `"in"` lub `"out"` (nie `"inbound"`/`"outbound"`). `kind` pochodzi z zapisanej wiadomości (`"text"` dla zwykłej treści, `"unknown"` gdy nie udało się jej rozkodować). `paging` jest zagnieżdżone, nie spłaszczone.
+`direction` is `"in"` or `"out"` (not `"inbound"`/`"outbound"`). 
+`kind` comes from the stored message (`"text"` for plain content, 
+`"unknown"` when it couldn't be decoded). `paging` is nested, not 
+flattened.
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
-| `storage_error` | Błąd odczytu DB |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | `contact_id` isn't valid hex |
+| `storage_error` | DB read error |
 
 ---
 
 ### `contact_verify_emoji`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Generuje 12-znakowy SAS (fingerprint) do weryfikacji tożsamości out-of-band. Obie strony muszą wywołać i porównać wyniki. Weryfikacja jest czysto lokalna — nie wymaga połączenia z serwerem. Wyprowadzenie pełne opisane w [crypto-protocol.md](crypto-protocol.md#weryfikacja-tożsamości-out-of-band).
+Generates a 6-character SAS (fingerprint) for out-of-band 
+identity verification. Both sides must call it and compare the 
+results. The verification is purely local, it needs no server 
+connection. The full derivation is in 
+[crypto-protocol.md](crypto-protocol.md#out-of-band-identity-verification).
 
 ```json
 {
@@ -629,33 +740,34 @@ Generuje 12-znakowy SAS (fingerprint) do weryfikacji tożsamości out-of-band. O
 }
 ```
 
-Odpowiedź — pole nazywa się `emojis` (liczba mnoga), nie `emoji`:
+Response, the field is called `emojis` (plural), not `emoji`:
 ```json
 {
     "id": 1,
     "ok": true,
     "result": {
-        "emojis": ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M"]
+        "emojis": ["A", "B", "C", "D", "E", "F"]
     }
 }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
-| `contact_not_found` | Kontakt nie istnieje w DB |
-| `self_state_corrupt` / `peer_state_corrupt` | Stan kontaktu w DB nie deserializuje się |
-| `peer_not_set` | Peer nie odesłał jeszcze swojego kodu zaproszenia |
-| `internal_error` | Wyprowadzenie SAS zawiodło |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | `contact_id` isn't valid hex |
+| `contact_not_found` | The contact doesn't exist in the DB |
+| `self_state_corrupt` / `peer_state_corrupt` | The contact state in the DB doesn't deserialize |
+| `peer_not_set` | The peer hasn't sent back its invite code yet |
+| `internal_error` | SAS derivation failed |
 
 ---
 
 ### `contact_forget`
 
-Wymaga auth + storage odblokowane.
+Requires auth + unlocked storage.
 
-Usuwa kontakt i wszystkie jego wiadomości oraz prekeys z lokalnej bazy. Operacja nieodwracalna.
+Removes the contact and all its messages and prekeys from the 
+local database. Irreversible.
 
 ```json
 {
@@ -666,25 +778,26 @@ Usuwa kontakt i wszystkie jego wiadomości oraz prekeys z lokalnej bazy. Operacj
 }
 ```
 
-Odpowiedź — pole nazywa się `forgot`, nie `forgotten`:
+Response, the field is called `forgot`, not `forgotten`:
 ```json
 { "id": 1, "ok": true, "result": { "forgot": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `storage_locked` | Storage nie odblokowane |
-| `invalid_contact_id` | `contact_id` nie jest poprawnym hex |
-| `contact_not_found` | Kontakt nie istnieje w DB |
-| `storage_error` | Błąd usuwania z DB |
+| Error code | Meaning |
+|------------|---------|
+| `storage_locked` | Storage not unlocked |
+| `invalid_contact_id` | `contact_id` isn't valid hex |
+| `contact_not_found` | The contact doesn't exist in the DB |
+| `storage_error` | DB deletion error |
 
 ---
 
 ### `set_server_url`
 
-Bez autoryzacji.
+No authorization.
 
-Ustawia URL serwera relay daemona, zapisuje go trwale do pliku `{data_dir}/server_url`.
+Sets the daemon's relay server URL, saves it persistently to the 
+`{data_dir}/server_url` file.
 
 ```json
 {
@@ -694,52 +807,64 @@ Ustawia URL serwera relay daemona, zapisuje go trwale do pliku `{data_dir}/serve
 }
 ```
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "saved": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `invalid_url` | URL nie parsuje się |
-| `write_failed` | Zapis pliku `server_url` zawiódł |
+| Error code | Meaning |
+|------------|---------|
+| `invalid_url` | The URL doesn't parse |
+| `write_failed` | Writing the `server_url` file failed |
 
 ---
 
 ### `set_server_identity`
 
-Bez autoryzacji.
+No authorization.
 
-Ustawia tożsamość serwera (cztery klucze publiczne, zakodowane jak opisano w [crypto-protocol.md](crypto-protocol.md#format-pliku-serveridentity)) — **nie** ścieżkę do pliku na dysku. Klient musi sam wczytać plik `server.identity` (dostarczony przez administratora serwera kanałem OOB) i przesłać jego zawartość jako hex w polu `data`.
+Sets the server identity (four public keys, encoded as described 
+in 
+[crypto-protocol.md](crypto-protocol.md#serveridentity-file-format)), 
+**not** a path to a file on disk. The client must load the 
+`server.identity` file itself (delivered by the server admin over 
+an OOB channel) and send its content as hex in the `data` field.
 
 ```json
 {
     "id": 1,
     "cmd": "set_server_identity",
-    "data": "hex-encoded bytes pliku server.identity"
+    "data": "hex-encoded bytes of the server.identity file"
 }
 ```
 
-Zapisuje bajty do `state.identity_path` na dysku i natychmiast invaliduje cache bootstrapu (`proto.invalidate_bootstrap_cache()`) — nowa tożsamość obowiązuje od następnego żądania do serwera, bez potrzeby `lock_keystore`/`unlock_keystore`. Patrz [security-model.md](../security/security-model.md#zmiana-serveridentity-jest-celowo-bolesna).
+Writes the bytes to `state.identity_path` on disk and immediately 
+invalidates the bootstrap cache 
+(`proto.invalidate_bootstrap_cache()`), the new identity takes 
+effect from the next request to the server, without needing 
+`lock_keystore`/`unlock_keystore`. See 
+[security-model.md](../security-model.md#changing-serveridentity-is-deliberately-painful).
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "saved": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `server_identity_bad_hex` | `data` nie jest poprawnym hex |
-| `server_identity_invalid:<szczegół>` | Dane nie parsują się jako poprawny `server.identity` (np. zły magic, brakujący klucz) |
-| `internal_error` | Zapis pliku na dysk zawiódł |
+| Error code | Meaning |
+|------------|---------|
+| `server_identity_bad_hex` | `data` isn't valid hex |
+| `server_identity_invalid:<detail>` | The data doesn't parse as a valid `server.identity` (e.g. wrong magic, a missing key) |
+| `internal_error` | Writing the file to disk failed |
 
 ---
 
 ### `remote_delete`
 
-Bez autoryzacji.
+No authorization.
 
-Usuwa konto z serwera przy użyciu capability uzyskanego przy rejestracji. Nie wymaga aktywnej sesji ani hasła — działa offline, niezależnie od stanu keystora.
+Deletes the account from the server using the capability obtained 
+at registration. It needs no active session or password, it works 
+offline, independent of the keystore state.
 
 ```json
 {
@@ -749,133 +874,154 @@ Usuwa konto z serwera przy użyciu capability uzyskanego przy rejestracji. Nie w
 }
 ```
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "remote_delete_requested": true } }
 ```
 
-Serwer zawsze zwraca 204 niezależnie od poprawności capability — daemon raportuje sukces jeśli żądanie dotarło do serwera, nie czy konto faktycznie zostało usunięte.
+The server always returns 204 regardless of whether the capability 
+is correct, the daemon reports success if the request reached the 
+server, not whether the account was actually deleted.
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `internal_error` | Inicjalizacja `EphemeralStoreManager`/HTTP klienta zawiodła |
-| `server_url_not_set` | Nie wywołano jeszcze `set_server_url` |
-| `protocol_error` | Błąd sieciowy podczas wysyłki |
+| Error code | Meaning |
+|------------|---------|
+| `internal_error` | `EphemeralStoreManager`/HTTP client initialization failed |
+| `server_url_not_set` | `set_server_url` hasn't been called yet |
+| `protocol_error` | A network error during the send |
 
 ---
 
 ### `delete_account`
 
-Wymaga auth + keystore odblokowany. **Komenda nieopisana we wcześniejszych wersjach tego dokumentu** — istnieje od dawna w kodzie (`lithiumd/src/commands/delete_account.rs`).
+Requires auth + an unlocked keystore.
 
-Inny mechanizm niż `remote_delete`: usuwa konto przez aktywną sesję serwera (`Endpoint::Delete`, `AuthMode::JwtUser` — wymaga zalogowania), nie przez offline capability token. Po pomyślnym usunięciu na serwerze, wykonuje pełny lokalny wipe (tak jak `wipe_local`).
+A different mechanism than `remote_delete`: it deletes the account 
+through an active server session (`Endpoint::Delete`, 
+`AuthMode::JwtUser`, requires being logged in), not through an 
+offline capability token. After a successful deletion on the 
+server, it performs a full local wipe (like `wipe_local`).
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "delete_account" }
 ```
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "deleted": true } }
 ```
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `keystore_locked` | `proto` nie ustawiony |
-| `protocol_error` | Usunięcie konta na serwerze zawiodło (np. brak loginu) — lokalne dane **nie** są usuwane w tym wypadku |
-| `account_deleted_but_local_wipe_failed` | Konto usunięte na serwerze, ale lokalny wipe zawiódł — stan niespójny, wymaga ręcznej interwencji |
+| Error code | Meaning |
+|------------|---------|
+| `keystore_locked` | `proto` not set |
+| `protocol_error` | Account deletion on the server failed (e.g. no login), local data is **not** deleted in this case |
+| `account_deleted_but_local_wipe_failed` | The account was deleted on the server, but the local wipe failed, an inconsistent state needing manual intervention |
 
 ---
 
 ### `wipe_local`
 
-Wymaga auth.
+Requires auth.
 
-Usuwa całe `{data_dir}` — wszystkie klucze, bazę SQLite, stan lokalny. Operacja bezpowrotna. Nie kontaktuje serwera.
+Removes the whole `{data_dir}`, all keys, the SQLite database, the 
+local state. Irreversible. Does not contact the server.
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "wipe_local" }
 ```
 
-Sekwencja:
-1. Blokuje keystore (usuwa sekrety z pamięci)
-2. Nadpisuje każdy plik losowymi bajtami (chunki 1 MB, `fsync` po każdym pliku)
-3. `fsync` katalogu (Unix)
-4. Usuwa pliki i katalogi
-5. Ustawia flagę `needs_register`
+Sequence:
+1. Locks the keystore (removes secrets from memory)
+2. Overwrites every file with random bytes (1 MB chunks, `fsync` 
+   after each file)
+3. `fsync` the directory (Unix)
+4. Removes the files and directories
+5. Sets the `needs_register` flag
 
-Odpowiedź:
+Response:
 ```json
 { "id": 1, "ok": true, "result": { "wiped": true, "best_effort": true } }
 ```
 
-`best_effort: true` oznacza, że nadpisywanie jest best-effort — na systemach plików z copy-on-write lub SSD z wear leveling fizyczne usunięcie danych nie jest gwarantowane.
+`best_effort: true` means the overwriting is best-effort, on 
+copy-on-write filesystems or SSDs with wear leveling the physical 
+deletion of data isn't guaranteed.
 
-| Kod błędu | Znaczenie |
-|-----------|-----------|
-| `wipe_failed` | Nadpisanie lub usunięcie plików zawiodło |
+| Error code | Meaning |
+|------------|---------|
+| `wipe_failed` | Overwriting or removing the files failed |
 
 ---
 
 ### `shutdown`
 
-Wymaga auth.
+Requires auth.
 
-Wysyła sygnał zamknięcia do głównej pętli daemona, blokuje keystore. Zawsze zwraca sukces, niezależnie czy sygnał shutdown był jeszcze dostępny (idempotentne — drugie wywołanie po pierwszym `shutdown` po prostu nic nie wysyła, ale wciąż zwraca `ok: true`).
+Sends a shutdown signal to the daemon's main loop, locks the 
+keystore. Always returns success, regardless of whether the 
+shutdown signal was still available (idempotent, a second call 
+after the first `shutdown` simply sends nothing but still returns 
+`ok: true`).
 
 ```json
 { "id": 1, "auth_token": "...", "cmd": "shutdown" }
 ```
 
-Odpowiedź — pole nazywa się `shutting_down`, nie `shutdown`:
+Response, the field is called `shutting_down`, not `shutdown`:
 ```json
 { "id": 1, "ok": true, "result": { "shutting_down": true } }
 ```
 
-## Pełna lista kodów błędów
+## Full error code list
 
-| Kod | Komenda(y) | Znaczenie |
-|-----|------------|-----------|
-| `bad_json` | wszystkie (poziom parsowania linii) | Linia nie parsuje się jako `IpcRequest` |
-| `ipc_auth_required` | komendy wymagające auth | Brak tokenu lub brak aktywnej sesji |
-| `ipc_auth_failed` | komendy wymagające auth | Niepoprawny token lub UID/PID nie pasuje |
-| `ipc_auth_issue_failed` | `unlock_keystore` | Błąd generowania tokenu sesji |
-| `bad_data_password` | `unlock_keystore` | Hasło nie spełnia polityki lub nie zgadza się z bieżącym |
-| `bad_account_password` | `set_credentials` | Hasło konta nie spełnia polityki |
-| `passwords_must_be_distinct` | `unlock_keystore`, `set_credentials`, `register` | Hasło konta = hasło danych |
-| `keystore_locked` | `register`, `unlock_storage`, `contact_send`, `delete_account` | `proto` nie ustawiony (keystore zablokowany) |
-| `send_queue_full` | `contact_send` | Kolejka send dispatchera pełna (throughput capowany stopą cover traffic) |
-| `missing_data_password` | `register`, `unlock_storage` | Brak `data_password` w pamięci |
-| `missing_account_credentials` | `register` | Brak `set_credentials` |
+| Code | Command(s) | Meaning |
+|------|------------|---------|
+| `bad_json` | all (line parse level) | The line doesn't parse as an `IpcRequest` |
+| `ipc_auth_required` | commands requiring auth | No token or no active session |
+| `ipc_auth_failed` | commands requiring auth | Wrong token or UID/PID mismatch |
+| `ipc_auth_issue_failed` | `unlock_keystore` | Session token generation error |
+| `bad_data_password` | `unlock_keystore` | The password doesn't meet the policy or doesn't match the current one |
+| `bad_account_password` | `set_credentials` | The account password doesn't meet the policy |
+| `passwords_must_be_distinct` | `unlock_keystore`, `set_credentials`, `register` | Account password = data password |
+| `keystore_locked` | `register`, `unlock_storage`, `contact_send`, `delete_account` | `proto` not set (keystore locked) |
+| `send_queue_full` | `contact_send` | The send dispatcher queue is full (throughput capped by the cover-traffic rate) |
+| `missing_data_password` | `register`, `unlock_storage` | No `data_password` in memory |
+| `missing_account_credentials` | `register` | No `set_credentials` |
 | `register_required` | `unlock_storage` | `needs_register == true` |
-| `storage_locked` | komendy kontaktowe i wiadomości | Lokalna baza nie zainicjalizowana |
-| `storage_init_failed` | `unlock_storage` | Inicjalizacja lokalnej bazy SQLite zawiodła |
-| `storage_error` | komendy operujące na DB | Błąd odczytu/zapisu SQLite |
-| `internal_state_error` | `register`, `unlock_storage` | Niespodziewana kombinacja stanu |
-| `crypto_error` | `unlock_keystore`, `register`, `unlock_storage`, `contact_send` | Błąd kryptograficzny (deszyfrowanie, generowanie kluczy) |
-| `protocol_error` | komendy kontaktujące serwer | Błąd sieciowy lub odpowiedzi serwera |
-| `internal_error` | wiele | Nieoczekiwany błąd wewnętrzny |
-| `invalid_contact_id` | komendy kontaktowe | `contact_id` nie jest poprawnym hex / 32 bajty |
-| `contact_not_found` | komendy kontaktowe | Nieznany `contact_id` |
-| `self_state_corrupt` / `peer_state_corrupt` | komendy kontaktowe | Stan kontaktu w DB nie deserializuje się |
-| `peer_not_set` | `contact_verify_emoji` | Peer nie odesłał kodu zaproszenia |
-| `peer_already_set` | `reveal_invite`, `finalize_pairing` | Kontakt już ma peera, nie można przyjąć ponownie |
-| `invalid_invite_code` | `reveal_invite`, `finalize_pairing` | Kod (`peer_code`) nie parsuje się |
-| `invalid_commitment` | `accept_commitment` | Commitment nie jest 32-bajtowym hex |
-| `no_pending_commit` | `finalize_pairing` | Brak zapisanego commitmentu dla kontaktu |
-| `commitment_mismatch` | `finalize_pairing` | Hash ujawnionego kodu nie zgadza się z commitmentem (możliwa ingerencja) |
-| `need_recover_but_no_remote_prekey` | `contact_send` | Wymagane recovery, ale peer nie opublikował prekey |
-| `json_error` | komendy zapisujące stan | Serializacja stanu kontaktu/wiadomości zawiodła |
-| `invalid_url` | `set_server_url` | URL nie parsuje się |
-| `write_failed` | `set_server_url` | Zapis pliku `server_url` zawiódł |
-| `server_identity_bad_hex` | `set_server_identity` | `data` nie jest poprawnym hex |
-| `server_identity_invalid:<...>` | `set_server_identity` | Dane nie są poprawnym `server.identity` |
-| `server_url_not_set` | `unlock_keystore`, `remote_delete` | Nie wywołano `set_server_url` |
-| `account_deleted_but_local_wipe_failed` | `delete_account` | Konto usunięte na serwerze, lokalny wipe zawiódł |
-| `wipe_failed` | `wipe_local` | Błąd usuwania plików |
+| `storage_locked` | contact and message commands | The local database isn't initialized |
+| `storage_init_failed` | `unlock_storage` | Local SQLite database initialization failed |
+| `storage_error` | commands operating on the DB | SQLite read/write error |
+| `internal_state_error` | `register`, `unlock_storage` | An unexpected state combination |
+| `crypto_error` | `unlock_keystore`, `register`, `unlock_storage`, `contact_send` | A cryptographic error (decryption, key generation) |
+| `protocol_error` | commands contacting the server | Network or server response error |
+| `internal_error` | many | An unexpected internal error |
+| `invalid_contact_id` | contact commands | `contact_id` isn't valid hex / 32 bytes |
+| `contact_not_found` | contact commands | Unknown `contact_id` |
+| `self_state_corrupt` / `peer_state_corrupt` | contact commands | The contact state in the DB doesn't deserialize |
+| `peer_not_set` | `contact_verify_emoji` | The peer hasn't sent back the invite code |
+| `peer_already_set` | `reveal_invite`, `finalize_pairing` | The contact already has a peer, can't accept again |
+| `invalid_invite_code` | `reveal_invite`, `finalize_pairing` | The code (`peer_code`) doesn't parse |
+| `invalid_commitment` | `accept_commitment` | The commitment isn't 32-byte hex |
+| `no_pending_commit` | `finalize_pairing` | No stored commitment for the contact |
+| `commitment_mismatch` | `finalize_pairing` | The revealed code's hash doesn't match the commitment (possible tampering) |
+| `need_recover_but_no_remote_prekey` | `contact_send` | Recovery needed, but the peer published no prekey |
+| `json_error` | commands that store state | Serialization of the contact/message state failed |
+| `invalid_url` | `set_server_url` | The URL doesn't parse |
+| `write_failed` | `set_server_url` | Writing the `server_url` file failed |
+| `server_identity_bad_hex` | `set_server_identity` | `data` isn't valid hex |
+| `server_identity_invalid:<...>` | `set_server_identity` | The data isn't a valid `server.identity` |
+| `server_url_not_set` | `unlock_keystore`, `remote_delete` | `set_server_url` wasn't called |
+| `account_deleted_but_local_wipe_failed` | `delete_account` | The account was deleted on the server, the local wipe failed |
+| `wipe_failed` | `wipe_local` | File deletion error |
 
-Auto-fetch (`traffic.rs`) obsługuje błędy per-wiadomość po cichu (`invalid_hex`, `bad_wire`, `invalid_utf8`, `duplicate`, `potentially_harmful_message`, `decrypt_failed`, `to_id_unknown`, `prekey_lookup_failed`, `prekey_recovery_failed`): wadliwa wiadomość jest pomijana, reszta skrzynki przetwarzana dalej. Nie ma tu kanału IPC, więc te kody nie wracają do klienta.
+Auto-fetch (`traffic.rs`) handles per-message errors silently 
+(`invalid_hex`, `bad_wire`, `invalid_utf8`, `duplicate`, 
+`potentially_harmful_message`, `decrypt_failed`, `to_id_unknown`, 
+`prekey_lookup_failed`, `prekey_recovery_failed`): a faulty 
+message is skipped, the rest of the mailbox is processed. There is 
+no IPC channel here, so these codes don't reach the client.
 
-## Zmienne środowiskowe
+## Environment variables
 
-Zmienne runtime daemona (`LITHIUMD_*`: katalog danych, ścieżki IPC, polityka połączeń, kadencja cover traffic) są zebrane w [daemon-runtime.md](../operations/daemon-runtime.md#zmienne-środowiskowe).
+The daemon's runtime variables (`LITHIUMD_*`: data directory, IPC 
+paths, connection policy, cover-traffic cadence) are collected in 
+[daemon-runtime.md](../operations/daemon-runtime.md#environment-variables).

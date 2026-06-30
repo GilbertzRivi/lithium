@@ -1,201 +1,293 @@
-# Specyfikacja protokołu kryptograficznego Lithium
+# Lithium cryptographic protocol specification
 
-Dokument opisuje pełny protokół kryptograficzny Lithium w dwóch niezależnych warstwach: transport (daemon–serwer) i E2E (daemon–daemon). Przeznaczony dla audytorów i implementatorów.
+This document describes the full Lithium cryptographic protocol in 
+two independent layers: transport (daemon-server) and E2E 
+(daemon-daemon). Meant for auditors and implementers.
 
-## Dwie niezależne warstwy szyfrowania
+## Two independent encryption layers
 
-Każda wiadomość przechodzi przez dwie niezależne warstwy szyfrowania:
+Every message goes through two independent encryption layers:
 
-1. **Warstwa E2E** — szyfrowanie między daemonami, niewidoczne dla serwera. Serwer nigdy nie ma kluczy do tej warstwy.
-2. **Warstwa transportu** — szyfrowanie połączenia daemon–serwer. Chroni metadane żądania i payload E2E przed obserwatorem sieciowym. Serwer deszyfruje tę warstwę, ale zawartość jest już zaszyfrowana warstwą E2E.
+1. **The E2E layer**, encryption between daemons, invisible to the 
+   server. The server never has the keys to this layer.
+2. **The transport layer**, encryption of the daemon-server 
+   connection. It protects the request metadata and the E2E 
+   payload from a network observer. The server decrypts this 
+   layer, but the content is already encrypted by the E2E layer.
 
-Kompromitacja warstwy transportu nie ujawnia treści wiadomości — pozostają zaszyfrowane kluczami E2E per-kontakt.
+A compromise of the transport layer doesn't reveal message 
+content, it stays encrypted under per-contact E2E keys.
 
-## Prymitywy kryptograficzne
+## Cryptographic primitives
 
-| Cel | Algorytm |
-|-----|----------|
-| KEM hybrydowy | X25519 + ML-KEM-1024 (via KyberBox) |
+| Purpose | Algorithm |
+|---------|-----------|
+| Hybrid KEM | X25519 + ML-KEM-1024 (via KyberBox) |
 | AEAD | AES-256-GCM-SIV |
 | KDF | HKDF-SHA256 |
-| Podpisy | Ed25519 + ML-DSA-87 (dual-sign) |
-| Uwierzytelnianie hasłem (PAKE) | OPAQUE (ristretto255 + Argon2id) |
-| KSF / derywacja z hasła | Argon2id |
+| Signatures | Ed25519 + ML-DSA-87 (dual-sign) |
+| Password authentication (PAKE) | OPAQUE (ristretto255 + Argon2id) |
+| KSF / password derivation | Argon2id |
 | CSRNG | `rand::rngs::SysRng` |
 
-Szczegółowa analiza KyberBox: [kyberbox.md](../security/kyberbox.md).
+A detailed analysis of KyberBox is in the `lithium_core` 
+[docs](../../lithium_core/README.md).
 
-## Warstwa transportu (daemon–serwer)
+## Transport layer (daemon-server)
 
-### Tryb Shake
+### Shake mode
 
-Używany do inicjalizacji sesji. Klient nie posiada jeszcze kluczy sesji serwera.
+Used to initialize a session. The client doesn't have the server's 
+session keys yet.
 
-Klient wysyła w cleartext nagłówkach HTTP:
-- `key-x` — efemeryczny klucz publiczny X25519 klienta (hex 32B)
-- `key-k` — efemeryczny klucz publiczny ML-KEM-1024 klienta (hex 1568B)
-- `seed` — zaszyfrowane ziarno KEM
-- `data` — blob zaszyfrowanych nagłówków aplikacyjnych
+The client sends in cleartext HTTP headers:
+- `key-x`, the client's ephemeral X25519 public key (hex 32B)
+- `key-k`, the client's ephemeral ML-KEM-1024 public key (hex 
+  1568B)
+- `seed`, the encrypted KEM seed
+- `data`, the blob of encrypted application headers
 
-Klient szyfruje ciało żądania przez KyberBox z kontekstem `"shake-req"` (odpowiedź serwera jest szyfrowana pod `"shake-resp"`), używając długoterminowych kluczy publicznych serwera jako adresata (X25519 i ML-KEM-1024 z pliku `server.identity`) i własnego efemerycznego klucza prywatnego X25519 jako nadawcy. Serwer deszyfruje ciało swoim długoterminowym kluczem prywatnym X25519 oraz efemerycznym kluczem publicznym klienta z nagłówka `key-x`.
+The client encrypts the request body with KyberBox under the 
+context `"shake-req"` (the server response is encrypted under 
+`"shake-resp"`), using the server's long-term public keys as the 
+recipient (X25519 and ML-KEM-1024 from the `server.identity` file) 
+and its own ephemeral X25519 private key as the sender. The server 
+decrypts the body with its long-term X25519 private key and the 
+client's ephemeral public key from the `key-x` header.
 
-W zaszyfrowanych nagłówkach aplikacyjnych (`data`) klient umieszcza:
-- `key-ed` — efemeryczny klucz publiczny Ed25519 (hex 32B)
-- `key-dili` — efemeryczny klucz publiczny ML-DSA-87 (hex 2592B)
-- `sig-ed` — podpis Ed25519 nad ciałem żądania
-- `sig-dili` — podpis ML-DSA-87 nad ciałem żądania
+In the encrypted application headers (`data`) the client puts:
+- `key-ed`, the ephemeral Ed25519 public key (hex 32B)
+- `key-dili`, the ephemeral ML-DSA-87 public key (hex 2592B)
+- `sig-ed`, the Ed25519 signature over the request body
+- `sig-dili`, the ML-DSA-87 signature over the request body
 
-Odszyfrowane ciało JSON musi zawierać pole `timestamp` (Unix timestamp w sekundach, hex 16 znaków, big-endian). Serwer waliduje `timestamp` w granicach ±60s od swojego zegara. Serwer weryfikuje podpis przy użyciu `key-ed` i `key-dili` z zaszyfrowanych nagłówków.
+The decrypted JSON body must contain a `timestamp` field (Unix 
+timestamp in seconds, hex 16 chars, big-endian). The server 
+validates `timestamp` to be within +/-60s of its clock. The 
+server verifies the signature using `key-ed` and `key-dili` from 
+the encrypted headers.
 
-Odpowiedź serwera zawiera w cleartext nagłówkach HTTP:
-- `key-x` — klucz publiczny X25519 nowej sesji (klient szyfruje do niego kolejne żądanie)
-- `key-k` — klucz publiczny ML-KEM-1024 nowej sesji
-- `data` — blob zaszyfrowanych nagłówków odpowiedzi (KyberBox)
-- `seed` — zaszyfrowane ziarno KEM
-- `sig-ed` — podpis Ed25519 serwera nad ciałem odpowiedzi
-- `sig-dili` — podpis ML-DSA-87 serwera nad ciałem odpowiedzi
+The server's response carries in cleartext HTTP headers:
+- `key-x`, the new session's X25519 public key (the client 
+  encrypts the next request to it)
+- `key-k`, the new session's ML-KEM-1024 public key
+- `data`, the blob of encrypted response headers (KyberBox)
+- `seed`, the encrypted KEM seed
+- `sig-ed`, the server's Ed25519 signature over the response body
+- `sig-dili`, the server's ML-DSA-87 signature over the response 
+  body
 
-W zaszyfrowanych nagłówkach odpowiedzi (`data`) znajdują się:
-- `ses-x` — losowy identyfikator klucza prywatnego X25519 sesji w `EphemeralStoreManager`
-- `ses-k` — losowy identyfikator klucza prywatnego ML-KEM-1024 sesji w `EphemeralStoreManager`
+In the encrypted response headers (`data`):
+- `ses-x`, a random identifier of the session's X25519 private key 
+  in `EphemeralStoreManager`
+- `ses-k`, a random identifier of the session's ML-KEM-1024 
+  private key in `EphemeralStoreManager`
 
-Klient odsyła te identyfikatory w nagłówkach kolejnego żądania (`ses-x`, `ses-k`), a serwer używa ich do lookup klucza prywatnego. Klucze prywatne sesji są przechowywane w `EphemeralStoreManager` z TTL 60s (Shake) / 120s (Session).
+The client sends these identifiers back in the next request's 
+headers (`ses-x`, `ses-k`), and the server uses them to look up 
+the private key. The private session keys are held in 
+`EphemeralStoreManager` with a TTL of 60s (Shake) / 120s 
+(Session).
 
-### Tryb Session
+### Session mode
 
-Używany po wykonaniu Shake. Klient posiada klucze publiczne sesji z poprzedniej odpowiedzi.
+Used after Shake. The client has the session public keys from the 
+previous response.
 
-Klient wysyła w cleartext nagłówkach HTTP:
-- `ses-x` — losowy 32-bajtowy identyfikator sesji X25519 (hex) — otrzymany z zaszyfrowanych nagłówków poprzedniej odpowiedzi
-- `ses-k` — losowy 32-bajtowy identyfikator sesji ML-KEM-1024 (hex) — otrzymany z zaszyfrowanych nagłówków poprzedniej odpowiedzi
-- `seed` — zaszyfrowane ziarno KEM
-- `data` — blob zaszyfrowanych nagłówków aplikacyjnych
+The client sends in cleartext HTTP headers:
+- `ses-x`, a random 32-byte X25519 session identifier (hex), 
+  received from the encrypted headers of the previous response
+- `ses-k`, a random 32-byte ML-KEM-1024 session identifier (hex), 
+  received from the encrypted headers of the previous response
+- `seed`, the encrypted KEM seed
+- `data`, the blob of encrypted application headers
 
-W zaszyfrowanych nagłówkach aplikacyjnych (`data`) klient umieszcza `sig-ed`, `sig-dili`, oraz opcjonalnie `key-ed`/`key-dili` — zależnie od endpointu (patrz tabela niżej).
+In the encrypted application headers (`data`) the client puts 
+`sig-ed`, `sig-dili`, and optionally `key-ed`/`key-dili`, 
+depending on the endpoint (see the table below).
 
-Klient szyfruje ciało przez KyberBox z kontekstem `"{endpoint}-req"` (odpowiedź pod `"{endpoint}-resp"`) — etykieta kontekstu jest budowana per endpoint przez `ctx_req`/`ctx_resp` z nazwy endpointu (`register_start`, `login_start`, `msg_send`, `msg_fetch`, …; `lithium_core/src/contract/protocol.rs`); nie istnieje jeden wspólny kontekst `"session"`. Adresatem są klucze publiczne sesji serwera (otrzymane z poprzedniej odpowiedzi w cleartext nagłówkach HTTP jako `key-x`, `key-k`). Serwer używa `ses-x`/`ses-k` jako kluczy lookup do `EphemeralStoreManager`, skąd pobiera odpowiednie klucze prywatne sesji, i deszyfruje ciało. TTL sesji: 120s.
+The client encrypts the body with KyberBox under the context 
+`"{endpoint}-req"` (the response under `"{endpoint}-resp"`), the 
+context label is built per endpoint by `ctx_req`/`ctx_resp` from 
+the endpoint name (`register_start`, `login_start`, `msg_send`, 
+`msg_fetch`, ...; `lithium_core/src/contract/protocol.rs`); there 
+is no single shared `"session"` context. The recipient is the 
+server's session public keys (received in the previous response in 
+cleartext HTTP headers as `key-x`, `key-k`). The server uses 
+`ses-x`/`ses-k` as lookup keys into `EphemeralStoreManager`, from 
+which it gets the matching private session keys, and decrypts the 
+body. Session TTL: 120s.
 
-Po każdej odpowiedzi serwer generuje nowe pary kluczy sesji i umieszcza je w nagłówkach — klient używa nowych kluczy do kolejnego żądania.
+After each response the server generates new session key pairs and 
+puts them in the headers, the client uses the new keys for the 
+next request.
 
 ### Anti-replay
 
-`GuardMiddleware` stosuje dwa mechanizmy:
+`GuardMiddleware` applies two mechanisms:
 
-1. **Hash ciała**: `SHA256(raw_body_bytes)` przechowywany w `EphemeralStoreManager` z TTL 600s. Pierwsze żądanie z danym hashem przechodzi. Ponowne użycie tego samego ciała w ciągu 600s zwraca `400 replay_detected`. Dotyczy tylko żądań POST — GET-y są zwolnione.
+1. **Body hash**: `SHA256(raw_body_bytes)` held in 
+   `EphemeralStoreManager` with a 600s TTL. The first request with 
+   a given hash passes. Reusing the same body within 600s returns 
+   `400 replay_detected`. Applies only to POST requests, GETs are 
+   exempt.
 
-2. **Timestamp**: Pole `timestamp` w odszyfrowanym ciele musi być w granicach ±60s od zegara serwera. Poza tym oknem żądanie jest odrzucane.
+2. **Timestamp**: the `timestamp` field in the decrypted body must 
+   be within +/-60s of the server clock. Outside that window the 
+   request is rejected.
 
-### Podpisywanie i weryfikacja
+### Signing and verification
 
-Każde żądanie jest dual-podpisane (Ed25519 + ML-DSA-87). Klucze podpisujące i sygnatury są umieszczane w zaszyfrowanych nagłówkach aplikacyjnych — serwer weryfikuje je po deszyfrowaniu. Serwer zawsze weryfikuje oba podpisy — oba muszą przejść.
+Every request is dual-signed (Ed25519 + ML-DSA-87). The signing 
+keys and the signatures are placed in the encrypted application 
+headers, the server verifies them after decryption. The server 
+always verifies both signatures, both must pass.
 
-Zachowanie per endpoint:
+Per-endpoint behavior:
 
-| Endpoint | Klucze `key-ed`/`key-dili` w nagłówkach | `AuthMode` | Weryfikacja po stronie serwera |
-|----------|------------------------------------------|------------|-------------------------------|
-| `Shake`, `RemoteDelete`, `MsgSend`, `MsgFetch` | efemeryczne (generowane per żądanie) | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania |
-| `RegisterStart`, `RegisterFinish` | długoterminowe klucze tożsamości | `KeysInHeaders` | z zaszyfrowanych nagłówków żądania (serwer zapisuje je w DB) |
-| `LoginStart`, `LoginFinish` | brak | `LoginByHandler` | kluczami zapisanymi w DB, wyszukanymi po `handler` |
-| `Delete` | brak | `JwtUser` | tożsamość użytkownika z JWT wystawionego przy logowaniu (nie z kluczy w nagłówkach) |
+| Endpoint | `key-ed`/`key-dili` in headers | `AuthMode` | Server-side verification |
+|----------|--------------------------------|------------|--------------------------|
+| `Shake`, `RemoteDelete`, `MsgSend`, `MsgFetch` | ephemeral (generated per request) | `KeysInHeaders` | from the encrypted request headers |
+| `RegisterStart`, `RegisterFinish` | long-term identity keys | `KeysInHeaders` | from the encrypted request headers (the server stores them in the DB) |
+| `LoginStart`, `LoginFinish` | none | `LoginByHandler` | with keys stored in the DB, looked up by `handler` |
+| `Delete` | none | `JwtUser` | the user identity from the JWT issued at login (not from keys in headers) |
 
-Serwer dual-podpisuje każdą odpowiedź swoimi kluczami. Klient weryfikuje pod kluczami załadowanymi z pliku `server.identity`.
+The server dual-signs every response with its keys. The client 
+verifies under the keys loaded from the `server.identity` file.
 
-### JWT (jednorazowy token autoryzacji)
+### JWT (one-time authorization token)
 
-JWT wystawiany przy pomyślnym logowaniu (`/user/login/finish`), wymagany przez jedyny endpoint z `AuthMode::JwtUser`: usunięcie konta (`/user/delete`). Wysyłka wiadomości (`/msg/send`) jest anonimowa (`KeysInHeaders`) i JWT nie używa.
+The JWT is issued on a successful login (`/user/login/finish`), 
+required by the only endpoint with `AuthMode::JwtUser`: account 
+deletion (`/user/delete`). Sending a message (`/msg/send`) is 
+anonymous (`KeysInHeaders`) and doesn't use a JWT.
 
-Nie istnieje żadna komenda IPC `login` i żaden ekran GUI logowania. Logowanie OPAQUE (`/user/login/start` + `/user/login/finish`) jest wołane automatycznie i niewidocznie przez `ProtocolManager::ensure_login` (`lithiumd/src/protocol_manager.rs`) za każdym razem, gdy operacja wymagająca JWT (`delete_account`; `Endpoint::Delete` to jedyny `requires_jwt()`) albo DEK-a (`unlock_storage`, `get_dek` — login zwraca zaszyfrowany DEK) nie ma już zcache'owanego, niezużytego tokenu — używając handlera/hasła konta z `set_credentials`, trzymanych tylko w pamięci. `contact_send`/`msg/send` jest anonimowe (`KeysInHeaders`) i **nie** wymaga JWT. Token JWT jest jednorazowy (`store.take`), więc każde kolejne `delete_account` po wyczerpaniu poprzedniego tokenu wywoła ponowny, równie niewidoczny login w tle.
+There is no IPC `login` command and no GUI login screen. OPAQUE 
+login (`/user/login/start` + `/user/login/finish`) is called 
+automatically and invisibly by `ProtocolManager::ensure_login` 
+(`lithiumd/src/protocol_manager.rs`) whenever an operation needing 
+a JWT (`delete_account`; `Endpoint::Delete` is the only 
+`requires_jwt()`) or a DEK (`unlock_storage`, `get_dek`, login 
+returns the encrypted DEK) no longer has a cached, unused token, 
+using the account handler/password from `set_credentials`, kept 
+only in memory. `contact_send`/`msg/send` is anonymous 
+(`KeysInHeaders`) and does **not** need a JWT. The JWT is one-time 
+(`store.take`), so every subsequent `delete_account` after the 
+previous token is spent triggers another, equally invisible 
+background login.
 
-- Algorytm: HS256
-- Pole `sub`: `hex(HMAC-SHA256(user_id_bytes, random_seed_bytes))` — nieprzejrzysty identyfikator
-- Token przechowywany w `EphemeralStoreManager` pod wartością HMAC `sub` z TTL sesji
-- Token jest **jednorazowy** — `store.take` usuwa go przy pierwszym użyciu
-- W ciele JSON jako `tok_hex` (hex-encoded)
+- Algorithm: HS256
+- The `sub` field: `hex(HMAC-SHA256(user_id_bytes, 
+  random_seed_bytes))`, an opaque identifier
+- The token is stored in `EphemeralStoreManager` under the HMAC 
+  `sub` value with the session TTL
+- The token is **one-time**, `store.take` removes it on first use
+- In the JSON body as `tok_hex` (hex-encoded)
 
-Utrata tokenu lub przejęcie sesji nie pozwala na wielokrotne użycie — token jest zużyty.
+Losing the token or hijacking the session doesn't allow reuse, the 
+token is spent.
 
-### Endpointy transportowe
+### Transport endpoints
 
-| Endpoint | Ścieżka | Tryb krypto | `key-ed`/`key-dili` w zaszyfrowanych nagłówkach |
-|----------|---------|-------------|--------------------------------------------------|
-| Shake | POST `/shake` | Shake | efemeryczne |
-| Rejestracja (start) | POST `/user/register/start` | Session | tożsamości (zapisywane w DB) |
-| Rejestracja (finish) | POST `/user/register/finish` | Session | tożsamości |
-| Logowanie (start) | POST `/user/login/start` | Session | brak (serwer weryfikuje po `handler` z DB) |
-| Logowanie (finish) | POST `/user/login/finish` | Session | brak (serwer weryfikuje po `handler` z DB) |
-| Delete | POST `/user/delete` | Session | brak (serwer weryfikuje przez JWT) |
-| Wysłanie | POST `/msg/send` | Session | efemeryczne (anonimowe `KeysInHeaders` + PoW, bez JWT) |
-| Remote delete | POST `/user/revoke` | Session | efemeryczne |
-| Pobranie | POST `/msg/fetch` | Session | efemeryczne |
-| Root | GET `/` | brak | brak |
-| Health | GET `/health` | brak | brak |
+| Endpoint | Path | Crypto mode | `key-ed`/`key-dili` in encrypted headers |
+|----------|------|-------------|------------------------------------------|
+| Shake | POST `/shake` | Shake | ephemeral |
+| Register (start) | POST `/user/register/start` | Session | identity (stored in the DB) |
+| Register (finish) | POST `/user/register/finish` | Session | identity |
+| Login (start) | POST `/user/login/start` | Session | none (server verifies by `handler` from the DB) |
+| Login (finish) | POST `/user/login/finish` | Session | none (server verifies by `handler` from the DB) |
+| Delete | POST `/user/delete` | Session | none (server verifies via JWT) |
+| Send | POST `/msg/send` | Session | ephemeral (anonymous `KeysInHeaders` + PoW, no JWT) |
+| Remote delete | POST `/user/revoke` | Session | ephemeral |
+| Fetch | POST `/msg/fetch` | Session | ephemeral |
+| Root | GET `/` | none | none |
+| Health | GET `/health` | none | none |
 
-### Proof-of-Work na wysyłce
+### Proof-of-Work on send
 
-`/msg/send` wymaga proof-of-work (anti-spam, niezależny od JWT). Serwer liczy wyzwanie z adresu skrzynki i treści, klient dołącza pasujący `nonce`:
+`/msg/send` requires proof-of-work (anti-spam, independent of the 
+JWT). The server computes a challenge from the mailbox address and 
+the content, the client attaches a matching `nonce`:
 
 ```
 challenge = SHA256("lithium/send-pow/v1" || u32_le(len(mailbox)) || mailbox || content)
 ok        = leading_zero_bits(SHA256(challenge || u64_le(nonce))) >= bits
 ```
 
-`nonce` trafia do ciała JSON jako pole `pow`. Trudność `bits` ustawia `LITHIUMS_SEND_POW_BITS` (domyślnie 18; `lithium_core/src/pow.rs`). Niespełniony PoW odrzucany jest jako `400 invalid_pow`.
+The `nonce` goes into the JSON body as the `pow` field. The 
+difficulty `bits` is set by `LITHIUMS_SEND_POW_BITS` (18 by 
+default; `lithium_core/src/pow.rs`). A failed PoW is rejected as 
+`400 invalid_pow`.
 
-### Padding rozmiarów
+### Size padding
 
-Ciało i nagłówki są paddowane losowo przed szyfrowaniem:
-- Body: `data || 0x80 || 0x00...` do wielokrotności losowego bloku 32–64 KB
-- Nagłówki: paddowane do wielokrotności losowego bloku 4–8 KB
+The body and headers are padded randomly before encryption:
+- Body: `data || 0x80 || 0x00...` to a multiple of a random 32-64 
+  KB block
+- Headers: padded to a multiple of a random 4-8 KB block
 
-Ukrywa długość i typ operacji przed obserwatorem sieciowym.
+This hides the length and the type of operation from a network 
+observer.
 
-## Warstwa E2E (daemon–daemon)
+## E2E layer (daemon-daemon)
 
-### Format WireV1 — binarny format wiadomości
+### WireV1 format: the binary message format
 
 ```
-[LM1: 3 bajty magic]
-[VER: 1 bajt = 1]
-[to_id: 32 bajty]        identyfikator klucza odbiorczego
-[from_x_pub: 32 bajty]   efemeryczny X25519 nadawcy
-[seed_len: 2 bajty BE]
-[seed: seed_len bajtow]  ML-KEM ciphertext + zaszyfrowany seed
-[hdr_len: 4 bajty BE]
-[enc_headers: hdr_len bajtow]
-[body_len: 4 bajty BE]
-[enc_body: body_len bajtow]
+[LM1: 3 bytes magic]
+[VER: 1 byte = 1]
+[to_id: 32 bytes]        recipient key identifier
+[from_x_pub: 32 bytes]   sender's ephemeral X25519
+[seed_len: 2 bytes BE]
+[seed: seed_len bytes]   ML-KEM ciphertext + encrypted seed
+[hdr_len: 4 bytes BE]
+[enc_headers: hdr_len bytes]
+[body_len: 4 bytes BE]
+[enc_body: body_len bytes]
 ```
 
-`to_id = HKDF(x_pub_bytes || k_pub_bytes, info="lithiumd/e2e-peer-kid/v1")` — identyfikator pary kluczy odbiorczych adresata.
+`to_id = HKDF(x_pub_bytes || k_pub_bytes, 
+info="lithiumd/e2e-peer-kid/v1")`, the identifier of the 
+recipient's receiving key pair.
 
-`enc_headers` i `enc_body` to blobs KyberBox z kontekstem `"lithiumd/e2e-msg/v1"`.
+`enc_headers` and `enc_body` are KyberBox blobs under the context 
+`"lithiumd/e2e-msg/v1"`.
 
-### Szyfrowanie E2E (KyberBox w kontekście E2E)
+### E2E encryption (KyberBox in the E2E context)
 
-Szyfrowanie używa kluczy per-kontakt, nie kluczy transportowych. Klient szyfruje do kluczy publicznych peera (`peer_pub_x`, `peer_k_pub`), używając świeżo wygenerowanego klucza efemerycznego X25519 (`from_x_pub`).
+Encryption uses per-contact keys, not transport keys. The client 
+encrypts to the peer's public keys (`peer_pub_x`, `peer_k_pub`), 
+using a freshly generated ephemeral X25519 key (`from_x_pub`).
 
-`headers` zawierają metadane (tryb wiadomości, reply keys, mailbox info, podpisy). `body` zawiera treść wiadomości.
+`headers` carry metadata (message mode, reply keys, mailbox info, 
+signatures). `body` carries the message content.
 
-### Tryby szyfrowania E2E
+### E2E encryption modes
 
-**Bootstrap** — pierwsza wiadomość do kontaktu:
-- Celuje w klucze bootstrapowe z zaproszenia (`x_pub`, `k_pub` z kodu `lci1:`)
-- Nadawca nie ma kluczy odpowiedzi od peera
-- Klucze bootstrapowe są usuwane z `self_state` gdy peer potwierdzi odbiór (`ack_seq > 0` lub `retire_ok`) i ma ustawiony `e2e_peer`
+**Bootstrap**, the first message to a contact:
+- Targets the bootstrap keys from the invite (`x_pub`, `k_pub` 
+  from the `lci1:` code)
+- The sender has no reply keys from the peer
+- The bootstrap keys are removed from `self_state` once the peer 
+  confirms receipt (`ack_seq > 0` or `retire_ok`) and has 
+  `e2e_peer` set
 
-**Ratchet** — po odebraniu pierwszej wiadomości zwrotnej:
-- Celuje w klucze `reply` z ostatnio odebranej wiadomości (`e2e_peer.id`, `e2e_peer.x_pub`, `e2e_peer.k_pub`)
-- Klucze RX są rotowane przy każdej odebranej wiadomości
-- Klucze RX starsze niż okno 32 sekwencji od `ack_seq` są usuwane
+**Ratchet**, after receiving the first reply:
+- Targets the `reply` keys from the last received message 
+  (`e2e_peer.id`, `e2e_peer.x_pub`, `e2e_peer.k_pub`)
+- The RX keys are rotated on every received message
+- RX keys older than the window of 32 sequences from `ack_seq` are 
+  removed
 
-**Prekey recover** — odzysk po desynchronizacji stanu:
-- Celuje w prekey opublikowany przez peera (`prekeys_remote`)
-- Pozwala wznowić komunikację bez nowej wymiany zaproszeń
-- Prekey jest usuwany po użyciu
+**Prekey recover**, recovery after a state desync:
+- Targets a prekey published by the peer (`prekeys_remote`)
+- Lets communication resume without a new invite exchange
+- The prekey is removed after use
 
-### Podpisywanie wiadomości E2E
+### Signing E2E messages
 
-Każda wiadomość jest dual-podpisana kluczami tożsamości kontaktu (Ed25519 + ML-DSA-87):
+Every message is dual-signed with the contact's identity keys 
+(Ed25519 + ML-DSA-87):
 
 ```
 sig_input = "lithiumd/e2e-msg-sig/v1" || to_id || from_x_pub
@@ -203,216 +295,310 @@ sig_input = "lithiumd/e2e-msg-sig/v1" || to_id || from_x_pub
             || u32(len(body)) || body
 ```
 
-`hdr_unsigned` to nagłówek JSON **bez** pól `auth`. Sygnatury są wbudowane w `enc_headers` — serwer ich nie widzi.
+`hdr_unsigned` is the header JSON **without** the `auth` fields. 
+The signatures are embedded in `enc_headers`, the server doesn't 
+see them.
 
-Odbiorca weryfikuje oba podpisy pod kluczami peera zapisanymi przy wymianie zaproszeń. Nieweryfikowalna sygnatura = odrzucenie wiadomości.
+The recipient verifies both signatures under the peer's keys 
+stored during the invite exchange. An unverifiable signature means 
+the message is rejected.
 
-### Klucze odbiorcze (RX keyring)
+### Receiving keys (RX keyring)
 
-Przy każdym wysłaniu nadawca generuje nową parę RX (X25519 + ML-KEM-1024) i wysyła klucze publiczne w zaszyfrowanym nagłówku (`reply`). Peer szyfruje kolejną wiadomość do tych kluczy.
+On every send the sender generates a new RX pair (X25519 + 
+ML-KEM-1024) and sends the public keys in the encrypted header 
+(`reply`). The peer encrypts the next message to those keys.
 
-Klucze RX przechowywane w `self_state["e2e_rx"]["keys"]` z numerem sekwencji (`seq`). Okno: 32 klucze od `ack_seq`. Starsze są bezpiecznie kasowane.
+The RX keys are held in `self_state["e2e_rx"]["keys"]` with a 
+sequence number (`seq`). Window: 32 keys from `ack_seq`. Older 
+ones are securely erased.
 
 ### Prekeys
 
-Przy pierwszym wysłaniu generowany jest zestaw prekeys (domyślnie 5). Publiczne części dołączane do nagłówka wiadomości. Peer zapisuje je w `peer_state["prekeys_remote"]`.
+On the first send a set of prekeys is generated (5 by default). 
+The public parts are attached to the message header. The peer 
+stores them in `peer_state["prekeys_remote"]`.
 
-Prywatne części przechowywane w tabeli `prekeys` SQLite (zaszyfrowane DEK-iem, AAD=`lithiumd/prekey/v1`). Prekey usuwany po użyciu (`take_prekey`).
+The private parts are held in the `prekeys` table in SQLite 
+(encrypted with the DEK, AAD=`lithiumd/prekey/v1`). A prekey is 
+removed after use (`take_prekey`).
 
-## System mailbox
+## Mailbox system
 
-### Adresowanie
+### Addressing
 
-Adres mailbox to kryptograficznie pseudolosowy 32-bajtowy identyfikator skrzynki na serwerze. Serwer widzi wyłącznie adres — nie wie kto do kogo pisze.
+A mailbox address is a cryptographically pseudo-random 32-byte 
+mailbox identifier on the server. The server sees only the 
+address, it doesn't know who writes to whom.
 
 ```
 shared  = ECDH(sender_out_priv, receiver_in_pub)
-salt    = sender_cid || receiver_cid || generation (8 bajtow BE)
-address = HKDF(shared, salt=salt, info="lithium/mbox/address/v1")  -> 32 bajty
+salt    = sender_cid || receiver_cid || generation (8 bytes BE)
+address = HKDF(shared, salt=salt, info="lithium/mbox/address/v1")  -> 32 bytes
 ```
 
-Nadawca i odbiorca obliczają adres niezależnie — bez komunikacji z serwerem.
+The sender and recipient compute the address independently, 
+without talking to the server.
 
-### Klucze mailbox per kontakt
+### Per-contact mailbox keys
 
-Klucze mailbox są **dedykowanymi** parami X25519 generowanymi wyłącznie na potrzeby adresowania skrzynek. Są niezależne od kluczy używanych do szyfrowania treści wiadomości (klucze bootstrapowe, ratchet RX, prekey) — te dwie przestrzenie kluczy są całkowicie rozdzielone.
+The mailbox keys are **dedicated** X25519 pairs generated only for 
+mailbox addressing. They are independent of the keys used to 
+encrypt message content (bootstrap keys, ratchet RX, prekey), the 
+two key spaces are entirely separate.
 
-Każdy kontakt ma w `self_state`:
-- `mbox_in_priv` / `mbox_in_pub` — stabilny klucz odbiorczy (niezmienny)
-- `mbox_out_cur_priv` / `mbox_out_cur_pub` — bieżący klucz nadawczy
-- `mbox_out_next_priv` / `mbox_out_next_pub` — następny klucz nadawczy (przygotowany z wyprzedzeniem)
+Each contact has in `self_state`:
+- `mbox_in_priv` / `mbox_in_pub`, a stable receiving key 
+  (immutable)
+- `mbox_out_cur_priv` / `mbox_out_cur_pub`, the current sending 
+  key
+- `mbox_out_next_priv` / `mbox_out_next_pub`, the next sending key 
+  (prepared ahead of time)
 
-### Rotacja klucza nadawczego
+### Sending key rotation
 
-Po `rotate_every` (domyślnie 32) wysłanych wiadomościach: `cur <- next`, generuje nowe `next`. Zaszyfrowane nagłówki E2E (`enc_headers`) przekazują peerowi klucze publiczne `sender_cur_x_pub` i `sender_next_x_pub` — serwer ich nie widzi.
+After `rotate_every` (32 by default) sent messages: `cur <- next`, 
+generate a new `next`. The encrypted E2E headers (`enc_headers`) 
+pass the peer the public keys `sender_cur_x_pub` and 
+`sender_next_x_pub`, the server doesn't see them.
 
-### Zakres fetch
+### Fetch range
 
-`ContactFetch` sprawdza generacje `peer_tx_gen_seen - 2` do `peer_tx_gen_seen + 1` — do 4 generacji. Zapewnia odbiór wiadomości mimo przeskoczenia generacji po stronie nadawcy.
+`ContactFetch` checks generations `peer_tx_gen_seen - 2` to 
+`peer_tx_gen_seen + 1`, up to 4 generations. It ensures receipt 
+even if the sender skipped a generation.
 
-## Wymiana zaproszeń (parowanie kontaktów)
+## Invite exchange (contact pairing)
 
-### Format kodu zaproszenia `lci1:`
+### The `lci1:` invite code format
 
 ```
 lci1:<HEX>
 ```
 
-Zawartość binarna (hex-encoded):
+The binary content (hex-encoded):
 
 ```
-[LCI1: 4 bajty magic]
-[VER: 1 bajt = 1]
-[contact_id: 32 bajty]
-[x_pub: 32 bajty]              X25519 (E2E)
-[k_pub_len: 2 bajty BE = 1568]
-[k_pub: 1568 bajtow]           ML-KEM-1024 (E2E)
-[ed_pub: 32 bajty]             Ed25519 (podpisy)
-[dili_pub_len: 2 bajty BE = 2592]
-[dili_pub: 2592 bajtow]        ML-DSA-87 (podpisy)
-[mbox_in_pub: 32 bajty]        stabilny klucz odbiorczy mailbox
-[mbox_out_cur_pub: 32 bajty]   biezacy klucz nadawczy mailbox
-[mbox_out_next_pub: 32 bajty]  nastepny klucz nadawczy mailbox
+[LCI1: 4 bytes magic]
+[VER: 1 byte = 1]
+[contact_id: 32 bytes]
+[x_pub: 32 bytes]              X25519 (E2E)
+[k_pub_len: 2 bytes BE = 1568]
+[k_pub: 1568 bytes]           ML-KEM-1024 (E2E)
+[ed_pub: 32 bytes]            Ed25519 (signatures)
+[dili_pub_len: 2 bytes BE = 2592]
+[dili_pub: 2592 bytes]        ML-DSA-87 (signatures)
+[mbox_in_pub: 32 bytes]       stable mailbox receiving key
+[mbox_out_cur_pub: 32 bytes]  current mailbox sending key
+[mbox_out_next_pub: 32 bytes] next mailbox sending key
 ```
 
-Laczny rozmiar danych binarnych: **4361 bajtow** — **8722 znaki hex** po `lci1:`.
+Total binary size: **4361 bytes**, **8722 hex characters** after 
+`lci1:`.
 
-### Przebieg wymiany (commit-reveal)
+### The exchange flow (commit-reveal)
 
-Parowanie to **jednostronny commit-reveal**. Twórca (A) publikuje najpierw wyłącznie *commitment*
-do swojego kodu, nigdy surowy kod; akceptor (B) ujawnia swój kod dopiero po otrzymaniu commitmentu
-A; A ujawnia swój kod dopiero po otrzymaniu kodu B; na końcu B weryfikuje ujawniony kod A względem
-commitmentu. Kolejność reveal jest **wymuszana przez daemona**: `CreateInvite` zwraca tylko
-commitment (kod A nigdy nie opuszcza daemona na tym etapie), a `RevealInvite` wymaga kodu peera na
-wejściu, zanim wyemituje własny kod.
+Pairing is a **one-sided commit-reveal**. The creator (A) first 
+publishes only a *commitment* to their code, never the raw code; 
+the acceptor (B) reveals their code only after receiving A's 
+commitment; A reveals their code only after receiving B's code; at 
+the end B verifies A's revealed code against the commitment. The 
+reveal order is **enforced by the daemon**: `CreateInvite` returns 
+only the commitment (A's code never leaves the daemon at this 
+stage), and `RevealInvite` requires the peer's code as input 
+before it emits its own code.
 
 ```
-commitment = SHA256("lithiumd/pair-commit/v1" || dekodowany_kod)   -> 32 bajty (hex)
+commitment = SHA256("lithiumd/pair-commit/v1" || decoded_code)   -> 32 bytes (hex)
 
-(4 komunikaty kanałem OOB: email, telefon, inne)
+(4 messages over an OOB channel: email, phone, other)
 A: CreateInvite{contact_id=null}                      -> commitment_A    [A->B: commitment_A]
-B: AcceptCommitment{commitment_A, label}              -> kod_B           [B->A: kod_B]
-   (B zapisuje pending_commit = commitment_A)
-A: RevealInvite{contact_id=A, peer_code=kod_B, label} -> kod_A           [A->B: kod_A]
-   (A ustawia peer = tozsamosc B)
-B: FinalizePairing{contact_id=B, peer_code=kod_A}
-   (B weryfikuje ct_eq(SHA256(kod_A), pending_commit), ustawia peer = tozsamosc A)
+B: AcceptCommitment{commitment_A, label}              -> code_B          [B->A: code_B]
+   (B stores pending_commit = commitment_A)
+A: RevealInvite{contact_id=A, peer_code=code_B, label} -> code_A         [A->B: code_A]
+   (A sets peer = B's identity)
+B: FinalizePairing{contact_id=B, peer_code=code_A}
+   (B verifies ct_eq(SHA256(code_A), pending_commit), sets peer = A's identity)
 
-Obie strony: peer_set=true -> moga pisac
+Both sides: peer_set=true -> can write
 ```
 
-Commitment nie wymaga kanału poufnego ani uwierzytelnionego — jest jawnym hashem i jego jedyną rolą
-jest wymuszenie kolejności (commit przed reveal). Serwer nie uczestniczy w wymianie zaproszeń —
-wszystkie cztery komunikaty są wymieniane poza serwerem.
+The commitment needs no confidential or authenticated channel, it 
+is a public hash and its only role is to enforce the order (commit 
+before reveal). The server takes no part in the invite exchange, 
+all four messages are exchanged off the server.
 
-### Weryfikacja tożsamości out-of-band
+### Out-of-band identity verification
 
-Po wymianie obie strony weryfikują **6-znakowy** fingerprint (SAS — Short Authentication String, alfabet 64 znaków: litery, cyfry, symbole, greckie litery — `VERIFY_EMOJI_TABLE`/`VERIFY_EMOJI_LEN` w `lithiumd/src/commands/contact_verify_emoji.rs`) kanałem głosowym lub osobistym.
+After the exchange, both sides verify a **6-symbol** fingerprint 
+(SAS, Short Authentication String, a 64-symbol alphabet: letters, 
+digits, symbols, Greek letters, `VERIFY_EMOJI_TABLE`/`VERIFY_EMOJI_LEN` 
+in `lithiumd/src/commands/contact_verify_emoji.rs`) over a voice 
+or in-person channel.
 
-Każda strona najpierw liczy własny "party transcript" — HKDF po konkatenacji 8 pól tożsamości (własny `cid`, `x_pub`, `ed_pub`, `dili_pub`, `k_pub` oraz 3 klucze mailbox: `mbox_in_pub`, `mbox_out_cur_pub`, `mbox_out_next_pub`) pod etykietą `PARTY_TRANSCRIPT_LABEL` (`"lithiumd/party-transcript/v1"`):
+Each side first computes its own "party transcript", an HKDF over 
+the concatenation of 8 identity fields (its own `cid`, `x_pub`, 
+`ed_pub`, `dili_pub`, `k_pub`, and 3 mailbox keys: `mbox_in_pub`, 
+`mbox_out_cur_pub`, `mbox_out_next_pub`) under the label 
+`PARTY_TRANSCRIPT_LABEL` (`"lithiumd/party-transcript/v1"`):
 
 ```
 bundle  = cid || x_pub || ed_pub || dili_pub || k_pub || mbox_in_pub || mbox_out_cur_pub || mbox_out_next_pub
-t_self  = HKDF(bundle, info="lithiumd/party-transcript/v1")          -> 32 bajty
-t_peer  = HKDF(bundle_peer, info="lithiumd/party-transcript/v1")     -> 32 bajty (te same pola, dla peera)
+t_self  = HKDF(bundle, info="lithiumd/party-transcript/v1")          -> 32 bytes
+t_peer  = HKDF(bundle_peer, info="lithiumd/party-transcript/v1")     -> 32 bytes (the same fields, for the peer)
 ```
 
-Następnie oba transkrypty są sortowane (`t_a, t_b = sorted(t_self, t_peer)`), tak by obie strony liczyły identyczny `info`, i fingerprint liczony jest z ECDH:
+Then both transcripts are sorted (`t_a, t_b = sorted(t_self, 
+t_peer)`), so both sides compute an identical `info`, and the 
+fingerprint is computed from an ECDH:
 
 ```
 shared    = ECDH(self_x_priv, peer_x_pub)
-sas32     = HKDF(shared, info="lithiumd/contact-verify-emoji/v1" || t_a || t_b)  -> 32 bajty
-emoji[i]  = EMOJI_TABLE[sas32[i] mod 64]   dla i = 0..6   (6 symboli; 256 = 4*64, brak modulo bias)
+sas32     = HKDF(shared, info="lithiumd/contact-verify-emoji/v1" || t_a || t_b)  -> 32 bytes
+emoji[i]  = EMOJI_TABLE[sas32[i] mod 64]   for i = 0..6   (6 symbols; 256 = 4*64, no modulo bias)
 ```
 
-Włączenie `t_a`/`t_b` do `info` wiąże fingerprint nie tylko z kluczem X25519, ale z całym zestawem tożsamości i kluczy mailbox obu stron — podmiana jakiegokolwiek z 8 pól po jednej ze stron zmienia wynikowy SAS. Identyczne emoji po obu stronach potwierdza brak MITM przy wymianie.
+Including `t_a`/`t_b` in the `info` binds the fingerprint not just 
+to the X25519 key but to the full set of identities and mailbox 
+keys of both sides, swapping any of the 8 fields on either side 
+changes the resulting SAS. Identical emoji on both sides confirms 
+there was no MITM in the exchange.
 
-Długość 6 symboli (alfabet 64 → 36 bitów) jest wystarczająca **wyłącznie dzięki commit-reveal**
-opisanemu w „Przebieg wymiany". Bez commitmentu MITM kontrolujący kanał OOB mógłby grindować własny
-zestaw kluczy offline pod SAS ofiary (grind jest HKDF-zależny, tani na GPU); birthday-kolizja
-36-bitowego SAS to wtedy ~2^18 ewaluacji — trywialne. Commit-reveal to zamyka: MITM musi zafiksować
-podstawione klucze wobec każdej ze stron, *zanim* ta strona ujawni swój kod (akceptor ujawnia kod
-dopiero po otrzymaniu commitmentu twórcy; twórca ujawnia kod dopiero po otrzymaniu kodu akceptora —
-kolejność wymusza daemon). Ponieważ SAS miesza kody obu stron, a w chwili gdy MITM finalizuje wybór
-co najmniej jeden realny kod jest jeszcze nieujawniony, atak offline jest niemożliwy. MITM dostaje
-**jeden ślepy strzał 2^-36 na całą ceremonię** (wymagającą żywego porównania SAS) — co jest
-niewykonalne.
+The length of 6 symbols (a 64-symbol alphabet -> 36 bits) is 
+enough **only because of the commit-reveal** described in "The 
+exchange flow". Without the commitment a MITM controlling the OOB 
+channel could grind their own key set offline against the victim's 
+SAS (the grind is HKDF-dependent, cheap on a GPU); a birthday 
+collision on a 36-bit SAS is then about 2^18 evaluations, trivial. 
+The commit-reveal closes this: the MITM has to lock in the 
+substituted keys toward each side *before* that side reveals its 
+code (the acceptor reveals their code only after receiving the 
+creator's commitment; the creator reveals their code only after 
+receiving the acceptor's code, the daemon enforces the order). 
+Because the SAS mixes both sides' codes, and at the moment the 
+MITM finalizes the choice at least one real code is still 
+unrevealed, the offline attack is impossible. The MITM gets **one 
+blind shot at 2^-36 for the whole ceremony** (which requires a 
+live SAS comparison), which is infeasible.
 
-**Niezmiennik sprzężenia (nie naruszać niezależnie):** długość SAS i commit-reveal są sprzężone.
-Skrócenie SAS *albo* usunięcie commit-reveal w izolacji ponownie otwiera offline-grind (~2^18). Każda
-z tych zmian wolno robić tylko z równoległą rekompensatą w drugim mechanizmie (dłuższy SAS przy
-braku commitmentu, lub commitment przy krótszym SAS).
+**Coupling invariant (don't change independently):** the SAS 
+length and commit-reveal are coupled. Shortening the SAS *or* 
+removing commit-reveal in isolation reopens the offline grind 
+(~2^18). Either change may only be made with a parallel 
+compensation in the other mechanism (a longer SAS without the 
+commitment, or the commitment with a shorter SAS).
 
-## Cykl życia kluczy
+## Key lifecycle
 
-Pełny katalog kluczy — derywacja, przechowywanie, czas życia, rotacja i analiza wycieku — jest w [key-hierarchy.md](../security/key-hierarchy.md). Mechanika crash-safe rotacji MK (atomowy rewrap plików `.keyf` bez deszyfrowania payloadu) — [lithium_core.md](../reference/lithium_core.md).
+The full key catalog, derivation, storage, lifetime, rotation, and 
+leak analysis, is in 
+[key-hierarchy.md](../key-hierarchy.md). The crash-safe MK rotation 
+mechanics (atomic rewrap of `.keyf` files without decrypting the 
+payload) are in the `lithium_core` 
+[docs](../../lithium_core/README.md).
 
-W skrócie, na potrzeby tego protokołu:
-- **At-rest (klient):** `data_password` → MK → DEK plików `.keyf`; lokalna baza pod `db_dek`, który wymaga jednocześnie `password_root` (z hasła) i `server_dek` (z serwera) — celowy dwuczynnik.
-- **Per kontakt:** niezależny zestaw (X25519+ML-KEM do E2E, Ed25519+ML-DSA do podpisów, 3 klucze mailbox, bootstrap, RX, prekeys) — izolacja między kontaktami.
-- **Efemeryczne:** klucze sesji transportowej (TTL 60 s Shake / 120 s Session) oraz `msg_key` per wiadomość na serwerze (TTL 24 h) — restart serwera niszczy `msg_key`, czyniąc zaległe wiadomości trwale nieodszyfrowalnymi.
+In short, for this protocol:
+- **At-rest (client):** `data_password` -> MK -> the DEK of the 
+  `.keyf` files; the local database under `db_dek`, which needs 
+  both `password_root` (from the password) and `server_dek` (from 
+  the server), a deliberate two-factor.
+- **Per contact:** an independent set (X25519+ML-KEM for E2E, 
+  Ed25519+ML-DSA for signatures, 3 mailbox keys, bootstrap, RX, 
+  prekeys), isolation between contacts.
+- **Ephemeral:** transport session keys (TTL 60 s Shake / 120 s 
+  Session) and `msg_key` per message on the server (TTL 24 h), a 
+  server restart destroys `msg_key`, making pending messages 
+  permanently undecryptable.
 
-## Szyfrowanie bazy danych (serwer)
+## Database encryption (server)
 
-### Schemat szyfrowania pól użytkownika
+### User field encryption scheme
 
-Wrażliwe pola w tabeli `users` szyfrowane są indywidualnie pod DEK serwera (AES-256-GCM-SIV), każde z osobnym AAD (`lithiums/src/labels.rs`):
+The sensitive fields in the `users` table are encrypted 
+individually under the server DEK (AES-256-GCM-SIV), each with a 
+separate AAD (`lithiums/src/labels.rs`):
 
-| Pole | AAD |
-|------|-----|
+| Field | AAD |
+|-------|-----|
 | `opaque_record` | `"user-opaque-record/v1"` |
 | `ed_key` | `"user-ed-key/v1"` |
 | `dili_key` | `"user-dili-key/v1"` |
 | `dek` | `"user-dek/v1"` |
 
-Kolumna `id` to deterministyczny `id_enc` (osobny schemat niżej). `delete_token_hash` nie jest szyfrowane DEK-iem — to `SHA256(remote_delete_capability)`, używane wyłącznie jako klucz wyszukiwania przy `/user/revoke`. Nie ma kolumny `handler` — handler jest przesyłany przejściowo i mapowany na deterministyczne `id`. Podmiana DEK lub użycie nieprawidłowego AAD skutkuje błędem deszyfrowania AEAD.
+The `id` column is the deterministic `id_enc` (a separate scheme 
+below). `delete_token_hash` is not DEK-encrypted, it is 
+`SHA256(remote_delete_capability)`, used only as a lookup key for 
+`/user/revoke`. There is no `handler` column, the handler is sent 
+transiently and mapped to the deterministic `id`. Swapping the DEK 
+or using a wrong AAD causes an AEAD decryption failure.
 
-### Deterministyczne ID użytkownika
+### Deterministic user ID
 
 ```
-handler (znormalizowany) -> UUID v5(namespace, handler) -> id_bytes
+handler (normalized) -> UUID v5(namespace, handler) -> id_bytes
 id_enc = AES-256-GCM-SIV(id_bytes, db_dek, nonce=HKDF(id_bytes, db_dek, UIDENC_NONCE_LABEL), aad="user-idenc/v1")
 ```
 
-Ten sam handler zawsze daje ten sam `id_enc` — umożliwia wyszukiwanie PK bez przechowywania plaintext handlera. Świadomy trade-off opisany w [security-model.md](../security/security-model.md).
+The same handler always gives the same `id_enc`, which enables PK 
+lookup without storing the plaintext handler. The deliberate 
+trade-off is described in 
+[security-model.md](../security-model.md).
 
-## Format pliku klucza (.keyf)
+## Key file format (.keyf)
 
-Klucze prywatne i sekrety są przechowywane w plikach `.keyf` z podwójnym opakowaniem:
+Private keys and secrets are stored in `.keyf` files with double 
+wrapping:
 
 ```
-[KEYF magic: 4 bajty][version: u8][alg_id: u8][dek_len: u16]
-[salt_len: u16][salt: 32 bajty]
-[nonce_wrap_len: u16][nonce_wrap: 12 bajtow]
-[ct_wrap_len: u16][ct_wrap: N bajtow]        AES-256-GCM-SIV(DEK, KEK)
-[nonce_payload_len: u16][nonce_payload: 12 bajtow]
-[ct_payload_len: u32][ct_payload: M bajtow]  AES-256-GCM-SIV(secret, DEK)
+[KEYF magic: 4 bytes][version: u8][alg_id: u8][dek_len: u16]
+[salt_len: u16][salt: 32 bytes]
+[nonce_wrap_len: u16][nonce_wrap: 12 bytes]
+[ct_wrap_len: u16][ct_wrap: N bytes]        AES-256-GCM-SIV(DEK, KEK)
+[nonce_payload_len: u16][nonce_payload: 12 bytes]
+[ct_payload_len: u32][ct_payload: M bytes]  AES-256-GCM-SIV(secret, DEK)
 ```
 
 - **KEK** = `HKDF(MasterKey, salt, info="kek/v1")`
-- **DEK** = losowy 32-bajtowy klucz per plik
-- AAD zawiera wersję i typ klucza — błędny typ = błąd deszyfrowania
+- **DEK** = a random 32-byte key per file
+- The AAD carries the version and key type, a wrong type means a 
+  decryption failure
 
-Zapis atomowy: `tmp + rename` z `fsync` i uprawnieniami `0o600` (Unix).
+Atomic write: `tmp + rename` with `fsync` and `0o600` permissions 
+(Unix).
 
-Rewrapping (zmiana MK bez deszyfrowania payload):
+Rewrapping (changing the MK without decrypting the payload):
 ```
 rewrap_keyfile_dek(path, old_mk, new_mk, key_type)
 ```
-Deszyfruje i re-szyfruje wyłącznie warstwę DEK — payload kryptograficzny pozostaje nienaruszony.
+It decrypts and re-encrypts only the DEK layer, the cryptographic 
+payload stays untouched.
 
-## Format pliku server.identity
+## server.identity file format
 
-Plik binarny generowany przez serwer przy pierwszym uruchomieniu. Format (`lithium_core/src/contract/identity_file.rs`): magic 8-bajtowy, wersja, licznik wpisów, dalej sekwencja TLV (tag+dlugosc+dane) per klucz — nie sztywny layout:
+A binary file generated by the server on the first run. The format 
+(`lithium_core/src/contract/identity_file.rs`): an 8-byte magic, a 
+version, an entry count, then a sequence of TLV (tag + length + 
+data) per key, not a fixed layout:
 
 ```
-[magic: 8 bajtow = "LITHIUPK"]
+[magic: 8 bytes = "LITHIUPK"]
 [version: u8 = 1]
 [count: u8 = 4]
 4x [tag_len: u8][tag: ASCII][data_len: u16 LE][data]
-    tagi: "x25519" (32B), "ed25519" (32B), "mlkem1024" (1568B), "mldsa87" (2592B)
+    tags: "x25519" (32B), "ed25519" (32B), "mlkem1024" (1568B), "mldsa87" (2592B)
 ```
 
-Nieznane tagi sa ignorowane przy deserializacji (forward-compat). Cztery znane klucze musza wystapic i miec dokladnie oczekiwana dlugosc (32/32/1568/2592) — `decode` odrzuca plik z brakujacym lub zle dlugim kluczem, zanim zaakceptuje go `set_server_identity`. Rzeczywisty rozmiar pliku z 4 wpisami: **4275 bajtow** (10 bajtow naglowka + 41 bajtow narzutu TLV + 32 + 32 + 1568 + 2592 bajtow danych).
+Unknown tags are ignored on deserialization (forward-compat). The 
+four known keys must be present and have exactly the expected 
+length (32/32/1568/2592), `decode` rejects a file with a missing 
+or wrong-length key before `set_server_identity` accepts it. The 
+actual size of a file with 4 entries: **4275 bytes** (10 bytes of 
+header + 41 bytes of TLV overhead + 32 + 32 + 1568 + 2592 bytes of 
+data).
 
-Klient ładuje ten plik przy starcie i weryfikuje pod nim każdą odpowiedź serwera. Zmiana kluczy serwera bez aktualizacji pliku po stronie klienta zrywa komunikację trwale na poziomie kryptograficznym (deszyfrowanie zadania przez serwer lub weryfikacja podpisu odpowiedzi przez klienta zawodzi) — jest to celowe, patrz [security-model.md](../security/security-model.md).
+The client loads this file at startup and verifies every server 
+response under it. Changing the server keys without updating the 
+file on the client side breaks communication permanently at the 
+cryptographic level (the server's decryption of the request, or 
+the client's verification of the response signature, fails), this 
+is deliberate, see [security-model.md](../security-model.md).
