@@ -29,6 +29,10 @@ ignore = [
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error (transitive), no maintained release" },
     { id = "RUSTSEC-2024-0436", reason = "paste (transitive), no maintained release" },
     { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 (transitive), no maintained release" },
+
+    # Font parser reached only through the egui/eframe GUI (epaint -> ab_glyph).
+    # Upstream marked it unmaintained; egui has not migrated off it yet.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser via egui/eframe, unmaintained, no migration yet" },
 ]
 
 [bans]
@@ -38,3 +42,4 @@ wildcards = "warn"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-git = ["https://github.com/GilbertzRivi/lithium-core.git"]
