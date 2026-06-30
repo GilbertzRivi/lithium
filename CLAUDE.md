@@ -24,6 +24,7 @@ Lithium is a post-quantum end-to-end encrypted messenger. The server is explicit
 ### Workspace Crates
 
 - **`lithium_core`** — shared crypto, key management, database abstractions, secret types
+- **`lithium_proto`** — messenger-specific glue on top of `lithium_core`: the wire/REST contract, the SeaORM-backed data manager, HTTP header parsing, domain-separation labels. Consumed by `lithiumd`, `lithiums`, `lithium_itest`. Keeps `lithium_core` generic and app-agnostic
 - **`lithiumd`** — local daemon; manages keys, exposes IPC endpoint over Unix socket
 - **`lithiumg`** — egui GUI client; communicates with `lithiumd` via IPC
 - **`lithiums`** — relay server; PostgreSQL-backed REST API (Poem framework)

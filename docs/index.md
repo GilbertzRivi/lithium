@@ -45,6 +45,9 @@ threat model, the audit guide).
   machine, the threading model
 - [crates/lithiums.md](crates/lithiums.md): the relay server, the 
   REST API, the middleware, transport, the PostgreSQL schema
+- [crates/lithium_proto.md](crates/lithium_proto.md): the 
+  messenger-specific glue on lithium_core, the wire contract, 
+  labels, the server.identity format
 
 ## Operations
 
