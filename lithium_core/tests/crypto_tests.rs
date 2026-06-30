@@ -775,8 +775,7 @@ fn sign_dili_various_message_sizes() {
     }
 }
 
-/// Mutuje jeden bajt w `seed_enc` i oczekuje błędu dekrypcji.
-fn kyberbox_corrupt_seed_byte_at(offset: usize) {
+fn kyberbox_corrupt_kem_byte_at(offset: usize) {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
     let wire = kyberbox::encrypt(
@@ -789,68 +788,43 @@ fn kyberbox_corrupt_seed_byte_at(offset: usize) {
     )
     .unwrap();
 
-    let mut seed_bytes = wire.seed_enc.expose_as_slice().to_vec();
-    assert!(
-        offset < seed_bytes.len(),
-        "offset {offset} out of range for seed len {}",
-        seed_bytes.len()
-    );
-    seed_bytes[offset] ^= 0xFF;
+    let mut kem_bytes = wire.kem_ct.expose_as_slice().to_vec();
+    assert!(offset < kem_bytes.len());
+    kem_bytes[offset] ^= 0xFF;
 
     let corrupted = kyberbox::WirePayload {
-        seed_enc: SecretBytes::new(seed_bytes),
+        kem_ct: SecretBytes::new(kem_bytes),
         enc_body: wire.enc_body.clone(),
         enc_headers: wire.enc_headers.clone(),
     };
     assert!(
         kyberbox::decrypt("ctx", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &corrupted).is_err(),
-        "corrupt seed byte at offset {offset} must cause failure"
+        "corrupt kem_ct byte at offset {offset} must cause failure"
     );
 }
 
 #[test]
-fn kyberbox_corrupt_seed_version_byte_fails() {
-    kyberbox_corrupt_seed_byte_at(0);
+fn kyberbox_corrupt_kem_version_byte_fails() {
+    kyberbox_corrupt_kem_byte_at(0);
 }
 
 #[test]
-fn kyberbox_corrupt_seed_kem_id_fails() {
-    kyberbox_corrupt_seed_byte_at(1);
+fn kyberbox_corrupt_kem_id_fails() {
+    kyberbox_corrupt_kem_byte_at(1);
 }
 
 #[test]
-fn kyberbox_corrupt_seed_aead_id_fails() {
-    kyberbox_corrupt_seed_byte_at(2);
+fn kyberbox_corrupt_kem_ciphertext_first_byte_fails() {
+    kyberbox_corrupt_kem_byte_at(2);
 }
 
 #[test]
-fn kyberbox_corrupt_seed_salt_len_fails() {
-    kyberbox_corrupt_seed_byte_at(3);
+fn kyberbox_corrupt_kem_ciphertext_mid_byte_fails() {
+    kyberbox_corrupt_kem_byte_at(800);
 }
 
 #[test]
-fn kyberbox_corrupt_seed_salt_first_byte_fails() {
-    kyberbox_corrupt_seed_byte_at(4); // start of 32-byte SHA256 salt
-}
-
-#[test]
-fn kyberbox_corrupt_seed_salt_last_byte_fails() {
-    kyberbox_corrupt_seed_byte_at(35); // end of 32-byte SHA256 salt
-}
-
-#[test]
-fn kyberbox_corrupt_seed_ct_len_high_byte_fails() {
-    kyberbox_corrupt_seed_byte_at(36); // u16 high byte of KEM ciphertext length
-}
-
-#[test]
-fn kyberbox_corrupt_seed_kem_ciphertext_first_byte_fails() {
-    // KEM ciphertext starts at offset 38 (4 header + 32 salt + 2 ct_len)
-    kyberbox_corrupt_seed_byte_at(38);
-}
-
-#[test]
-fn kyberbox_truncated_seed_at_header_only_fails() {
+fn kyberbox_truncated_kem_ciphertext_fails() {
     let (alice_x_sk, alice_x_pk, _bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
     let (_, fresh_kyber_sk) = keys::random_kyber_mlkem1024_keypair().unwrap();
@@ -864,10 +838,9 @@ fn kyberbox_truncated_seed_at_header_only_fails() {
     )
     .unwrap();
 
-    // truncate to 36 bytes — enough for header+salt but no ct_len
-    let truncated_seed = SecretBytes::from_slice(&wire.seed_enc.expose_as_slice()[..36]);
+    let truncated = SecretBytes::from_slice(&wire.kem_ct.expose_as_slice()[..36]);
     let bad = kyberbox::WirePayload {
-        seed_enc: truncated_seed,
+        kem_ct: truncated,
         enc_body: wire.enc_body.clone(),
         enc_headers: wire.enc_headers.clone(),
     };
@@ -875,7 +848,7 @@ fn kyberbox_truncated_seed_at_header_only_fails() {
 }
 
 #[test]
-fn kyberbox_empty_seed_enc_fails() {
+fn kyberbox_empty_kem_ct_fails() {
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
     let wire = kyberbox::encrypt(
@@ -888,7 +861,7 @@ fn kyberbox_empty_seed_enc_fails() {
     )
     .unwrap();
     let bad = kyberbox::WirePayload {
-        seed_enc: sb(b""),
+        kem_ct: sb(b""),
         enc_body: wire.enc_body.clone(),
         enc_headers: wire.enc_headers.clone(),
     };
@@ -914,7 +887,7 @@ fn kyberbox_corrupt_enc_body_tag_fails() {
     body_bytes[last] ^= 0x01;
 
     let bad = kyberbox::WirePayload {
-        seed_enc: wire.seed_enc.clone(),
+        kem_ct: wire.kem_ct.clone(),
         enc_body: SecretBytes::new(body_bytes),
         enc_headers: wire.enc_headers.clone(),
     };
@@ -939,7 +912,7 @@ fn kyberbox_corrupt_enc_body_version_fails() {
     body_bytes[0] ^= 0xFF;
 
     let bad = kyberbox::WirePayload {
-        seed_enc: wire.seed_enc.clone(),
+        kem_ct: wire.kem_ct.clone(),
         enc_body: SecretBytes::new(body_bytes),
         enc_headers: wire.enc_headers.clone(),
     };
@@ -965,7 +938,7 @@ fn kyberbox_corrupt_enc_headers_tag_fails() {
     hdr_bytes[last] ^= 0x01;
 
     let bad = kyberbox::WirePayload {
-        seed_enc: wire.seed_enc.clone(),
+        kem_ct: wire.kem_ct.clone(),
         enc_body: wire.enc_body.clone(),
         enc_headers: SecretBytes::new(hdr_bytes),
     };
@@ -989,7 +962,7 @@ fn kyberbox_swapped_body_and_headers_fails() {
     .unwrap();
 
     let swapped = kyberbox::WirePayload {
-        seed_enc: wire.seed_enc.clone(),
+        kem_ct: wire.kem_ct.clone(),
         enc_body: wire.enc_headers.clone(),
         enc_headers: wire.enc_body.clone(),
     };
@@ -1013,7 +986,7 @@ fn kyberbox_truncated_enc_body_fails() {
     // truncate enc_body to 10 bytes (< minimum 29)
     let truncated = SecretBytes::from_slice(&wire.enc_body.expose_as_slice()[..10]);
     let bad = kyberbox::WirePayload {
-        seed_enc: wire.seed_enc.clone(),
+        kem_ct: wire.kem_ct.clone(),
         enc_body: truncated,
         enc_headers: wire.enc_headers.clone(),
     };
@@ -1149,10 +1122,9 @@ fn cross_kyberbox_nondeterministic_wire() {
 }
 
 #[test]
-fn kyberbox_cross_ctx_seed_enc_transplant_fails() {
-    // seed_enc AEAD is bound to ctx via AAD ("{ctx}/seed/v1").
-    // Transplanting seed_enc from ctx-alpha into a ctx-beta message must fail,
-    // because the AAD reconstructed during decryption will not match.
+fn kyberbox_cross_ctx_kem_ct_transplant_fails() {
+    // base_key mixes ss_kem with the ctx label, so a kem_ct from ctx-alpha yields a
+    // different base_key under ctx-beta and the body/headers AEAD must fail.
     let (alice_x_sk, alice_x_pk, bob_kyber_sk, bob_kyber_pk, bob_x_sk, bob_x_pk) =
         kyberbox_alice_bob();
 
@@ -1176,13 +1148,13 @@ fn kyberbox_cross_ctx_seed_enc_transplant_fails() {
     .unwrap();
 
     let doctored = kyberbox::WirePayload {
-        seed_enc: wire_alpha.seed_enc,
+        kem_ct: wire_alpha.kem_ct,
         enc_body: wire_beta.enc_body,
         enc_headers: wire_beta.enc_headers,
     };
     assert!(
         kyberbox::decrypt("ctx-beta", &bob_x_sk, &alice_x_pk, &bob_kyber_sk, &doctored).is_err(),
-        "seed_enc from a different ctx must not verify"
+        "kem_ct from a different ctx must not verify"
     );
 }
 
@@ -1214,7 +1186,7 @@ fn kyberbox_cross_ctx_enc_body_transplant_fails() {
     .unwrap();
 
     let doctored = kyberbox::WirePayload {
-        seed_enc: wire_beta.seed_enc,
+        kem_ct: wire_beta.kem_ct,
         enc_body: wire_alpha.enc_body,
         enc_headers: wire_beta.enc_headers,
     };
@@ -1251,7 +1223,7 @@ fn kyberbox_cross_ctx_enc_headers_transplant_fails() {
     .unwrap();
 
     let doctored = kyberbox::WirePayload {
-        seed_enc: wire_beta.seed_enc,
+        kem_ct: wire_beta.kem_ct,
         enc_body: wire_beta.enc_body,
         enc_headers: wire_alpha.enc_headers,
     };

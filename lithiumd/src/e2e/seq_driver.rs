@@ -157,9 +157,9 @@ fn tamper(w: &mut WireV1, idx: u16, val: u8) {
     match idx % 5 {
         0 => w.to_id[pos % 32] ^= flip,
         1 => w.from_x_pub[pos % 32] ^= flip,
-        2 if !w.seed.is_empty() => {
-            let n = w.seed.len();
-            w.seed[pos % n] ^= flip;
+        2 if !w.kem_ct.is_empty() => {
+            let n = w.kem_ct.len();
+            w.kem_ct[pos % n] ^= flip;
         }
         3 if !w.enc_headers.is_empty() => {
             let n = w.enc_headers.len();

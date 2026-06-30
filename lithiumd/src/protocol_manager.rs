@@ -624,7 +624,7 @@ impl<P: MkProvider> ProtocolManager<P> {
         let mut h = HeaderMap::new();
         h.insert(header::KEY_X, hv_hex(req_pub_x.as_slice())?);
         h.insert(header::KEY_K, hv_hex(req_pub_k.expose_as_slice())?);
-        h.insert(header::SEED, hv_hex(wire.seed_enc.expose_as_slice())?);
+        h.insert(header::KEM_CT, hv_hex(wire.kem_ct.expose_as_slice())?);
         h.insert(header::DATA, hv_hex(wire.enc_headers.expose_as_slice())?);
 
         if ep.requires_session() {
@@ -688,8 +688,8 @@ impl<P: MkProvider> ProtocolManager<P> {
         let resp_peer_x = Byte32::from_hex(get_header_str(&rh, header::KEY_X)?.as_str())?;
         let resp_peer_k =
             hex::decode(get_header_str(&rh, header::KEY_K)?).map_err(LithiumError::invalid_hex)?;
-        let resp_seed =
-            hex::decode(get_header_str(&rh, header::SEED)?).map_err(LithiumError::invalid_hex)?;
+        let resp_kem_ct =
+            hex::decode(get_header_str(&rh, header::KEM_CT)?).map_err(LithiumError::invalid_hex)?;
         let resp_data =
             hex::decode(get_header_str(&rh, header::DATA)?).map_err(LithiumError::invalid_hex)?;
 
@@ -701,7 +701,7 @@ impl<P: MkProvider> ProtocolManager<P> {
             &kyberbox::WirePayload {
                 enc_body: SecretBytes::new(resp_body_bytes),
                 enc_headers: SecretBytes::new(resp_data),
-                seed_enc: SecretBytes::new(resp_seed),
+                kem_ct: SecretBytes::new(resp_kem_ct),
             },
         )?;
 

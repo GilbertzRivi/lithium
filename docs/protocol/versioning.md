@@ -25,7 +25,7 @@ current state:
 | Format | Magic | Version |
 |--------|-------|---------|
 | AEAD blob | - | 1 (first byte) |
-| KyberBox (`seed_enc`) | - | 1 (+ `kem_id=1`, `aead_id=1`) |
+| KyberBox (`kem_ct`) | - | 1 (+ `kem_id=1`) |
 | Key file `.keyf` | `KEYF` | 1 |
 | E2E message `WireV1` | `LM1` | 1 |
 | Invite code `lci1:` | `LCI1` | 1 |

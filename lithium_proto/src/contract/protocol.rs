@@ -4,7 +4,7 @@
 pub mod header {
     pub const KEY_X: &str = "key-x";
     pub const KEY_K: &str = "key-k";
-    pub const SEED: &str = "seed";
+    pub const KEM_CT: &str = "kem-ct";
     pub const DATA: &str = "data";
     pub const SES_X: &str = "ses-x";
     pub const SES_K: &str = "ses-k";
@@ -78,7 +78,7 @@ mod tests {
     fn registry_values_are_pinned() {
         assert_eq!(header::KEY_X, "key-x");
         assert_eq!(header::KEY_K, "key-k");
-        assert_eq!(header::SEED, "seed");
+        assert_eq!(header::KEM_CT, "kem-ct");
         assert_eq!(header::DATA, "data");
         assert_eq!(header::SES_X, "ses-x");
         assert_eq!(header::SES_K, "ses-k");

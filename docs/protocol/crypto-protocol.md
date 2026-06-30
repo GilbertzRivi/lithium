@@ -44,7 +44,7 @@ The client sends in cleartext HTTP headers:
 - `key-x`, the client's ephemeral X25519 public key (hex 32B)
 - `key-k`, the client's ephemeral ML-KEM-1024 public key (hex 
   1568B)
-- `seed`, the encrypted KEM seed
+- `kem-ct`, the ML-KEM ciphertext
 - `data`, the blob of encrypted application headers
 
 The client encrypts the request body with KyberBox under the 
@@ -72,7 +72,7 @@ The server's response carries in cleartext HTTP headers:
   encrypts the next request to it)
 - `key-k`, the new session's ML-KEM-1024 public key
 - `data`, the blob of encrypted response headers (KyberBox)
-- `seed`, the encrypted KEM seed
+- `kem-ct`, the ML-KEM ciphertext
 - `sig-ed`, the server's Ed25519 signature over the response body
 - `sig-dili`, the server's ML-DSA-87 signature over the response 
   body
@@ -99,7 +99,7 @@ The client sends in cleartext HTTP headers:
   received from the encrypted headers of the previous response
 - `ses-k`, a random 32-byte ML-KEM-1024 session identifier (hex), 
   received from the encrypted headers of the previous response
-- `seed`, the encrypted KEM seed
+- `kem-ct`, the ML-KEM ciphertext
 - `data`, the blob of encrypted application headers
 
 In the encrypted application headers (`data`) the client puts 
@@ -238,8 +238,8 @@ observer.
 [VER: 1 byte = 1]
 [to_id: 32 bytes]        recipient key identifier
 [from_x_pub: 32 bytes]   sender's ephemeral X25519
-[seed_len: 2 bytes BE]
-[seed: seed_len bytes]   ML-KEM ciphertext + encrypted seed
+[kem_ct_len: 2 bytes BE]
+[kem_ct: kem_ct_len bytes]   ML-KEM ciphertext
 [hdr_len: 4 bytes BE]
 [enc_headers: hdr_len bytes]
 [body_len: 4 bytes BE]

@@ -37,7 +37,7 @@ fn decrypt_with_privs(
     rx_k_priv: &SecretBytes,
 ) -> Result<(Vec<u8>, Value)> {
     let from_x_pub = Byte32::from_slice(&w.from_x_pub)?;
-    let seed = SecretBytes::new(w.seed.clone());
+    let kem_ct = SecretBytes::new(w.kem_ct.clone());
     let data = SecretBytes::new(w.enc_headers.clone());
     let body = SecretBytes::new(w.enc_body.clone());
 
@@ -49,7 +49,7 @@ fn decrypt_with_privs(
         &kyberbox::WirePayload {
             enc_body: body,
             enc_headers: data,
-            seed_enc: seed,
+            kem_ct,
         },
     )?;
 
@@ -240,7 +240,7 @@ pub fn encrypt_for_peer(
         WireV1 {
             to_id: target_id,
             from_x_pub,
-            seed: wire.seed_enc.expose_as_slice().to_vec(),
+            kem_ct: wire.kem_ct.expose_as_slice().to_vec(),
             enc_headers: wire.enc_headers.expose_as_slice().to_vec(),
             enc_body: wire.enc_body.expose_as_slice().to_vec(),
         },
@@ -440,7 +440,7 @@ mod tests {
         let decoded = unpack_wire(&packed).unwrap();
         assert_eq!(decoded.to_id, wire.to_id);
         assert_eq!(decoded.from_x_pub, wire.from_x_pub);
-        assert_eq!(decoded.seed.len(), wire.seed.len());
+        assert_eq!(decoded.kem_ct.len(), wire.kem_ct.len());
         assert_eq!(decoded.enc_headers.len(), wire.enc_headers.len());
         assert_eq!(decoded.enc_body.len(), wire.enc_body.len());
     }
@@ -521,13 +521,13 @@ mod tests {
     }
 
     #[test]
-    fn wire_unpack_truncate_after_header_no_seed_fails() {
+    fn wire_unpack_truncate_after_header_no_kem_ct_fails() {
         let (_, _, _, packed) = make_real_wire();
         assert!(unpack_wire(&packed[..68]).is_err());
     }
 
     #[test]
-    fn wire_unpack_seed_len_claims_more_than_available_fails() {
+    fn wire_unpack_kem_ct_len_claims_more_than_available_fails() {
         let (_, _, _, mut packed) = make_real_wire();
         packed[68] = 0xFF;
         packed[69] = 0xFF;
@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn wire_unpack_hdr_len_claims_more_than_available_fails() {
         let (wire, _, _, mut packed) = make_real_wire();
-        let hdr_len_offset = 70 + wire.seed.len();
+        let hdr_len_offset = 70 + wire.kem_ct.len();
         packed[hdr_len_offset] = 0xFF;
         packed[hdr_len_offset + 1] = 0xFF;
         assert!(unpack_wire(&packed).is_err());
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn wire_unpack_body_len_claims_more_than_available_fails() {
         let (wire, _, _, mut packed) = make_real_wire();
-        let body_len_offset = 70 + wire.seed.len() + 4 + wire.enc_headers.len();
+        let body_len_offset = 70 + wire.kem_ct.len() + 4 + wire.enc_headers.len();
         packed[body_len_offset] = 0xFF;
         packed[body_len_offset + 1] = 0xFF;
         assert!(unpack_wire(&packed).is_err());
@@ -579,25 +579,25 @@ mod tests {
     }
 
     #[test]
-    fn wire_corrupt_seed_decryption_fails() {
+    fn wire_corrupt_kem_ct_decryption_fails() {
         let (mut wire, _, mut bob_st, _) = make_real_wire();
         let (alice_cid, alice_st) = gen_self_state().unwrap();
         let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
-        if !wire.seed.is_empty() {
-            wire.seed[0] ^= 0xFF;
+        if !wire.kem_ct.is_empty() {
+            wire.kem_ct[0] ^= 0xFF;
         }
         let result = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire);
         assert!(result.is_err());
     }
 
     #[test]
-    fn wire_corrupt_seed_last_byte_decryption_fails() {
+    fn wire_corrupt_kem_ct_last_byte_decryption_fails() {
         let (mut wire, _, mut bob_st, _) = make_real_wire();
         let (alice_cid, alice_st) = gen_self_state().unwrap();
         let mut alice_peer = build_peer_from_state(&alice_st, &alice_cid);
-        if !wire.seed.is_empty() {
-            let last = wire.seed.len() - 1;
-            wire.seed[last] ^= 0x01;
+        if !wire.kem_ct.is_empty() {
+            let last = wire.kem_ct.len() - 1;
+            wire.kem_ct[last] ^= 0x01;
         }
         let result = decrypt_for_us(&mut bob_st, &mut alice_peer, &wire);
         assert!(result.is_err());

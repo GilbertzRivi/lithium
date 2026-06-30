@@ -197,7 +197,7 @@ identifiers, and after each response new pairs are generated
 |--------|-------------|
 | `key-x` | The client's ephemeral X25519 public key (hex), for the server to decrypt with |
 | `key-k` | The client's ephemeral ML-KEM-1024 public key (hex), for the server to decrypt with |
-| `seed` | The encrypted KEM seed |
+| `kem-ct` | The ML-KEM ciphertext |
 | `data` | The blob of encrypted application headers (KyberBox) |
 | `ses-x` | A random X25519 session identifier (hex), private-key lookup in EphemeralStore; Session mode only |
 | `ses-k` | A random ML-KEM-1024 session identifier (hex), private-key lookup in EphemeralStore; Session mode only |
@@ -225,8 +225,8 @@ generates the response:
 4. Pads the body (to a 32-64 KB block) and the headers (to a 4-8 KB 
    block) to hide sizes
 5. Sets the cleartext HTTP response headers: `sig-ed`, `sig-dili`, 
-   `data` (the encrypted-headers blob), `seed` (the encrypted KEM 
-   seed), `key-x` (the new session's X25519 public key, the client 
+   `data` (the encrypted-headers blob), `kem-ct` (the ML-KEM 
+   ciphertext), `key-x` (the new session's X25519 public key, the client 
    encrypts the next request to it), `key-k` (the new session's 
    ML-KEM-1024 public key)
 

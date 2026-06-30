@@ -50,9 +50,9 @@ rotation, and recovers an interrupted rotation.
 **`.keyf`** - the key file format with double wrapping: payload 
 under the DEK, DEK under the KEK (from the MK). Magic `KEYF`.
 
-**KyberBox** - the hybrid KEM-DEM construction: ML-KEM-1024 + 
-X25519 feed HKDF, then AES-256-GCM-SIV for `body` and `headers`. 
-See [`kyberbox.md`](kyberbox.md).
+**KyberBox** - the hybrid construction (a UniversalCombiner 
+instance): ML-KEM-1024 + X25519 feed HKDF, then AES-256-GCM-SIV 
+for `body` and `headers`. See [`kyberbox.md`](kyberbox.md).
 
 **Master Key (MK)** - the top key that encrypts `.keyf` files, 
 supplied by an MkProvider; rotated every hour.

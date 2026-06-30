@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Lithium Project
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use hkdf::Hkdf;
 use pqcrypto::kem::mlkem1024::{
     Ciphertext as KyberCiphertext, PublicKey as KyberPublicKey, SecretKey as KyberSecretKey,
     SharedSecret as KyberSharedSecret, decapsulate as kyber_decapsulate,
@@ -20,19 +19,14 @@ use crate::{
     secrets::{Byte32, bytes::SecretBytes},
 };
 
-const AEAD_VERSION: u8 = 1;
 const KYBER_BOX_VERSION: u8 = 1;
 const KYBER_KEM_ID: u8 = 1;
-const KYBER_AEAD_ID: u8 = 1;
-const KYBER_SALT_LEN: u8 = 32;
-const KYBERBOX_AAD_PREFIX: &[u8] = b"kyberbox/v1|kem=mlkem1024|aead=aes256-gcm-siv|";
-const KYBER_KEMDEM_INFO: &[u8] = b"kemdem/kyber-mlkem1024/v1";
 
 #[derive(Clone, Debug)]
 pub struct WirePayload {
     pub enc_body: SecretBytes,
     pub enc_headers: SecretBytes,
-    pub seed_enc: SecretBytes,
+    pub kem_ct: SecretBytes,
 }
 
 #[inline]
@@ -59,26 +53,27 @@ fn derive_ecdh_key(priv_x: &Byte32, peer_pub_x: &Byte32, ctx: &str) -> Result<By
     )
 }
 
-// msg_x_pub (the sender's ephemeral X25519 public key, i.e. ct_T) and ct_hash (SHA256 of the
-// ML-KEM ciphertext, ct_PQ) are bound into the KDF info so this is a UniversalCombiner instance
-// per draft-irtf-cfrg-hybrid-kems: X25519 lacks C2PRI so its ciphertext must be bound explicitly,
-// not just implicitly through ecdh_ss. See docs/security/combiner.md (D1).
+// UniversalCombiner (draft-irtf-cfrg-hybrid-kems): HKDF-Extract dual-PRF over ss_kem (salt) and
+// ecdh_key (IKM). ct_t/ek_t are bound explicitly because X25519 has no binding of its own; ek_PQ
+// is already bound inside ss_kem by ML-KEM's H(ek), so only ct_PQ is added.
 #[inline]
 fn derive_base_key(
+    ss_kem: &Byte32,
     ecdh_key: &Byte32,
-    seed_plain: &Byte32,
-    msg_x_pub: &[u8; 32],
-    ct_hash: &[u8; 32],
+    ct_t: &[u8; 32],
+    ek_t: &[u8; 32],
+    ct_pq_hash: &[u8; 32],
     ctx: &str,
 ) -> Result<Byte32> {
     let ecdh_input = SecretBytes::from_slice(ecdh_key.as_slice());
-    let seed_salt = SecretBytes::from_slice(seed_plain.as_slice());
+    let ss_salt = SecretBytes::from_slice(ss_kem.as_slice());
 
     let mut info = label(ctx, "base-key").expose_as_slice().to_vec();
-    info.extend_from_slice(msg_x_pub);
-    info.extend_from_slice(ct_hash);
+    info.extend_from_slice(ct_t);
+    info.extend_from_slice(ek_t);
+    info.extend_from_slice(ct_pq_hash);
 
-    kdf::derive32(&ecdh_input, Some(&seed_salt), &SecretBytes::new(info))
+    kdf::derive32(&ecdh_input, Some(&ss_salt), &SecretBytes::new(info))
 }
 
 #[inline]
@@ -99,147 +94,42 @@ fn derive_headers_key(base_key: &Byte32, ctx: &str) -> Result<Byte32> {
     )
 }
 
-fn encrypt_kyber_seed(
-    peer_kyber_pub: &[u8],
-    plaintext: &[u8],
-    user_aad: &[u8],
-) -> Result<(SecretBytes, [u8; 32])> {
+fn encapsulate_kem(peer_kyber_pub: &[u8]) -> Result<(Byte32, [u8; 32], SecretBytes)> {
     let pk = KyberPublicKey::from_bytes(peer_kyber_pub).map_err(|_| LithiumError::internal())?;
 
-    let (ss_bytes, ct_kem) = {
-        let (ss, ct_kem): (KyberSharedSecret, KyberCiphertext) = kyber_encapsulate(&pk);
-        let ss_bytes = Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?;
-        (ss_bytes, ct_kem)
-    };
+    let (ss, ct_kem): (KyberSharedSecret, KyberCiphertext) = kyber_encapsulate(&pk);
+    let ss_bytes = Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?;
 
     let ct_bytes = ct_kem.as_bytes();
-    let salt_arr = Sha256::digest(ct_bytes);
-
-    let mut aead_key = Byte32::new_zeroed();
-    let hk = Hkdf::<Sha256>::new(Some(salt_arr.as_slice()), ss_bytes.as_slice());
-    hk.expand(KYBER_KEMDEM_INFO, aead_key.as_mut_slice())
-        .map_err(|_| LithiumError::kdf_failed())?;
-
-    let mut header = Vec::with_capacity(1 + 1 + 1 + 1 + 32);
-    header.push(KYBER_BOX_VERSION);
-    header.push(KYBER_KEM_ID);
-    header.push(KYBER_AEAD_ID);
-    header.push(KYBER_SALT_LEN);
-    header.extend_from_slice(salt_arr.as_slice());
-
-    let mut aad_full =
-        Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
-    aad_full.push(AEAD_VERSION);
-    aad_full.extend_from_slice(KYBERBOX_AAD_PREFIX);
-    aad_full.extend_from_slice(&header);
-    aad_full.extend_from_slice(user_aad);
-
-    let nonce = keys::random_12()?;
-    let aead_blob = aead::encrypt(
-        &SecretBytes::from_slice(plaintext),
-        &aead_key,
-        &nonce,
-        &SecretBytes::new(aad_full),
-    )?;
-
-    if ct_bytes.len() > u16::MAX as usize {
-        return Err(LithiumError::internal());
-    }
-
-    let mut out = Vec::with_capacity(header.len() + 2 + ct_bytes.len() + aead_blob.len());
-    out.extend_from_slice(&header);
-    out.extend_from_slice(&(ct_bytes.len() as u16).to_be_bytes());
-    out.extend_from_slice(ct_bytes);
-    out.extend_from_slice(aead_blob.expose_as_slice());
-
     let mut ct_hash = [0u8; 32];
-    ct_hash.copy_from_slice(salt_arr.as_slice());
+    ct_hash.copy_from_slice(Sha256::digest(ct_bytes).as_slice());
 
-    Ok((SecretBytes::new(out), ct_hash))
+    let mut blob = Vec::with_capacity(2 + ct_bytes.len());
+    blob.push(KYBER_BOX_VERSION);
+    blob.push(KYBER_KEM_ID);
+    blob.extend_from_slice(ct_bytes);
+
+    Ok((ss_bytes, ct_hash, SecretBytes::new(blob)))
 }
 
-fn decrypt_kyber_seed(
-    kyber_priv_bytes: &[u8],
-    blob: &[u8],
-    user_aad: &[u8],
-) -> Result<(Byte32, [u8; 32])> {
-    if blob.len() < 1 + 1 + 1 + 1 + 32 + 2 {
+fn decapsulate_kem(kyber_priv_bytes: &[u8], blob: &[u8]) -> Result<(Byte32, [u8; 32])> {
+    if blob.len() < 2 {
         return Err(LithiumError::internal());
     }
-
-    let ver = blob[0];
-    let kem_id = blob[1];
-    let aead_id = blob[2];
-    let salt_len = blob[3] as usize;
-
-    if ver != KYBER_BOX_VERSION
-        || kem_id != KYBER_KEM_ID
-        || aead_id != KYBER_AEAD_ID
-        || salt_len != 32
-    {
+    if blob[0] != KYBER_BOX_VERSION || blob[1] != KYBER_KEM_ID {
         return Err(LithiumError::internal());
     }
-
-    let salt = &blob[4..4 + 32];
-    let mut idx = 4 + 32;
-
-    if blob.len() < idx + 2 {
-        return Err(LithiumError::internal());
-    }
-    let ct_len = u16::from_be_bytes([blob[idx], blob[idx + 1]]) as usize;
-    idx += 2;
-
-    if blob.len() < idx + ct_len {
-        return Err(LithiumError::internal());
-    }
-    let ct_slice = &blob[idx..idx + ct_len];
-    idx += ct_len;
-    let aead_blob = &blob[idx..];
-
-    let salt_ref = Sha256::digest(ct_slice);
-    if salt_ref.as_slice() != salt {
-        return Err(LithiumError::internal());
-    }
-
-    let ss_bytes = {
-        let sk =
-            KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
-        let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
-        let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
-        Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?
-    };
-
-    let mut aead_key = Byte32::new_zeroed();
-    let hk = Hkdf::<Sha256>::new(Some(salt), ss_bytes.as_slice());
-    hk.expand(KYBER_KEMDEM_INFO, aead_key.as_mut_slice())
-        .map_err(|_| LithiumError::kdf_failed())?;
-
-    let mut header = Vec::with_capacity(1 + 1 + 1 + 1 + 32);
-    header.push(ver);
-    header.push(kem_id);
-    header.push(aead_id);
-    header.push(KYBER_SALT_LEN);
-    header.extend_from_slice(salt);
-
-    let mut aad_full =
-        Vec::with_capacity(1 + KYBERBOX_AAD_PREFIX.len() + header.len() + user_aad.len());
-    aad_full.push(AEAD_VERSION);
-    aad_full.extend_from_slice(KYBERBOX_AAD_PREFIX);
-    aad_full.extend_from_slice(&header);
-    aad_full.extend_from_slice(user_aad);
-
-    let seed_plain = aead::decrypt(
-        &SecretBytes::from_slice(aead_blob),
-        &aead_key,
-        &SecretBytes::new(aad_full),
-    )?;
+    let ct_slice = &blob[2..];
 
     let mut ct_hash = [0u8; 32];
-    ct_hash.copy_from_slice(salt);
+    ct_hash.copy_from_slice(Sha256::digest(ct_slice).as_slice());
 
-    let seed =
-        Byte32::from_slice(seed_plain.expose_as_slice()).map_err(|_| LithiumError::internal())?;
-    Ok((seed, ct_hash))
+    let sk = KyberSecretKey::from_bytes(kyber_priv_bytes).map_err(|_| LithiumError::internal())?;
+    let ct = KyberCiphertext::from_bytes(ct_slice).map_err(|_| LithiumError::internal())?;
+    let ss: KyberSharedSecret = kyber_decapsulate(&ct, &sk);
+    let ss_bytes = Byte32::from_slice(ss.as_bytes()).map_err(|_| LithiumError::internal())?;
+
+    Ok((ss_bytes, ct_hash))
 }
 
 pub fn encrypt(
@@ -252,16 +142,12 @@ pub fn encrypt(
 ) -> Result<WirePayload> {
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
-    let msg_x_pub = *XPublicKey::from(&XStaticSecret::from(*priv_x.as_array())).as_bytes();
+    let ct_t = *XPublicKey::from(&XStaticSecret::from(*priv_x.as_array())).as_bytes();
+    let ek_t = *peer_pub_x.as_array();
 
-    let seed_plain = keys::random_32()?;
-    let (seed_enc, ct_hash) = encrypt_kyber_seed(
-        peer_k_pub.expose_as_slice(),
-        seed_plain.as_slice(),
-        label(ctx, "seed").expose_as_slice(),
-    )?;
+    let (ss_kem, ct_hash, kem_ct) = encapsulate_kem(peer_k_pub.expose_as_slice())?;
 
-    let base_key = derive_base_key(&ecdh_key, &seed_plain, &msg_x_pub, &ct_hash, ctx)?;
+    let base_key = derive_base_key(&ss_kem, &ecdh_key, &ct_t, &ek_t, &ct_hash, ctx)?;
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 
@@ -280,7 +166,7 @@ pub fn encrypt(
     Ok(WirePayload {
         enc_body,
         enc_headers,
-        seed_enc,
+        kem_ct,
     })
 }
 
@@ -293,13 +179,13 @@ pub fn decrypt(
 ) -> Result<(SecretBytes, SecretBytes)> {
     let ecdh_key = derive_ecdh_key(priv_x, peer_pub_x, ctx)?;
 
-    let (seed_plain, ct_hash) = decrypt_kyber_seed(
-        kyber_priv.expose_as_slice(),
-        wire.seed_enc.expose_as_slice(),
-        label(ctx, "seed").expose_as_slice(),
-    )?;
+    let ct_t = *peer_pub_x.as_array();
+    let ek_t = *XPublicKey::from(&XStaticSecret::from(*priv_x.as_array())).as_bytes();
 
-    let base_key = derive_base_key(&ecdh_key, &seed_plain, peer_pub_x.as_array(), &ct_hash, ctx)?;
+    let (ss_kem, ct_hash) =
+        decapsulate_kem(kyber_priv.expose_as_slice(), wire.kem_ct.expose_as_slice())?;
+
+    let base_key = derive_base_key(&ss_kem, &ecdh_key, &ct_t, &ek_t, &ct_hash, ctx)?;
     let body_key = derive_body_key(&base_key, ctx)?;
     let headers_key = derive_headers_key(&base_key, ctx)?;
 

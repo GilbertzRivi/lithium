@@ -50,7 +50,8 @@ the caller upholding:
 - **No transport security.** TLS / anti-MITM at the network level 
   is the server/proxy layer.
 - **Randomness quality.** The constructions rely on the system 
-  CSRNG (fresh nonces and `seed_plain`).
+  CSRNG (fresh nonces, ephemeral X25519 keys, and ML-KEM 
+  encapsulation randomness).
 
 ## Adversary view (at the library level)
 
@@ -60,15 +61,16 @@ the caller upholding:
 - **At-rest files without the master key.** Private keys are 
   sealed; without the MK (file/TPM) they are unreadable. Security 
   reduces to protecting the MK through `MkProvider`.
-- **Adaptive attacker on decapsulation.** The `SHA256(ct_kem)` 
-  filter before decapsulation is meant to limit using the blob as 
-  an oracle, whether it is enough against adaptive CCA is the open 
-  question D4 in [`combiner.md`](combiner.md).
+- **Adaptive attacker on decapsulation.** ML-KEM-1024 is IND-CCA2 
+  (FO transform with implicit rejection); a tampered `ct_kem` 
+  yields a different `ss_kem` and is also rebound through 
+  `SHA256(ct_kem)` in `base_key`, so it fails the body/headers 
+  AEAD.
 
 ## Forward secrecy / post-compromise
 
-The library provides the primitives (fresh `seed_plain` per 
-message, rotating RX keys). The actual FS/PCS guarantees of the 
+The library provides the primitives (fresh `ss_kem` per message, 
+rotating RX keys). The actual FS/PCS guarantees of the 
 E2E layer (epoch boundaries, passive vs active attacker, identity 
 keys don't rotate) are a property of how `session.rs` uses 
 KyberBox.

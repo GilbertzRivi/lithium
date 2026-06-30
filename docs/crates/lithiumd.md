@@ -207,8 +207,8 @@ under per-contact keys.
 [VER: 1 byte = 1]
 [to_id: 32 bytes]           <- recipient key identifier
 [from_x_pub: 32 bytes]      <- sender's ephemeral X25519
-[seed_len: 2 bytes BE]
-[seed: seed_len bytes]      <- ML-KEM ciphertext + encrypted seed
+[kem_ct_len: 2 bytes BE]
+[kem_ct: kem_ct_len bytes]  <- ML-KEM ciphertext
 [hdr_len: 4 bytes BE]
 [enc_headers: hdr_len bytes]
 [body_len: 4 bytes BE]

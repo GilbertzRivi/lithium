@@ -586,8 +586,8 @@ impl TestLithiumClient {
         h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
         h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
         h.insert(
-            header::SEED,
-            hv(hex::encode(wire.seed_enc.expose_as_slice())),
+            header::KEM_CT,
+            hv(hex::encode(wire.kem_ct.expose_as_slice())),
         );
         h.insert(
             header::DATA,
@@ -637,7 +637,7 @@ impl TestLithiumClient {
 
         let resp_peer_x = Byte32::from_hex(&hdr(&rh, header::KEY_X)).expect("key-x parse");
         let resp_peer_k = hex::decode(hdr(&rh, header::KEY_K)).expect("key-k hex");
-        let resp_seed = hex::decode(hdr(&rh, header::SEED)).expect("seed hex");
+        let resp_kem_ct = hex::decode(hdr(&rh, header::KEM_CT)).expect("kem-ct hex");
         let resp_data = hex::decode(hdr(&rh, header::DATA)).expect("data hex");
 
         let (mut dec_body, mut dec_headers) = kyberbox::decrypt(
@@ -648,7 +648,7 @@ impl TestLithiumClient {
             &kyberbox::WirePayload {
                 enc_body: SecretBytes::new(resp_bytes),
                 enc_headers: SecretBytes::new(resp_data),
-                seed_enc: SecretBytes::new(resp_seed),
+                kem_ct: SecretBytes::new(resp_kem_ct),
             },
         )
         .expect("kyberbox decrypt");
@@ -821,8 +821,8 @@ impl RawShakeBuilder {
         h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
         h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
         h.insert(
-            header::SEED,
-            hv(hex::encode(wire.seed_enc.expose_as_slice())),
+            header::KEM_CT,
+            hv(hex::encode(wire.kem_ct.expose_as_slice())),
         );
         h.insert(
             header::DATA,
@@ -893,8 +893,8 @@ impl RawShakeBuilder {
             h.insert(header::KEY_X, hv(hex::encode(req_pub_x.as_slice())));
             h.insert(header::KEY_K, hv(hex::encode(req_pub_k.expose_as_slice())));
             h.insert(
-                header::SEED,
-                hv(hex::encode(wire.seed_enc.expose_as_slice())),
+                header::KEM_CT,
+                hv(hex::encode(wire.kem_ct.expose_as_slice())),
             );
             h.insert(
                 header::DATA,

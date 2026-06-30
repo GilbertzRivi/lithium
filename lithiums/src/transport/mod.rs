@@ -387,7 +387,7 @@ pub async fn build_crypto_context(
 ) -> Result<CryptoReq, AppError> {
     match cfg.mode {
         CryptoMode::Shake => {
-            verify_headers(headers_map, &[hdr::KEY_X, hdr::KEY_K, hdr::SEED, hdr::DATA])?
+            verify_headers(headers_map, &[hdr::KEY_X, hdr::KEY_K, hdr::KEM_CT, hdr::DATA])?
         }
         CryptoMode::Session => verify_headers(
             headers_map,
@@ -397,7 +397,7 @@ pub async fn build_crypto_context(
                 hdr::SES_X,
                 hdr::KEY_K,
                 hdr::SES_K,
-                hdr::SEED,
+                hdr::KEM_CT,
             ],
         )?,
     }
@@ -409,7 +409,7 @@ pub async fn build_crypto_context(
 
     let peer_key_k = header_hex_bytes(headers_map, hdr::KEY_K)?;
     let enc_headers_z = header_hex_bytes(headers_map, hdr::DATA)?;
-    let seed_enc_z = header_hex_bytes(headers_map, hdr::SEED)?;
+    let kem_ct_z = header_hex_bytes(headers_map, hdr::KEM_CT)?;
 
     let req_label = protocol::ctx_req(cfg.endpoint);
     let resp_label = protocol::ctx_resp(cfg.endpoint);
@@ -417,7 +417,7 @@ pub async fn build_crypto_context(
     let wire = WirePayload {
         enc_body: cipher_body,
         enc_headers: enc_headers_z,
-        seed_enc: seed_enc_z,
+        kem_ct: kem_ct_z,
     };
 
     let (body_json, headers_json) = match cfg.mode {
@@ -636,7 +636,7 @@ impl CryptoContext {
             hdr::SIG_ED: hex::encode(resp_sig_ed.expose_as_slice()),
             hdr::SIG_DILI: hex::encode(resp_sig_dili.expose_as_slice()),
             hdr::DATA: hex::encode(encrypted.enc_headers.expose_as_slice()),
-            hdr::SEED: hex::encode(encrypted.seed_enc.expose_as_slice()),
+            hdr::KEM_CT: hex::encode(encrypted.kem_ct.expose_as_slice()),
             hdr::KEY_X: hex::encode(session_pub_x.as_slice()),
             hdr::KEY_K: hex::encode(session_pub_k.expose_as_slice()),
         });

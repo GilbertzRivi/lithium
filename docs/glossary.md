@@ -112,9 +112,10 @@ rotation.
 **`.keyf`** - key file format with double wrapping: payload under 
 the DEK, DEK under the KEK (from the MK). Magic `KEYF`.
 
-**KyberBox** - hybrid KEM-DEM construction: ML-KEM-1024 + X25519 
-feed HKDF, then AES-256-GCM-SIV for `body` and `headers`. See the 
-`lithium_core` [docs](../lithium_core/README.md).
+**KyberBox** - hybrid construction (a UniversalCombiner instance): 
+ML-KEM-1024 + X25519 feed HKDF, then AES-256-GCM-SIV for `body` 
+and `headers`. See the `lithium_core` 
+[docs](../lithium_core/README.md).
 
 **lci1** - prefix and binary format of the invite code (hex after 
 `lci1:`); version 1, 4361 bytes of data.
@@ -231,5 +232,5 @@ password) and `server_dek` (from the server); neither factor is
 enough on its own.
 
 **WireV1** - binary format of an E2E message (magic `LM1`): 
-`to_id`, ephemeral `from_x_pub`, `seed` (ML-KEM), `enc_headers`, 
+`to_id`, ephemeral `from_x_pub`, `kem_ct` (ML-KEM), `enc_headers`, 
 `enc_body`.

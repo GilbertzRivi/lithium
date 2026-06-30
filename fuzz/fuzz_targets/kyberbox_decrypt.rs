@@ -25,7 +25,7 @@ fuzz_target!(|data: &[u8]| {
     let n = data.len();
     let (a, b) = (n / 3, 2 * n / 3);
     let wire = WirePayload {
-        seed_enc: SecretBytes::from_slice(&data[..a]),
+        kem_ct: SecretBytes::from_slice(&data[..a]),
         enc_headers: SecretBytes::from_slice(&data[a..b]),
         enc_body: SecretBytes::from_slice(&data[b..]),
     };

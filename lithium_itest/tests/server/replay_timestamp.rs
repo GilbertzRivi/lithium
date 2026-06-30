@@ -125,7 +125,7 @@ fn build_shake_wire(bootstrap: &ServerBootstrap) -> (Vec<u8>, HeaderMap) {
     let mut h = HeaderMap::new();
     h.insert("key-x", hv(hex::encode(req_pub_x.as_slice())));
     h.insert("key-k", hv(hex::encode(req_pub_k.expose_as_slice())));
-    h.insert("seed", hv(hex::encode(wire.seed_enc.expose_as_slice())));
+    h.insert("kem-ct", hv(hex::encode(wire.kem_ct.expose_as_slice())));
     h.insert("data", hv(hex::encode(wire.enc_headers.expose_as_slice())));
 
     (wire.enc_body.expose_as_slice().to_vec(), h)

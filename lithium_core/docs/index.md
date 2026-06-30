@@ -31,9 +31,8 @@ but they are not the target of the audit.
 1. [`threat-model.md`](threat-model.md): the audit boundary, 
    guarantees vs the caller's responsibility.
 2. [`combiner.md`](combiner.md): the central deliverable, the 
-   combiner construction, comparison with X-Wing, the hybrid 
-   argument, and deviations D1-D4 put plainly for the audit to 
-   settle.
+   combiner construction, the mapping onto X-Wing and the 
+   UniversalCombiner, and what the audit confirms.
 3. [`kyberbox.md`](kyberbox.md): the full wire and key flow of 
    KyberBox and the detailed construction-level risks (the "Open 
    risks and questions for the auditor" section).
@@ -44,11 +43,12 @@ but they are not the target of the audit.
 
 ## Central questions
 
-D1-D4 in [`combiner.md`](combiner.md): ciphertext binding in 
-`base_key` (no explicit `msg_x_pub`/`ct_kem`), the KEM-DEM on the 
-PQ branch, `ecdh_ss` as a non-uniform IKM with no salt, and 
-`SHA256(ct_kem)` as the HKDF salt in seed transport. These are the 
-declared open points, the scope the audit should settle.
+What the audit confirms (see [`combiner.md`](combiner.md)): that 
+`base_key` is the UniversalCombiner instance it claims to be (the 
+dualPRF combiner with `ss_kem` as salt and `ecdh_key` as IKM, the 
+full transcript bound into `info`), that HKDF-Extract covers the 
+non-uniform X25519 IKM, and that the serialization, domain 
+separation, and Rust/FFI boundary are implemented faithfully.
 
 ## Reproducibility and coverage
 
@@ -59,7 +59,7 @@ declared open points, the scope the audit should settle.
 - Known-answer vectors (KAT): `tests/golden_tests.rs` (3 tests) on 
   data in `tests/testdata/` (`kyberbox_golden_v1`, 
   `mldsa87_verify_golden_v1`).
-- Public API tests: `crypto_tests` (93), `secret_tests` (66), 
+- Public API tests: `crypto_tests` (89), `secret_tests` (66), 
   `password_tests` (21), `store_tests` (14).
 - Fuzzing: 13 `cargo-fuzz` targets on the surfaces that parse 
   untrusted input (the KyberBox wire format, the `.keyf` parser, 
@@ -70,4 +70,4 @@ declared open points, the scope the audit should settle.
 - The crate source: `lithium_core/src/`.
 - This dossier, self-contained under `lithium_core/docs/`.
 - The combiner mapping onto the literature (in `combiner.md`) and 
-  the deviations D1-D4 as the scope to settle.
+  the implementation points the audit confirms.

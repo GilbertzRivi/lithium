@@ -390,7 +390,7 @@ Part of the Lithium protocol is home-grown and should be analyzed
 as a new cryptographic construction, not as a composition of 
 known, reviewed blocks:
 
-* KyberBox, the KEM-DEM hybrid (`lithium_core/src/crypto/kyberbox.rs`),
+* KyberBox, the hybrid combiner (`lithium_core/src/crypto/kyberbox.rs`),
 * the Shake and Session transport (`lithiums/src/transport/mod.rs`),
 * the WireV1 E2E layer with the ratchet (`lithiumd/src/e2e/`).
 

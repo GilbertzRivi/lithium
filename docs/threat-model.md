@@ -113,7 +113,7 @@ are deleted and zeroized (`gc_after_ack`, `RxKey: ZeroizeOnDrop`);
 messages encrypted to those keys are undecryptable at time T. 
 Messages still in the window (up to the ~32 most recent reply-key 
 epochs) **are** decryptable from the compromised keyring, that is 
-a trailing window exposed on compromise. The ML-KEM seed is fresh 
+a trailing window exposed on compromise. The ML-KEM shared secret is fresh 
 per message, but the X25519 component is shared within an epoch, 
 so one RX key exposes the whole epoch encrypted to it. As long as 
 the bootstrap hasn't been retired, the bootstrap keys expose a 
@@ -121,7 +121,7 @@ contact's first messages.
 
 **Post-compromise security (messages after T), conditional, 
 confidentiality only, against a passive attacker only.** Every 
-message injects new entropy (a fresh ML-KEM seed, a fresh sender 
+message injects new entropy (a fresh ML-KEM shared secret, a fresh sender 
 ephemeral, rotating RX keys). If after T the attacker is 
 **passive**, then once both sides move to RX keys generated after 
 T (which it didn't intercept), the confidentiality of new messages 

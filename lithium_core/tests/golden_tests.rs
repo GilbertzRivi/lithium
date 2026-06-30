@@ -38,7 +38,7 @@ fn kyberbox_wire_decrypts_to_pinned_plaintext() {
     let wire = WirePayload {
         enc_body: SecretBytes::from_hex(vectors["ENC_BODY"]).unwrap(),
         enc_headers: SecretBytes::from_hex(vectors["ENC_HEADERS"]).unwrap(),
-        seed_enc: SecretBytes::from_hex(vectors["SEED_ENC"]).unwrap(),
+        kem_ct: SecretBytes::from_hex(vectors["KEM_CT"]).unwrap(),
     };
 
     let (body, headers) = kyberbox::decrypt(

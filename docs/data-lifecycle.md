@@ -75,7 +75,7 @@ undecryptable.
 
 **Wire / reverse proxy**: the proxy terminates TLS and sees the 
 cleartext HTTP headers (ephemeral public keys, session 
-identifiers, `seed`, signatures) and the **encrypted** body 
+identifiers, `kem-ct`, signatures) and the **encrypted** body 
 (KyberBox to the server's keys), it can't read the content or even 
 the transport plaintext. It also sees the client IP, timings, and 
 sizes (padded to blocks of 32-64 KB / 4-8 KB). A passive observer 

@@ -93,22 +93,24 @@ random_dilithium_mldsa87_keypair() -> (SecretBytes, SecretBytes) // (sk, pk)
 
 #### `crypto::kyberbox`: hybrid asymmetric encryption
 
-`kyberbox` is a KEM+DEM scheme that joins X25519 (ECDH) with 
+`kyberbox` is a hybrid scheme that joins X25519 (ECDH) with 
 ML-KEM-1024 (Kyber). Security depends on both algorithms at once, 
-breaking one does not compromise the encryption.
+breaking one does not compromise the encryption. The combiner is 
+an instance of the UniversalCombiner 
+(`draft-irtf-cfrg-hybrid-kems`); see [`combiner.md`](combiner.md).
 
 The scheme for one message:
 
 ```
 1. ECDH: shared = X25519(priv_x, peer_pub_x)
 2. ecdh_key = HKDF(shared, info="{ctx}/ecdh-key/v1")
-3. seed_plain = random_32()
-4. seed_enc = KEM-DEM(peer_kyber_pub, seed_plain)   // ML-KEM-1024 + AES-256-GCM-SIV
-5. base_key = HKDF(ecdh_key, salt=seed_plain, info="{ctx}/base-key/v1")
-6. body_key = HKDF(base_key, info="{ctx}/body-key/v1")
-7. headers_key = HKDF(base_key, info="{ctx}/headers-key/v1")
-8. enc_body = AES-256-GCM-SIV(body, body_key)
-9. enc_headers = AES-256-GCM-SIV(headers, headers_key)
+3. (ss_kem, ct_kem) = ML-KEM-1024.Encapsulate(peer_kyber_pub)
+4. base_key = HKDF(ecdh_key, salt=ss_kem,
+                   info="{ctx}/base-key/v1" || ct_T || ek_T || SHA256(ct_kem))
+5. body_key = HKDF(base_key, info="{ctx}/body-key/v1")
+6. headers_key = HKDF(base_key, info="{ctx}/headers-key/v1")
+7. enc_body = AES-256-GCM-SIV(body, body_key)
+8. enc_headers = AES-256-GCM-SIV(headers, headers_key)
 ```
 
 `WirePayload` output format:
@@ -117,19 +119,18 @@ The scheme for one message:
 pub struct WirePayload {
     pub enc_body: SecretBytes,
     pub enc_headers: SecretBytes,
-    pub seed_enc: SecretBytes,   // KEM ciphertext + encrypted seed
+    pub kem_ct: SecretBytes,   // ML-KEM ciphertext
 }
 ```
 
-Internal format of `seed_enc`:
+Internal format of `kem_ct`:
 ```
-[ver: u8][kem_id: u8][aead_id: u8][salt_len: u8][salt: 32 bytes]
-[ct_len: u16][kyber_ciphertext: N bytes][aead_blob: M bytes]
+[ver: u8][kem_id: u8][kyber_ciphertext: N bytes]
 ```
 
-The version and algorithm identifiers are encoded in the AAD and 
-verified on decryption, swapping an algorithm causes an 
-authenticity failure.
+`ct_T` is the sender's ephemeral X25519 public key, `ek_T` the 
+recipient's X25519 public key. Both are bound into the `base_key` 
+info, along with `SHA256(ct_kem)`.
 
 Interface:
 

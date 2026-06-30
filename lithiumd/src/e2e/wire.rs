@@ -21,22 +21,22 @@ pub(crate) fn now_ms() -> u64 {
 pub struct WireV1 {
     pub to_id: [u8; 32],
     pub from_x_pub: [u8; 32],
-    pub seed: Vec<u8>,
+    pub kem_ct: Vec<u8>,
     pub enc_headers: Vec<u8>,
     pub enc_body: Vec<u8>,
 }
 
 pub fn pack_wire(w: &WireV1) -> Vec<u8> {
     let mut out = Vec::with_capacity(
-        3 + 1 + 32 + 32 + 2 + w.seed.len() + 4 + w.enc_headers.len() + 4 + w.enc_body.len(),
+        3 + 1 + 32 + 32 + 2 + w.kem_ct.len() + 4 + w.enc_headers.len() + 4 + w.enc_body.len(),
     );
     out.extend_from_slice(E2E_WIRE_MAGIC);
     out.push(E2E_WIRE_VER);
     out.extend_from_slice(&w.to_id);
     out.extend_from_slice(&w.from_x_pub);
 
-    out.extend_from_slice(&(w.seed.len() as u16).to_be_bytes());
-    out.extend_from_slice(&w.seed);
+    out.extend_from_slice(&(w.kem_ct.len() as u16).to_be_bytes());
+    out.extend_from_slice(&w.kem_ct);
 
     out.extend_from_slice(&(w.enc_headers.len() as u32).to_be_bytes());
     out.extend_from_slice(&w.enc_headers);
@@ -65,8 +65,8 @@ pub fn unpack_wire(b: &[u8]) -> Result<WireV1> {
     let mut from_x_pub = [0u8; 32];
     from_x_pub.copy_from_slice(from_x_b);
 
-    let seed_len = read_u16_be(b, &mut i)?;
-    let seed = take_bytes(b, &mut i, seed_len)?.to_vec();
+    let kem_ct_len = read_u16_be(b, &mut i)?;
+    let kem_ct = take_bytes(b, &mut i, kem_ct_len)?.to_vec();
 
     let hdr_len = read_u32_be(b, &mut i)?;
     let enc_headers = take_bytes(b, &mut i, hdr_len)?.to_vec();
@@ -77,7 +77,7 @@ pub fn unpack_wire(b: &[u8]) -> Result<WireV1> {
     Ok(WireV1 {
         to_id,
         from_x_pub,
-        seed,
+        kem_ct,
         enc_headers,
         enc_body,
     })
@@ -118,7 +118,7 @@ mod tests {
         WireV1 {
             to_id: [0xBBu8; 32],
             from_x_pub: [0xCCu8; 32],
-            seed: vec![0x11u8; 64],
+            kem_ct: vec![0x11u8; 64],
             enc_headers: vec![0x22u8; 128],
             enc_body: vec![0x33u8; 256],
         }
@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(decoded.to_id, orig.to_id);
         assert_eq!(decoded.from_x_pub, orig.from_x_pub);
-        assert_eq!(decoded.seed, orig.seed);
+        assert_eq!(decoded.kem_ct, orig.kem_ct);
         assert_eq!(decoded.enc_headers, orig.enc_headers);
         assert_eq!(decoded.enc_body, orig.enc_body);
     }
@@ -169,13 +169,13 @@ mod tests {
         let empty = WireV1 {
             to_id: [0u8; 32],
             from_x_pub: [0u8; 32],
-            seed: vec![],
+            kem_ct: vec![],
             enc_headers: vec![],
             enc_body: vec![],
         };
         let packed = pack_wire(&empty);
         let decoded = unpack_wire(&packed).unwrap();
-        assert!(decoded.seed.is_empty());
+        assert!(decoded.kem_ct.is_empty());
         assert!(decoded.enc_headers.is_empty());
         assert!(decoded.enc_body.is_empty());
     }
@@ -194,7 +194,7 @@ mod tests {
         assert_eq!(hex::encode(&packed), expected);
 
         let decoded = unpack_wire(&packed).unwrap();
-        assert_eq!(decoded.seed.len(), 64);
+        assert_eq!(decoded.kem_ct.len(), 64);
         assert_eq!(decoded.enc_headers.len(), 128);
         assert_eq!(decoded.enc_body.len(), 256);
     }
