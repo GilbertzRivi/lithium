@@ -30,7 +30,6 @@ const ST_JWT: &str = "jwt";
 const SESSION_TTL: Duration = Duration::from_secs(120);
 const JWT_TTL: Duration = Duration::from_secs(120);
 
-/// Server public-key bundle.  Built from `KeyManager::public_keys()` in tests.
 #[derive(Clone)]
 pub struct ServerBootstrap {
     pub shake_pub_x: Byte32,
@@ -39,7 +38,6 @@ pub struct ServerBootstrap {
     pub server_sig_dili: SecretBytes,
 }
 
-/// Raw HTTP error for negative-test assertions.
 #[derive(Debug)]
 pub struct RawResponse {
     pub status: u16,
@@ -130,10 +128,8 @@ pub struct TestLithiumClient {
     bootstrap: ServerBootstrap,
     store: EphemeralStoreManager,
 
-    // Ed25519: both keys are 32-byte fixed arrays.
     pub user_ed_priv: Option<Byte32>,
     pub user_ed_pub: Option<Byte32>,
-    // Dilithium-87: keys are large; use SecretBytes.
     pub user_dili_priv: Option<SecretBytes>,
     pub user_dili_pub: Option<SecretBytes>,
 
@@ -155,7 +151,6 @@ impl TestLithiumClient {
         }
     }
 
-    /// Generate a fresh user keypair (must be called before register/login).
     pub fn generate_user_keys(&mut self) {
         let (ed_priv, ed_pub) = keys::random_ed25519_keypair().expect("ed25519");
         let (dili_priv, dili_pub) = keys::random_dilithium_mldsa87_keypair().expect("dili");
@@ -165,7 +160,6 @@ impl TestLithiumClient {
         self.user_dili_pub = Some(dili_pub);
     }
 
-    /// Copy user identity keys from another client (simulate same device, new session).
     pub fn copy_keys_from(&mut self, other: &TestLithiumClient) {
         self.user_ed_priv = other.user_ed_priv.clone();
         self.user_ed_pub = other.user_ed_pub.clone();
@@ -173,7 +167,6 @@ impl TestLithiumClient {
         self.user_dili_pub = other.user_dili_pub.clone();
     }
 
-    /// Corrupt the stored JWT so the next JWT-authenticated call fails server-side.
     pub async fn poison_jwt(&self) {
         self.store_str(ST_JWT, "garbage.garbage.garbage", JWT_TTL)
             .await;
