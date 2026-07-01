@@ -81,7 +81,7 @@ quantum computers.
   messages encrypted to it become undecryptable. The X25519 component is shared
   by messages inside one epoch (until the next peer reply), so the guarantee
   works at epoch boundaries, not per single message - details in
-  `lithium_core/docs/kyberbox.md`.
+  [`lithium_core/docs/kyberbox.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/docs/kyberbox.md).
 * **Per generation:** mailbox keys rotate every 32 messages; old private keys
   are securely deleted.
 * **Transport:** transport session keys have a TTL of 60-120 seconds;
@@ -246,7 +246,7 @@ in-person channel - only this confirms that no MITM attack happened.
 | Property                                              | Mechanism                                                                                                                                                                                                                                                                                      |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Post-quantum resistance                               | ML-KEM-1024 + ML-DSA-87 in parallel with X25519 + Ed25519; both algorithms have to be broken at the same time                                                                                                                                                                                  |
-| Forward secrecy (per ratchet epoch)                   | Fresh ML-KEM encapsulation in every message; receiver keys rotate per peer reply and are deleted outside the window of 32. X25519 component shared inside an epoch → guarantee at epoch boundaries, not per message (`lithium_core/docs/kyberbox.md`)                                                   |
+| Forward secrecy (per ratchet epoch)                   | Fresh ML-KEM encapsulation in every message; receiver keys rotate per peer reply and are deleted outside the window of 32. X25519 component shared inside an epoch → guarantee at epoch boundaries, not per message ([`lithium_core/docs/kyberbox.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/docs/kyberbox.md))                                                   |
 | Forward secrecy per generation                        | Mailbox key rotation every 32 messages; old sender private keys deleted                                                                                                                                                                                                                        |
 | Transport forward secrecy                             | Session key TTL 60-120s; ephemeral X25519 + ML-KEM keys per request (Shake mode)                                                                                                                                                                                                               |
 | Post-compromise security (limited, passive adversary) | Fresh ML-KEM encapsulations and rotating RX keys introduce entropy unknown to an adversary who is passive after compromise → confidentiality of new messages rebuilds. Identity keys (Ed25519/ML-DSA) do not rotate - an active adversary keeps impersonation and MITM ability (`docs/threat-model.md`) |

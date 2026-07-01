@@ -12,3 +12,8 @@
 docker
 /lithiums/Cargo.lock
 /notes/
+
+# OpenPGP private/revocation material - never commit
+*secret*.asc
+*-secret.asc
+*revoke*.asc

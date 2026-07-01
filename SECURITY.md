@@ -9,8 +9,8 @@
 Send reports privately to **[oktawia.handerek@gmail.com](mailto:oktawia.handerek@gmail.com)**. Do not open a public
 issue for vulnerabilities.
 
-PGP for encrypted reports: *fingerprint to be added*. Until it is published, do
-not include a sensitive PoC in the email body - ask for the key first.
+PGP for encrypted reports: `2C37 66D2 A252 A8AF 67DB  CC11 02BE F36D 035D 5C17`
+(fetch from keys.openpgp.org). Encrypt any sensitive PoC to this key.
 
 Please use coordinated disclosure: give time for a fix before disclosing details
 publicly (default up to 90 days from confirmation). Report acknowledgement - as
