@@ -56,4 +56,4 @@ layout) it belongs here. Keeping that line clean is what lets
 The wire format these constants describe is documented in 
 [`../protocol/crypto-protocol.md`](../protocol/crypto-protocol.md). 
 The crypto they feed is documented in the `lithium_core` dossier 
-([`../../lithium_core/docs/index.md`](../../lithium_core/docs/index.md)).
+([`lithium_core/docs/index.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/docs/index.md)).

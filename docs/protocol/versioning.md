@@ -53,8 +53,8 @@ present and have the exact length.
 ## Pinning values
 
 Every label, magic, and version byte is pinned by the 
-`registry_values_are_pinned` tests (`lithium_core/src/labels.rs`, 
-`lithiums/src/labels.rs`, `lithium_core/src/contract/protocol.rs` 
+`registry_values_are_pinned` tests (`lithium_proto/src/labels.rs`, 
+`lithiums/src/labels.rs`, `lithium_proto/src/contract/protocol.rs` 
 and the E2E equivalents). The test asserts the exact bytes. The 
 consequence: a label/version is a **contract**, not an incidental 
 string, an accidental change (a typo, a refactor) breaks the tests 

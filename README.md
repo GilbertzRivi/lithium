@@ -469,9 +469,9 @@ In response to these assumptions:
   * [`docs/security-model.md`](docs/security-model.md) - trust model, priorities, conscious trade-offs, classification of audit findings
   * [`docs/protocol/crypto-protocol.md`](docs/protocol/crypto-protocol.md) - cryptographic protocol specification: transport, E2E, mailbox, pairing
   * [`docs/protocol/ipc-reference.md`](docs/protocol/ipc-reference.md) - daemon IPC protocol reference
-  * [`lithium_core/docs/kyberbox.md`](lithium_core/docs/kyberbox.md) - security analysis of the KyberBox scheme
+  * [`lithium_core/docs/kyberbox.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/docs/kyberbox.md) - security analysis of the KyberBox scheme
   * [`docs/operations/deploy-instructions.md`](docs/operations/deploy-instructions.md) - `lithiums` deployment (Docker, TPM, environment variables)
-* [`lithium_core/README.md`](lithium_core/README.md) - cryptography, secret types, key management
+* [`lithium_core/README.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md) - cryptography, secret types, key management
 * [`lithiumd/README.md`](lithiumd/README.md) - client daemon: IPC, E2E, mailbox, SQLite
 * [`lithiums/README.md`](lithiums/README.md) - relay server: REST API, middleware, transport, PostgreSQL
 * [`lithiumg/README.md`](lithiumg/README.md) - GUI: state machine, thread model

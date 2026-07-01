@@ -3,7 +3,7 @@
 Short definitions of Lithium's own terms. Deeper descriptions: 
 protocol [crypto-protocol.md](protocol/crypto-protocol.md), keys 
 [key-hierarchy.md](key-hierarchy.md), KyberBox in the `lithium_core` 
-[docs](../lithium_core/README.md), IPC commands 
+[docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md), IPC commands 
 [ipc-reference.md](protocol/ipc-reference.md).
 
 **AEAD** - Authenticated Encryption with Associated Data. In 
@@ -115,7 +115,7 @@ the DEK, DEK under the KEK (from the MK). Magic `KEYF`.
 **KyberBox** - hybrid construction (a UniversalCombiner instance): 
 ML-KEM-1024 + X25519 feed HKDF, then AES-256-GCM-SIV for `body` 
 and `headers`. See the `lithium_core` 
-[docs](../lithium_core/README.md).
+[docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md).
 
 **lci1** - prefix and binary format of the invite code (hex after 
 `lci1:`); version 1, 4361 bytes of data.

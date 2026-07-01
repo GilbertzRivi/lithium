@@ -5,7 +5,7 @@ daemon, the GUI, the relay server, and how they talk to each
 other. The cryptographic library at the bottom of all of it, 
 `lithium_core`, has its own self-contained documentation that 
 travels with the crate: see 
-[`lithium_core/README.md`](../lithium_core/README.md) and the 
+[`lithium_core/README.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md) and the 
 dossier in `lithium_core/docs/` (the combiner, KyberBox, the core 
 threat model, the audit guide).
 

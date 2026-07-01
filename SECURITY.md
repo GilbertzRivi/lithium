@@ -30,7 +30,7 @@ irreversible). Before reporting, check `docs/security-model.md`:
 Full trust model and responsibility boundaries:
 [`docs/security-model.md`](docs/security-model.md),
 [`docs/threat-model.md`](docs/threat-model.md),
-[`docs/kyberbox.md`](lithium_core/docs/kyberbox.md).
+[`docs/kyberbox.md`](https://github.com/GilbertzRivi/lithium-core/blob/main/docs/kyberbox.md).
 
 ## Scope
 

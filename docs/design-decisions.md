@@ -5,7 +5,7 @@ decisions, their reasons, and their cost. The priorities are in
 [security-model.md](security-model.md). These are the system-level 
 decisions; the crypto-library ones (the classic + PQ hybrid, 
 AES-256-GCM-SIV) are in the `lithium_core` 
-[docs](../lithium_core/README.md).
+[docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md).
 
 ## 1. OPAQUE
 

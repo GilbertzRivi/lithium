@@ -557,9 +557,9 @@ fn finish_decode(
     unpad_block(dec_body.expose_as_mut_vec())?;
     unpad_block(dec_headers.expose_as_mut_vec())?;
 
-    let body_json = SecretJson::from_vec(dec_body.expose_into_vec()).map_err(AppError::from)?;
+    let body_json = SecretJson::from_bytes(dec_body.expose_as_slice()).map_err(AppError::from)?;
     let headers_json =
-        SecretJson::from_vec(dec_headers.expose_into_vec()).map_err(AppError::from)?;
+        SecretJson::from_bytes(dec_headers.expose_as_slice()).map_err(AppError::from)?;
 
     Ok((body_json, headers_json))
 }

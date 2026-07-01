@@ -378,7 +378,7 @@ the `lithium_core` logic rotates the MK every **3600 seconds** (1
 hour).
 
 Rotation is crash-safe (details in the `lithium_core` 
-[docs](../../lithium_core/README.md)). After an MK rotation:
+[docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md)). After an MK rotation:
 - All asymmetric-key and secret `.keyf` files are rewrapped under 
   the new MK.
 - The JWT secret is regenerated.

@@ -80,7 +80,7 @@ is in [key-hierarchy.md](key-hierarchy.md).
 |---|---|
 | **Capabilities** | A malicious or vulnerable dependency (PQClean C, opaque-ke, ...), compromise of the build process |
 | **Defense** | Pinned dependency versions; fuzzing of the parsing surfaces; OPAQUE/ML-KEM through vetted libraries (not hand-rolled) |
-| **Residual risk** | The PQClean C code is unaudited (noted in the `lithium_core` [docs](../lithium_core/README.md)), inherited side channels / memory bugs; no documented reproducible-build/SBOM guarantee; outside the project's direct control |
+| **Residual risk** | The PQClean C code is unaudited (noted in the `lithium_core` [docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md)), inherited side channels / memory bugs; no documented reproducible-build/SBOM guarantee; outside the project's direct control |
 
 ### 9. Quantum adversary (harvest-now-decrypt-later)
 
@@ -97,7 +97,7 @@ This pins down the protection limits of the E2E layer
 over an unlocked device** and reads `self_state` + `peer_state` 
 (classes 4-7 in the full-compromise variant). The key mechanics 
 are in [crypto-protocol.md](protocol/crypto-protocol.md) and the 
-`lithium_core` [docs](../lithium_core/README.md); this is about 
+`lithium_core` [docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md); this is about 
 the limits of the guarantee.
 
 **What the attacker has at time T:** a contact's identity keys 
@@ -136,7 +136,7 @@ attacker, PCS does not hold.
 
 **Residual risk.** The trailing window (the last ~32 epochs) is a 
 deliberate cost of tolerating reordering, see the replay window in 
-the `lithium_core` [docs](../lithium_core/README.md). The lack of 
+the `lithium_core` [docs](https://github.com/GilbertzRivi/lithium-core/blob/main/README.md). The lack of 
 identity rotation makes a full device compromise **permanent** in 
 the authentication dimension: the only answer is to re-pair the 
 contact with a new invite code (per-contact isolation, a new 
