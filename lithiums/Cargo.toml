@@ -9,7 +9,7 @@ tpm = ["dep:tss-esapi"]
 fuzzing = []
 
 [dependencies]
-lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "1156ef37469c967e204ed8f5fd542e008bfc871b" }
+lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "3e3ee7b4beb73433a55fb208b1f294647ed3188a" }
 lithium_proto = { path = "../lithium_proto" }
 poem = { version = "3.1.12", features = ["anyhow", "compression", "multipart"] }
 tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "sync", "signal"] }

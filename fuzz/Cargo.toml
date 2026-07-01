@@ -12,7 +12,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
-lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "1156ef37469c967e204ed8f5fd542e008bfc871b", features = ["fuzzing"] }
+lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "3e3ee7b4beb73433a55fb208b1f294647ed3188a", features = ["fuzzing"] }
 lithium_proto = { path = "../lithium_proto" }
 lithiumd = { path = "../lithiumd", features = ["fuzzing"] }
 lithiums = { path = "../lithiums", default-features = false, features = ["fuzzing"] }
