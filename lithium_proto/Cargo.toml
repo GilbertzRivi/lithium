@@ -7,7 +7,7 @@ edition = "2024"
 fuzzing = []
 
 [dependencies]
-lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "dee5df5e57f9c5926c5ffb19f42476c1d9844999" }
+lithium_core = { git = "https://github.com/GilbertzRivi/lithium-core.git", rev = "1156ef37469c967e204ed8f5fd542e008bfc871b" }
 sea-orm = { version = "1.1.19", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 uuid = { version = "1.22.0", features = ["v5", "serde"] }
 tokio = { version = "1.50.0", features = ["sync"] }

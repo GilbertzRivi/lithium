@@ -332,7 +332,8 @@ impl<P: MkProvider> ProtocolManager<P> {
         .map_err(LithiumError::invalid_hex)?;
 
         let challenge = pow::challenge(labels::POW_CTX, &mailbox, &content);
-        let nonce = pow::solve(&challenge, bits);
+        let budget = (1u64 << bits.min(24)).saturating_mul(256);
+        let nonce = pow::try_solve(&challenge, bits, budget).ok_or_else(LithiumError::internal)?;
         obj.insert(field::POW.into(), Value::String(nonce.to_string()));
         Ok(())
     }

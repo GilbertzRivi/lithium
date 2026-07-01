@@ -288,10 +288,12 @@ impl TestLithiumClient {
         // Malformed hex is rejected server-side before the PoW check, so a placeholder
         // nonce is fine for those negative tests.
         let nonce = match (hex::decode(mailbox_hex), hex::decode(content_hex)) {
-            (Ok(mailbox), Ok(content)) => pow::solve(
+            (Ok(mailbox), Ok(content)) => pow::try_solve(
                 &pow::challenge(labels::POW_CTX, &mailbox, &content),
                 self.pow_bits,
-            ),
+                1 << 26,
+            )
+            .expect("pow budget exhausted"),
             _ => 0,
         };
         json!({
